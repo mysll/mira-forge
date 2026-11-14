@@ -1,0 +1,62 @@
+# MiraForge 模型 / 工作流注册表
+#
+# 这是「模型可选」的唯一数据源：新增模型或新增工作流只改这个文件，不改业务代码。
+# json / config 路径相对 backend/ 目录。
+# validated: 该工作流是否在真实 ComfyUI 上执行验证过（false = 待验证，P2 会逐个跑通）。
+# 文件是否存在由程序自动探测，无需手工维护 available 字段。
+
+version: 1
+
+models:
+  - id: qwen_image_21
+    label: Qwen Image 2.1
+    description: 标准质量，25 步采样，官方 2.1 模板参数
+    defaults:
+      steps: 25
+      cfg: 1.0
+      sampler: euler
+      scheduler: simple
+      denoise: 1.0
+      width: 1024
+      height: 1024
+    capabilities:
+      exposes_steps: true
+      exposes_cfg: true
+      exposes_sampler: true
+    workflows:
+      - type: text_to_image
+        label: 文生图
+        json: workflows/qwen_image_21_t2i.json
+        config: workflow_configs/qwen_image_21_t2i.yaml
+        validated: false
+      - type: image_edit
+        label: 图片编辑
+        json: workflows/qwen_image_21_edit.json
+        config: workflow_configs/qwen_image_21_edit.yaml
+        validated: true
+
+  - id: qwen_image_21_turbo
+    label: Qwen Image 2.1 Turbo
+    description: 8 步蒸馏版，速度优先；步数由固定 sigma 表决定，不可调
+    defaults:
+      steps: 8
+      cfg: 1.0
+      sampler: euler
+      denoise: 1.0
+      width: 1024
+      height: 1024
+    capabilities:
+      exposes_steps: false
+      exposes_cfg: false
+      exposes_sampler: false
+    workflows:
+      - type: text_to_image
+        label: 文生图
+        json: workflows/qwen_image_21_turbo_t2i.json
+        config: workflow_configs/qwen_image_21_turbo_t2i.yaml
+        validated: false
+      - type: image_edit
+        label: 图片编辑
+        json: workflows/qwen_image_21_turbo_edit.json
+        config: workflow_configs/qwen_image_21_turbo_edit.yaml
+        validated: false

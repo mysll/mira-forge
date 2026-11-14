@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# 运行时数据（不入库）
+data/
+storage/
+*.db
+*.db-wal
+*.db-shm
+
+# 包管理器缓存（落在项目内，避免写入受限的 AppData）
+.cache/
+.npm-cache/
+
+# 环境与密钥
+.env
+.env.local
+.env.*.local
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志
+*.log
+logs/
