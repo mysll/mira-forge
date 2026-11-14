@@ -1,0 +1,137 @@
+// 开发期用的 UI 截图小工具：无头 Edge + CDP，支持先执行一段脚本再截图。
+//
+// 用法：
+//   node tools/screenshot.mjs --url http://127.0.0.1:3000 --out data/ui.png \
+//        [--width 1500] [--height 1250] [--click "文字"] [--wait 1500]
+//
+// 存在理由：这个项目每阶段都要"能运行、能看到"，而 headless 的 --screenshot
+// 无法点击、无法等待异步数据，只能靠 CDP 注入。
+
+import { spawn } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
+const EDGE_CANDIDATES = [
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+];
+
+function arg(name, fallback) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index >= 0 ? process.argv[index + 1] : fallback;
+}
+
+const url = arg("url", "http://127.0.0.1:3000");
+const out = resolve(arg("out", "data/ui.png"));
+const width = Number(arg("width", "1500"));
+const height = Number(arg("height", "1250"));
+const click = arg("click", "");
+const wait = Number(arg("wait", "2500"));
+const port = Number(arg("port", "9222"));
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+async function findTarget() {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      const targets = await response.json();
+      const page = targets.find((item) => item.type === "page");
+      if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+    } catch {
+      // 浏览器还没起来
+    }
+    await sleep(250);
+  }
+  throw new Error("找不到可调试的页面目标");
+}
+
+const edge = spawn(
+  EDGE_CANDIDATES.find((path) => {
+    try {
+      return require("node:fs").existsSync(path);
+    } catch {
+      return false;
+    }
+  }) ?? EDGE_CANDIDATES[0],
+  [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-sandbox",
+    "--hide-scrollbars",
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${resolve(".cache", `edge-${Date.now()}`)}`,
+    `--window-size=${width},${height}`,
+    "about:blank",
+  ],
+  { stdio: "ignore" },
+);
+
+let socket;
+const pending = new Map();
+let nextId = 1;
+
+function send(method, params = {}) {
+  const id = nextId++;
+  socket.send(JSON.stringify({ id, method, params }));
+  return new Promise((resolvePromise, rejectPromise) => {
+    pending.set(id, { resolvePromise, rejectPromise });
+    setTimeout(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        rejectPromise(new Error(`CDP 超时：${method}`));
+      }
+    }, 30_000);
+  });
+}
+
+try {
+  const wsUrl = await findTarget();
+  socket = new WebSocket(wsUrl);
+  await new Promise((done, fail) => {
+    socket.addEventListener("open", done, { once: true });
+    socket.addEventListener("error", fail, { once: true });
+  });
+
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id && pending.has(message.id)) {
+      const { resolvePromise, rejectPromise } = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) rejectPromise(new Error(message.error.message));
+      else resolvePromise(message.result);
+    }
+  });
+
+  await send("Page.enable");
+  await send("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await send("Page.navigate", { url });
+  await sleep(wait);
+
+  if (click) {
+    const expression = `(() => {
+      const wanted = ${JSON.stringify(click)};
+      const nodes = Array.from(document.querySelectorAll("button, a"));
+      const target = nodes.find((node) => (node.textContent || "").includes(wanted));
+      if (!target) return "not-found";
+      target.click();
+      return "clicked";
+    })()`;
+    const result = await send("Runtime.evaluate", { expression, returnByValue: true });
+    console.log(`click ${click}: ${result.result?.value}`);
+    await sleep(2500);
+  }
+
+  const shot = await send("Page.captureScreenshot", { format: "png" });
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, Buffer.from(shot.data, "base64"));
+  console.log(`saved ${out}`);
+} finally {
+  socket?.close();
+  edge.kill();
+}

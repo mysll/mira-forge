@@ -8,6 +8,32 @@ import type { GenerationType, ModelInfo } from "@/types/api";
 
 const COUNT_PRESETS = [1, 2, 4, 6, 8];
 
+type Ratio = { key: string; label: string; w: number; h: number };
+
+const RATIOS: Ratio[] = [
+  { key: "1:1", label: "1:1 方图", w: 1, h: 1 },
+  { key: "4:3", label: "4:3 横图", w: 4, h: 3 },
+  { key: "3:2", label: "3:2 横图", w: 3, h: 2 },
+  { key: "16:9", label: "16:9 宽屏", w: 16, h: 9 },
+  { key: "3:4", label: "3:4 竖图", w: 3, h: 4 },
+  { key: "2:3", label: "2:3 竖图", w: 2, h: 3 },
+  { key: "9:16", label: "9:16 竖屏", w: 9, h: 16 },
+];
+
+/** 分辨率按"长边"给，短边按比例算出来后对齐到 16 的倍数（VAE 下采样要求）。 */
+const LONG_EDGES = [768, 1024, 1328, 1536];
+
+function snap(value: number): number {
+  return Math.max(64, Math.round(value / 16) * 16);
+}
+
+function sizeFor(ratio: Ratio, longEdge: number): [number, number] {
+  if (ratio.w >= ratio.h) {
+    return [snap(longEdge), snap((longEdge * ratio.h) / ratio.w)];
+  }
+  return [snap((longEdge * ratio.w) / ratio.h), snap(longEdge)];
+}
+
 type Props = {
   models: ModelInfo[];
 };
@@ -19,6 +45,8 @@ export function GenerationForm({ models }: Props) {
     () => models.find((model) => model.is_default)?.id ?? models[0]?.id ?? "",
   );
   const [generationType, setGenerationType] = useState<GenerationType>("text_to_image");
+  const [ratioKey, setRatioKey] = useState("1:1");
+  const [longEdge, setLongEdge] = useState(1024);
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
   const [count, setCount] = useState(1);
@@ -46,6 +74,18 @@ export function GenerationForm({ models }: Props) {
   }
 
   const editDisabled = selected.workflows.every((workflow) => workflow.type !== "image_edit");
+
+  function applyPreset(nextRatioKey: string, nextLongEdge: number) {
+    const ratio = RATIOS.find((item) => item.key === nextRatioKey) ?? RATIOS[0];
+    const edge = nextLongEdge > 0 ? nextLongEdge : 1024;
+    const [nextWidth, nextHeight] = sizeFor(ratio, edge);
+    setRatioKey(nextRatioKey);
+    setLongEdge(edge);
+    setWidth(nextWidth);
+    setHeight(nextHeight);
+  }
+
+  const manualSize = !LONG_EDGES.includes(longEdge);
 
   return (
     <section className="card">
@@ -79,6 +119,106 @@ export function GenerationForm({ models }: Props) {
           />
         </div>
 
+        {/* 尺寸面板：贴着提示词输入框底部，比例 + 长边分辨率 */}
+        <div className="rounded-lg border border-edge/70 bg-black/20 p-3">
+          <div className="flex items-baseline justify-between">
+            <span className="label mb-0">出图尺寸</span>
+            <span className="font-mono text-[11px] text-slate-400">
+              {width} × {height}
+              <span className="ml-2 text-slate-600">
+                {((width * height) / 1_000_000).toFixed(2)} MP
+              </span>
+            </span>
+          </div>
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {RATIOS.map((ratio) => (
+              <button
+                key={ratio.key}
+                type="button"
+                onClick={() => applyPreset(ratio.key, longEdge)}
+                className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                  ratioKey === ratio.key && !manualSize
+                    ? "border-sky-500/60 bg-sky-500/10 text-sky-300"
+                    : "border-edge text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                {ratio.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[10px] text-slate-500">长边</span>
+            {LONG_EDGES.map((edge) => (
+              <button
+                key={edge}
+                type="button"
+                onClick={() => applyPreset(ratioKey, edge)}
+                className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                  longEdge === edge && !manualSize
+                    ? "border-sky-500/60 bg-sky-500/10 text-sky-300"
+                    : "border-edge text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                {edge}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setLongEdge(0)}
+              className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                manualSize
+                  ? "border-sky-500/60 bg-sky-500/10 text-sky-300"
+                  : "border-edge text-slate-400 hover:border-slate-600"
+              }`}
+            >
+              自定义
+            </button>
+          </div>
+
+          {manualSize && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <label className="label" htmlFor="width">
+                  宽度
+                </label>
+                <input
+                  id="width"
+                  type="number"
+                  min={64}
+                  max={4096}
+                  step={16}
+                  className="field"
+                  value={width}
+                  onChange={(event) => setWidth(Number(event.target.value))}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="height">
+                  高度
+                </label>
+                <input
+                  id="height"
+                  type="number"
+                  min={64}
+                  max={4096}
+                  step={16}
+                  className="field"
+                  value={height}
+                  onChange={(event) => setHeight(Number(event.target.value))}
+                />
+              </div>
+            </div>
+          )}
+
+          {generationType === "image_edit" && (
+            <p className="mt-2 text-[11px] text-amber-400/90">
+              编辑时输出比例跟随参考图，这里的分辨率决定像素量级。
+            </p>
+          )}
+        </div>
+
         <div>
           <span className="label">任务类型</span>
           <div className="flex gap-2">
@@ -109,60 +249,25 @@ export function GenerationForm({ models }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className="label" htmlFor="model">
-              模型
-            </label>
-            <select
-              id="model"
-              className="field"
-              value={selected.id}
-              onChange={(event) => setModelId(event.target.value)}
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-              {selected.description}
-            </p>
-          </div>
-
-          <div>
-            <label className="label" htmlFor="width">
-              宽度
-            </label>
-            <input
-              id="width"
-              type="number"
-              min={64}
-              max={4096}
-              step={32}
-              className="field"
-              value={width}
-              disabled={generationType === "image_edit"}
-              onChange={(event) => setWidth(Number(event.target.value))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="height">
-              高度
-            </label>
-            <input
-              id="height"
-              type="number"
-              min={64}
-              max={4096}
-              step={32}
-              className="field"
-              value={height}
-              disabled={generationType === "image_edit"}
-              onChange={(event) => setHeight(Number(event.target.value))}
-            />
-          </div>
+        <div>
+          <label className="label" htmlFor="model">
+            模型
+          </label>
+          <select
+            id="model"
+            className="field"
+            value={selected.id}
+            onChange={(event) => setModelId(event.target.value)}
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+            {selected.description}
+          </p>
         </div>
 
         <div className="rounded-lg border border-edge/70 bg-black/20 px-3 py-2 text-[11px] leading-relaxed text-slate-400">
@@ -177,9 +282,6 @@ export function GenerationForm({ models }: Props) {
             <span>cfg 固定 · </span>
           )}
           <span>采样器 {String(selected.defaults.sampler ?? "—")}</span>
-          {generationType === "image_edit" && (
-            <span className="text-amber-400/90"> · 编辑保持参考图尺寸，宽高不生效</span>
-          )}
         </div>
 
         <div>
@@ -208,7 +310,7 @@ export function GenerationForm({ models }: Props) {
         {target && !target.available && (
           <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-300/90">
             工作流 JSON 尚未落地（{target.json_path}）。本次记录会以 pending 状态入库，
-            <strong>不会产生图片</strong>，P2 接入后即可执行。
+            <strong>不会产生图片</strong>。
           </p>
         )}
 

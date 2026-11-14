@@ -57,6 +57,7 @@ class GenerationSummary(TimestampedModel):
     height: int | None = None
     requested_count: int
     status: str
+    progress: int = 0
     created_at: datetime
     completed_at: datetime | None = None
     task_count: int = 0

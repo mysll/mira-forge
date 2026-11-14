@@ -61,6 +61,7 @@ export type GenerationSummary = {
   height: number | null;
   requested_count: number;
   status: string;
+  progress: number;
   created_at: string;
   completed_at: string | null;
   task_count: number;

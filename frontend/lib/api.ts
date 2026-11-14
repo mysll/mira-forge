@@ -60,6 +60,10 @@ export function fetchGenerations(limit = 20): Promise<GenerationListResponse> {
   return request<GenerationListResponse>(`/generations?limit=${limit}`);
 }
 
+export function fetchGeneration(id: number): Promise<GenerationRead> {
+  return request<GenerationRead>(`/generations/${id}`);
+}
+
 export function createGeneration(
   payload: GenerationCreatePayload,
 ): Promise<GenerationRead> {

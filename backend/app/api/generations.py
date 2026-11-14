@@ -47,6 +47,7 @@ def list_generations(
             height=row.height,
             requested_count=row.requested_count,
             status=row.status,
+            progress=_overall_progress(row.tasks),
             created_at=row.created_at,
             completed_at=row.completed_at,
             task_count=len(row.tasks),
@@ -54,6 +55,13 @@ def list_generations(
         for row in rows
     ]
     return GenerationListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+def _overall_progress(tasks) -> int:
+    """整体进度按任务数平均，避免 8 张里前 7 张完成却显示 99%。"""
+    if not tasks:
+        return 0
+    return round(sum(task.progress for task in tasks) / len(tasks))
 
 
 @router.get("/{generation_id}", response_model=GenerationRead)
