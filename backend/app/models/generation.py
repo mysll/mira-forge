@@ -43,6 +43,7 @@ class Generation(Base):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    reference_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=GenerationStatus.PENDING, index=True
     )

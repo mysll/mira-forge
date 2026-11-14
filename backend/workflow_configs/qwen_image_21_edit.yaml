@@ -1,6 +1,7 @@
 # Qwen Image 2.1 图片编辑（参考图 → 编码器 latent → KSampler，25 步）
 #
-# 没有 width/height 绑定：编辑的潜空间来自参考图编码结果，宽高不参与计算。
+# 没有 width/height 绑定，但绑了 resolution：编辑的输出比例跟随参考图，
+# resolution 决定像素量级（节点内部按 sqrt(resolution² × 比例) 取整到 32 倍数）。
 output_node: "9"
 
 reference_image:
@@ -12,6 +13,7 @@ reference_image:
 bindings:
   prompt: { node: "6", input: prompt }
   negative_prompt: { node: "6", input: negative_prompt }
+  resolution: { node: "6", input: resolution }
   seed: { node: "7", input: seed }
   steps: { node: "7", input: steps }
   cfg: { node: "7", input: cfg }

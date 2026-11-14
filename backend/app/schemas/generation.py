@@ -43,6 +43,7 @@ class GenerationRead(TimestampedModel):
     height: int | None = None
     requested_count: int
     status: str
+    reference_image_path: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
     tasks: list[TaskRead] = Field(default_factory=list)

@@ -14,13 +14,13 @@ export default function HomePage() {
     <main className="mx-auto w-full max-w-6xl px-5 py-10">
       <header className="mb-8">
         <div className="flex items-baseline gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-100">MiraForge</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-slate-100">图片生成与编辑</h1>
           <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-            P2 出图闭环
+            一期
           </span>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          本地 AI 图片生成与编辑平台 · 前端不直连 ComfyUI，所有生成请求经 FastAPI 排队后串行执行
+          前端不直连 ComfyUI，所有生成请求经 FastAPI 排队后串行执行 · 画廊见顶部「画廊」页
         </p>
       </header>
 
@@ -49,10 +49,11 @@ export default function HomePage() {
             <ol className="space-y-1.5 text-[11px] text-slate-500">
               <li className="text-emerald-400">P1 初始化 · 完成</li>
               <li className="text-emerald-400">P2 ComfyUI 集成（真实出图）· 完成</li>
-              <li className="text-slate-300">P3 多图批量 · 待开始</li>
-              <li>P4 图片编辑</li>
-              <li>P5 前端画廊 / 历史</li>
-              <li>P6 稳定性</li>
+              <li className="text-emerald-400">P3 多图批量 · 完成</li>
+              <li className="text-emerald-400">P4 图片编辑 · 完成</li>
+              <li className="text-emerald-400">P5 前端画廊 / 历史 · 完成</li>
+              <li className="text-emerald-400">P6 稳定性（取消 / 重试 / 崩溃恢复）· 完成</li>
+              <li className="pt-1 text-slate-500">二期：视频生成与编辑</li>
             </ol>
           </section>
         </div>

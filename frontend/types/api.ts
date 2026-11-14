@@ -91,6 +91,7 @@ export type GenerationRead = {
   status: string;
   created_at: string;
   completed_at: string | null;
+  reference_image_path: string | null;
   tasks: TaskRead[];
 };
 

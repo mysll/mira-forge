@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.events import manager
 from app.core.migrations import upgrade_to_head
 from app.models.database import SessionLocal
+from app.services.generation_service import reset_interrupted_tasks
 from app.services.workflow_service import sync_workflows
 from app.workers.generation_worker import start_worker, stop_worker
 
@@ -32,6 +33,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     with SessionLocal() as db:
         written = sync_workflows(db)
     logger.info("工作流注册表同步完成，共 %s 条", written)
+    with SessionLocal() as db:
+        recovered = reset_interrupted_tasks(db)
+    if recovered:
+        logger.info("上次退出时残留的 %s 个 queued/running 任务已复位为 pending", recovered)
     if settings.worker_enabled:
         start_worker()
         logger.info("生成 worker 已随应用启动")

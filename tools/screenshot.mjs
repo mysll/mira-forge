@@ -2,13 +2,14 @@
 //
 // 用法：
 //   node tools/screenshot.mjs --url http://127.0.0.1:3000 --out data/ui.png \
-//        [--width 1500] [--height 1250] [--click "文字"] [--wait 1500]
+//        [--width 1500] [--height 1250] [--click "文字"] [--prompt "文字"] \
+//        [--file 路径] [--submit "文字"] [--wait 1500]
 //
 // 存在理由：这个项目每阶段都要"能运行、能看到"，而 headless 的 --screenshot
 // 无法点击、无法等待异步数据，只能靠 CDP 注入。
 
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const EDGE_CANDIDATES = [
@@ -26,6 +27,9 @@ const out = resolve(arg("out", "data/ui.png"));
 const width = Number(arg("width", "1500"));
 const height = Number(arg("height", "1250"));
 const click = arg("click", "");
+const prompt = arg("prompt", "");
+const file = arg("file", "");
+const submit = arg("submit", "");
 const wait = Number(arg("wait", "2500"));
 const port = Number(arg("port", "9222"));
 
@@ -47,13 +51,7 @@ async function findTarget() {
 }
 
 const edge = spawn(
-  EDGE_CANDIDATES.find((path) => {
-    try {
-      return require("node:fs").existsSync(path);
-    } catch {
-      return false;
-    }
-  }) ?? EDGE_CANDIDATES[0],
+  EDGE_CANDIDATES.find((path) => existsSync(path)) ?? EDGE_CANDIDATES[0],
   [
     "--headless=new",
     "--disable-gpu",
@@ -124,7 +122,61 @@ try {
     })()`;
     const result = await send("Runtime.evaluate", { expression, returnByValue: true });
     console.log(`click ${click}: ${result.result?.value}`);
-    await sleep(2500);
+    await sleep(1200);
+  }
+
+  if (file) {
+    await send("DOM.enable");
+    const document = await send("DOM.getDocument", { depth: 1 });
+    const found = await send("DOM.querySelector", {
+      nodeId: document.root.nodeId,
+      selector: "input[type=file]",
+    });
+    if (!found.nodeId) {
+      console.log(`file ${file}: no input[type=file] found`);
+    } else {
+      await send("DOM.setFileInputFiles", {
+        files: [resolve(file)],
+        nodeId: found.nodeId,
+      });
+      console.log(`file ${file}: attached`);
+      await sleep(500);
+    }
+  }
+
+  if (prompt) {
+    const expression = `(() => {
+      const wanted = ${JSON.stringify(prompt)};
+      const nodes = Array.from(document.querySelectorAll("textarea, input[type=text]"));
+      const target = nodes[0];
+      if (!target) return "not-found";
+      const setter = Object.getOwnPropertyDescriptor(
+        target instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype,
+        "value",
+      ).set;
+      setter.call(target, wanted);
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      return "typed";
+    })()`;
+    const result = await send("Runtime.evaluate", { expression, returnByValue: true });
+    console.log(`prompt: ${result.result?.value}`);
+  }
+
+  if (submit) {
+    await sleep(400);
+    const expression = `(() => {
+      const wanted = ${JSON.stringify(submit)};
+      const nodes = Array.from(document.querySelectorAll("button"));
+      const target = nodes.find((node) => (node.textContent || "").includes(wanted) && !node.disabled);
+      if (!target) return "not-found-or-disabled";
+      target.click();
+      return "submitted";
+    })()`;
+    const result = await send("Runtime.evaluate", { expression, returnByValue: true });
+    console.log(`submit ${submit}: ${result.result?.value}`);
+    await sleep(2000);
   }
 
   const shot = await send("Page.captureScreenshot", { format: "png" });

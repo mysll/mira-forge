@@ -120,8 +120,11 @@ def test_build_prompt_does_not_mutate_source_graph() -> None:
         ([TaskStatus.RUNNING, TaskStatus.PENDING], GenerationStatus.RUNNING),
         ([TaskStatus.COMPLETED, TaskStatus.RUNNING], GenerationStatus.RUNNING),
         ([TaskStatus.COMPLETED, TaskStatus.COMPLETED], GenerationStatus.COMPLETED),
-        ([TaskStatus.COMPLETED, TaskStatus.FAILED], GenerationStatus.FAILED),
+        # 部分成功仍算 completed：已有的图不该因为另一半被取消/失败而作废
+        ([TaskStatus.COMPLETED, TaskStatus.FAILED], GenerationStatus.COMPLETED),
+        ([TaskStatus.COMPLETED, TaskStatus.CANCELLED], GenerationStatus.COMPLETED),
         ([TaskStatus.FAILED, TaskStatus.FAILED], GenerationStatus.FAILED),
+        ([TaskStatus.FAILED, TaskStatus.CANCELLED], GenerationStatus.FAILED),
         ([TaskStatus.CANCELLED, TaskStatus.CANCELLED], GenerationStatus.CANCELLED),
     ],
 )

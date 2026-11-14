@@ -1,10 +1,11 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { createGeneration } from "@/lib/api";
-import type { GenerationType, ModelInfo } from "@/types/api";
+import { createEditGeneration, createGeneration, imageAsFile } from "@/lib/api";
+import { useReferenceStore } from "@/stores/reference";
+import type { GenerationCreatePayload, GenerationType, ModelInfo } from "@/types/api";
 
 const COUNT_PRESETS = [1, 2, 4, 6, 8];
 
@@ -50,6 +51,18 @@ export function GenerationForm({ models }: Props) {
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);
   const [count, setCount] = useState(1);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { source, previewUrl, fileName, autoEdit, setFile, consumeAutoEdit, clear } =
+    useReferenceStore();
+
+  // 从画廊点「用作参考图」跳过来时，直接把任务类型切到图片编辑
+  useEffect(() => {
+    if (autoEdit && source) {
+      setGenerationType("image_edit");
+      consumeAutoEdit();
+    }
+  }, [autoEdit, source, consumeAutoEdit]);
 
   const selected = useMemo(
     () => models.find((model) => model.id === modelId) ?? models[0],
@@ -58,10 +71,17 @@ export function GenerationForm({ models }: Props) {
   const target = selected?.workflows.find((workflow) => workflow.type === generationType);
 
   const mutation = useMutation({
-    mutationFn: createGeneration,
+    mutationFn: async (input: { payload?: GenerationCreatePayload; form?: FormData }) => {
+      if (input.form) {
+        return createEditGeneration(input.form);
+      }
+      return createGeneration(input.payload as GenerationCreatePayload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["generations"] });
       setPrompt("");
+      setFormError(null);
+      // 参考图故意留着：同一张图连改几版是常见操作
     },
   });
 
@@ -92,16 +112,47 @@ export function GenerationForm({ models }: Props) {
       <h2 className="mb-4 text-sm font-semibold tracking-wide text-slate-200">新建生成</h2>
 
       <form
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          mutation.mutate({
-            prompt,
-            model: selected.id,
-            generation_type: generationType,
-            width: generationType === "text_to_image" ? width : undefined,
-            height: generationType === "text_to_image" ? height : undefined,
-            count,
-          });
+          setFormError(null);
+          if (generationType === "text_to_image") {
+            mutation.mutate({
+              payload: {
+                prompt,
+                model: selected.id,
+                generation_type: "text_to_image",
+                width,
+                height,
+                count,
+              },
+            });
+            return;
+          }
+
+          let file: File | null = null;
+          if (source?.kind === "file") {
+            file = source.file;
+          } else if (source?.kind === "image") {
+            try {
+              file = await imageAsFile(source.id);
+            } catch {
+              setFormError("读取画廊参考图失败，请重新选择文件");
+              return;
+            }
+          }
+          if (!file) {
+            setFormError("图片编辑需要先选一张参考图");
+            return;
+          }
+
+          const form = new FormData();
+          form.set("prompt", prompt);
+          form.set("model", selected.id);
+          form.set("count", String(count));
+          form.set("width", String(width));
+          form.set("height", String(height));
+          form.set("images", file, file.name);
+          mutation.mutate({ form });
         }}
         className="space-y-4"
       >
@@ -236,7 +287,7 @@ export function GenerationForm({ models }: Props) {
             <button
               type="button"
               disabled={editDisabled}
-              title="图片编辑需要上传参考图，P4 开放"
+              title={editDisabled ? "该模型未注册图片编辑工作流" : "上传参考图后修改画面"}
               onClick={() => setGenerationType("image_edit")}
               className={`rounded-lg border px-3 py-1.5 text-xs transition ${
                 generationType === "image_edit"
@@ -244,10 +295,54 @@ export function GenerationForm({ models }: Props) {
                   : "border-edge text-slate-500"
               } disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              图片编辑（P4）
+              图片编辑
             </button>
           </div>
         </div>
+
+        {generationType === "image_edit" && (
+          <div>
+            <span className="label">参考图</span>
+            {source && previewUrl ? (
+              <div className="flex items-center gap-3 rounded-lg border border-edge/70 bg-black/20 p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewUrl}
+                  alt="参考图预览"
+                  className="h-16 w-16 shrink-0 rounded-md object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs text-slate-300">{fileName}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">输出比例跟随这张图</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clear}
+                  className="rounded-md border border-edge px-2 py-1 text-[11px] text-slate-400 hover:border-rose-500/50 hover:text-rose-300"
+                >
+                  移除
+                </button>
+              </div>
+            ) : (
+              <label className="flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-edge/80 bg-black/20 px-3 py-6 text-[11px] text-slate-500 transition hover:border-sky-500/40 hover:text-slate-400">
+                点击选择参考图（PNG / JPEG / WebP，≤20 MB）
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      setFile(file);
+                      setFormError(null);
+                    }
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         <div>
           <label className="label" htmlFor="model">
@@ -314,14 +409,32 @@ export function GenerationForm({ models }: Props) {
           </p>
         )}
 
+        {formError && (
+          <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            {formError}
+          </p>
+        )}
+
         {mutation.isError && (
           <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
             {mutation.error instanceof Error ? mutation.error.message : "提交失败"}
           </p>
         )}
 
-        <button type="submit" className="btn-primary w-full" disabled={mutation.isPending || !prompt.trim()}>
-          {mutation.isPending ? "提交中…" : `创建 ${count} 个任务`}
+        <button
+          type="submit"
+          className="btn-primary w-full"
+          disabled={
+            mutation.isPending ||
+            !prompt.trim() ||
+            (generationType === "image_edit" && !source)
+          }
+        >
+          {mutation.isPending
+            ? "提交中…"
+            : generationType === "image_edit"
+              ? `编辑出图 ${count} 张`
+              : `创建 ${count} 个任务`}
         </button>
       </form>
     </section>

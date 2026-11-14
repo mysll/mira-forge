@@ -20,12 +20,16 @@
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest        # 27 项，约 3 秒
+.\.venv\Scripts\python.exe -m pytest        # 45 项，约 3 秒
 ```
 
 测试使用独立的临时库 `backend/.pytest-tmp/test.db`（在 `conftest.py` 里于 import app 之前设定 `DATABASE_URL`），**不会污染** `data/app.db`。
 
 `conftest.py` 还强制 `WORKER_ENABLED=false`：否则 TestClient 会触发 lifespan，把测试任务真的提交给本机 ComfyUI（第一版就踩到了，ComfyUI 队列里出现了一条测试 prompt）。
+
+测试文件分工：`test_health.py`（健康检查与模型目录）、`test_generations.py`（创建/校验/列表/WS）、`test_workflows_build.py`（参数注入与状态聚合）、`test_edits.py`（参考图上传）、`test_gallery.py`（缩略图/删除/分页）、`test_stability.py`（取消/重试/启动复位）。
+
+注意测试库是 session 级共享的，写「脏状态」的用例要考虑别的用例的残留（`reset_interrupted_tasks` 就因此断言 `>= 2` 而不是 `== 2`）。
 
 前端类型检查：
 
@@ -96,6 +100,37 @@ Start-Process http://127.0.0.1:8000/api/v1/images/1/file
 
 Worker 出错时先看后端日志（`logger "miraforge.worker"`），任务的 `error_message` 会保存同一句原因。
 
+### 取消、重试、崩溃恢复怎么验
+
+```powershell
+# 提交 4 张，趁排队时取消一个
+$g = Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/generations `
+  -ContentType application/json `
+  -Body '{"prompt":"a stack of river stones","model":"qwen_image_21_turbo","count":4}'
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/tasks/$($g.tasks[0].id)/cancel
+
+# 重试刚取消的任务（同一条记录下追加新 seed）
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/tasks/$($g.tasks[0].id)/retry
+
+# 崩溃恢复：生成中途 Ctrl+C 掉 uvicorn 再启动，日志里应出现
+#   "上次退出时残留的 N 个 queued/running 任务已复位为 pending"
+# 且这些任务会重新跑完
+```
+
+取消跑着的那张时，Worker 会先 `POST /interrupt`，ComfyUI 那边也会真的停下——可以在 ComfyUI 界面的队列里确认。
+
+### 用截图核对 UI
+
+`tools/screenshot.mjs` 是无头 Edge + CDP 的小工具（headless 的 `--screenshot` 不能点击、不能等异步数据）：
+
+```powershell
+node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui.png --width 1500 --height 1300
+node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui-detail.png --click "详情" --wait 2500
+```
+
+参数：`--click <文字>` 点第一个文本匹配的按钮 · `--prompt <文字>` 写进文本框 · `--file <路径>` 塞给 `input[type=file]` · `--submit <文字>` 点提交 · `--wait <毫秒>`。
+坑：同一个 `--user-data-dir` 第二次调用 `msedge --headless=new` 会静默失败，脚本每次用新的临时目录规避。
+
 ## 数据库迁移
 
 ```powershell
@@ -104,7 +139,7 @@ cd backend
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-`alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0001_initial`。
+`alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0002_reference_image`（给 `generations` 加了 `reference_image_path`）。
 
 ## 代码约定
 

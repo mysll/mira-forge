@@ -104,7 +104,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | `prompt` | 是 | 去空白后不能为空 |
 | `model` | 是 | 注册表中的模型 id |
 | `generation_type` | 是 | `text_to_image` \| `image_edit` |
-| `width` / `height` | 否 | 64–4096；缺省回落到模型 defaults。**image_edit 会被忽略并记为 null** |
+| `width` / `height` | 否 | 64–4096；缺省回落到模型 defaults。**image_edit 时它只决定像素量级**（输出比例跟随参考图），见下文编辑接口 |
 | `count` | 否 | 1–`MAX_GENERATION_COUNT`（默认 8），每张独立 task + 独立 seed |
 
 响应（`GenerationRead`，含全部子任务；`model_name` 是模型 **id**，不是 label）：
@@ -140,8 +140,8 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 }
 ```
 
-失败时 `status` 为 `failed`，`error_message` 是中文原因（例如未接入参考图时的
-`图片编辑需要参考图，将在 P4 开放（当前仅支持文生图）`）。
+失败时 `status` 为 `failed`，`error_message` 是中文原因（例如 ComfyUI 未启动、工作流 JSON 缺失、模型名不在 ComfyUI 的清单里）。
+取消或部分取消时 `status` 可能是 `cancelled` / `completed`（有图就算完成，见「任务」一节）。
 
 校验失败示例：
 
@@ -157,12 +157,46 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 分页摘要，按创建时间倒序。`items[]` 为 `GenerationSummary`（含 `task_count`，不含 `tasks`）。
 
 ```json
-{ "items": [ { "id": 2, "status": "pending", "task_count": 2, "model_name": "Qwen Image 2.1", … } ], "total": 2, "limit": 20, "offset": 0 }
+{ "items": [ { "id": 2, "status": "running", "progress": 62, "task_count": 2, "model_name": "qwen_image_21_turbo", … } ], "total": 2, "limit": 20, "offset": 0 }
 ```
+
+`progress` 是该记录下所有任务进度的平均值（8 张里前 7 张完成也不会显示 99%）。
 
 ### `GET /generations/{id}`
 
-返回单个 `GenerationRead`（含 `tasks`）。不存在返回 `404`。
+返回单个 `GenerationRead`（含 `tasks` 与 `reference_image_path`）。不存在返回 `404`。
+
+### `POST /generations/edit`
+
+图片编辑：`multipart/form-data`。除参考图外字段与 `POST /generations` 相同，`generation_type` 固定为 `image_edit`。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `prompt` | 是 | 编辑指令，例如「same scene but at night, moonlight」 |
+| `model` | 是 | 支持 `image_edit` 的模型 id |
+| `images` | 是 | 恰好 1 张；PNG / JPEG / WEBP；≤ 20 MB；按文件魔数校验 |
+| `count` | 否 | 1–8，同一次编辑出多张变体 |
+| `width` / `height` | 否 | 只决定像素量级：Worker 传 `resolution = round(sqrt(w×h)/32)×32`（夹在 256–4096） |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
+  -F "prompt=replace the fox with a white marble statue" \
+  -F "model=qwen_image_21_turbo" \
+  -F "count=1" \
+  -F "images=@D:/AI/MiraForge/storage/images/3/8_0.png"
+```
+
+返回结构与 `POST /generations` 相同（`201`）。错误：
+
+```
+422 {"detail": "图片编辑必须提供 1 张参考图"}
+422 {"detail": "参考图需要是 1 张 PNG / JPEG / WEBP 图片"}
+422 {"detail": "参考图不能超过 20 MB"}
+```
+
+### `GET /generations/{id}/reference`
+
+回显该次生成用的参考图（`FileResponse`，按扩展名给 `image/png` / `image/jpeg` / `image/webp`）。没有参考图或文件缺失时 `404`。
 
 ## 任务
 
@@ -173,6 +207,24 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 ```
 
 `progress` 为 0–100 的整数：`1` 表示已提交 ComfyUI，之后由 `progress` 事件推进到 99，完成时置 100。
+
+### `POST /tasks/{id}/cancel`
+
+取消单个任务，返回 `TaskRead`。
+
+- `pending` / `queued`：直接标为 `cancelled`，Worker 不会再去执行它。
+- `running`：先尽力 `POST /interrupt {prompt_id}` 打断 ComfyUI，再标 `cancelled`；Worker 拿到结果后发现任务已取消会丢弃产物。
+- 已结束（`completed` / `failed` / `cancelled`）的任务返回 `409 {"detail": "task 7 已经结束（completed），无法取消"}`。
+
+取消后会把整条生成记录的状态重新聚合：还有别的任务在跑就仍是 `running`，全部结束且**有任意一张成功就记为 `completed`**（部分取消不该让已有的图变成失败），全都被取消才是 `cancelled`，否则 `failed`。
+
+### `POST /tasks/{id}/retry`
+
+重试 = **在同一个 `generation` 下追加一个新任务**（新 seed、`pending`），返回 `201` + 新 `TaskRead`，生成记录回到 `pending`。
+
+- 只对 `failed` / `cancelled` 的任务开放；`queued` / `running` 时返回 `409 {"detail": "任务正在执行，先取消再重试"}`。
+- 新 seed 不会与该生成记录下已有任务的 seed 重复。
+- 接口是同步的；图片仍然由 Worker 异步产出。
 
 ## 图片
 
@@ -207,6 +259,14 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 文件在磁盘上缺失时返回 `404` 并说明缺失的 `file_path`。
 
+### `GET /images/{id}/thumbnail`
+
+480px 长边的 JPEG 缩略图（`image/jpeg`，`Cache-Control: public, max-age=31536000, immutable`）。第一次请求时用 Pillow 生成并写回 `thumbnail_path`，之后直接读磁盘缓存。列表页请用这个，别用原图。
+
+### `DELETE /images/{id}`
+
+删除原图与缩略图（磁盘文件 + 数据库行），返回 `204`。不存在返回 `404`。已删除的图片若是某次生成的唯一产物，生成记录本身保留。
+
 ## WebSocket
 
 ### `WS /ws/tasks`
@@ -224,13 +284,8 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 ```
 
 `data` 结构与 `GET /tasks/{id}` 相同；一次生成通常产生 `queued → running(多个进度) → completed` 若干条。
+前端收到事件后只做「有变化」的信号，真实数据仍走 REST（`invalidateQueries`），这样断线也不会停在错误状态；断开 2 秒后自动重连。
 
-## 尚未实现（后续阶段）
+## 二期（视频）
 
-| 端点 | 阶段 |
-| --- | --- |
-| `POST /generations/edit`（multipart 上传参考图） | P4 |
-| `POST /tasks/{id}/retry` | P6 |
-| `POST /tasks/{id}/cancel` | P6 |
-| `DELETE /images/{id}` | P5 |
-| `GET /images/{id}/thumbnail`（缩略图） | P5 |
+一期（图片）的功能已经全部落地。视频生成与编辑是二期内容，届时会新增 `POST /videos`、视频工作流与播放器页面，不影响现有接口。

@@ -1,9 +1,18 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { fetchGeneration, fetchGenerations, fetchImages, imageFileUrl } from "@/lib/api";
+import { useTaskEvents } from "@/hooks/useTaskEvents";
+import {
+  cancelTask,
+  fetchGeneration,
+  fetchGenerations,
+  fetchImages,
+  imageFileUrl,
+  referenceImageUrl,
+  retryTask,
+} from "@/lib/api";
 import type { GenerationRead, GenerationSummary } from "@/types/api";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -34,21 +43,56 @@ function Bar({ value, className = "" }: { value: number; className?: string }) {
   );
 }
 
-function TaskRow({ task }: { task: GenerationRead["tasks"][number] }) {
+function TaskRow({
+  task,
+  busy,
+  onCancel,
+  onRetry,
+}: {
+  task: GenerationRead["tasks"][number];
+  busy: boolean;
+  onCancel: (taskId: number) => void;
+  onRetry: (taskId: number) => void;
+}) {
+  const cancellable = ACTIVE.has(task.status);
+  const retryable = task.status === "failed" || task.status === "cancelled";
+
   return (
     <li className="rounded-md border border-edge/50 bg-black/30 px-2.5 py-2">
       <div className="flex items-center justify-between gap-2 font-mono text-[10px] text-slate-500">
         <span>
           task #{task.id} · seed {task.seed}
         </span>
-        <span
-          className={`rounded-full border px-1.5 py-px ${
-            STATUS_STYLE[task.status] ?? "border-edge text-slate-400"
-          }`}
-        >
-          {task.status}
-          {ACTIVE.has(task.status) ? ` ${task.progress}%` : ""}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {cancellable && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onCancel(task.id)}
+              className="rounded border border-edge px-1.5 py-px text-[10px] text-slate-400 transition hover:border-rose-600 hover:text-rose-300 disabled:opacity-40"
+            >
+              取消
+            </button>
+          )}
+          {retryable && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onRetry(task.id)}
+              className="rounded border border-edge px-1.5 py-px text-[10px] text-slate-400 transition hover:border-sky-600 hover:text-sky-300 disabled:opacity-40"
+            >
+              重试
+            </button>
+          )}
+          <span
+            className={`rounded-full border px-1.5 py-px ${
+              STATUS_STYLE[task.status] ?? "border-edge text-slate-400"
+            }`}
+          >
+            {task.status}
+            {ACTIVE.has(task.status) ? ` ${task.progress}%` : ""}
+          </span>
+        </div>
       </div>
       {ACTIVE.has(task.status) && <Bar value={task.progress} className="mt-1.5" />}
       {task.error_message && (
@@ -60,19 +104,73 @@ function TaskRow({ task }: { task: GenerationRead["tasks"][number] }) {
 
 function Detail({ generation }: { generation: GenerationRead }) {
   const active = ACTIVE.has(generation.status);
+  const queryClient = useQueryClient();
+  const [busyId, setBusyId] = useState<number | null>(null);
+
   const images = useQuery({
     queryKey: ["images", "generation", generation.id],
     queryFn: () => fetchImages({ generationId: generation.id, limit: 100 }),
     enabled: !active,
   });
 
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["generation", generation.id] });
+    void queryClient.invalidateQueries({ queryKey: ["generations"] });
+  };
+
+  const cancel = useMutation({
+    mutationFn: (taskId: number) => cancelTask(taskId),
+    onMutate: (taskId) => setBusyId(taskId),
+    onSettled: () => {
+      setBusyId(null);
+      refresh();
+    },
+  });
+
+  const retry = useMutation({
+    mutationFn: (taskId: number) => retryTask(taskId),
+    onMutate: (taskId) => setBusyId(taskId),
+    onSettled: () => {
+      setBusyId(null);
+      refresh();
+    },
+  });
+
+  const failure = cancel.error ?? retry.error;
+
   return (
     <div className="mt-3 space-y-2 border-t border-edge/50 pt-3">
       <ul className="space-y-1.5">
         {generation.tasks.map((task) => (
-          <TaskRow key={task.id} task={task} />
+          <TaskRow
+            key={task.id}
+            task={task}
+            busy={busyId === task.id}
+            onCancel={(taskId) => cancel.mutate(taskId)}
+            onRetry={(taskId) => retry.mutate(taskId)}
+          />
         ))}
       </ul>
+
+      {failure instanceof Error && (
+        <p className="text-[11px] text-rose-400">{failure.message}</p>
+      )}
+
+      {generation.reference_image_path && (
+        <div className="flex items-center gap-2.5 rounded-md border border-edge/50 bg-black/30 p-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={referenceImageUrl(generation.id)}
+            alt="参考图"
+            loading="lazy"
+            className="h-14 w-14 shrink-0 rounded object-cover"
+          />
+          <div className="text-[11px] leading-relaxed text-slate-500">
+            <p className="text-slate-400">参考图</p>
+            <p className="mt-0.5">按这张图做编辑，输出比例跟随它，尺寸只决定像素量级</p>
+          </div>
+        </div>
+      )}
 
       {images.data && images.data.items.length > 0 && (
         <div className="grid grid-cols-4 gap-2 pt-1">
@@ -154,6 +252,8 @@ function GenerationItem({ item }: { item: GenerationSummary }) {
 }
 
 export function GenerationList() {
+  useTaskEvents();
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["generations"],
     queryFn: () => fetchGenerations(20),

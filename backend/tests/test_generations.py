@@ -36,11 +36,18 @@ def test_create_generation_makes_n_pending_tasks(client: TestClient) -> None:
     assert body["workflow_id"] is not None
 
 
-def test_edit_generation_does_not_record_size(client: TestClient) -> None:
-    body = _create(client, generation_type="image_edit", width=1024, height=1024)
-    # 编辑链路潜空间来自参考图，宽高不生效，因此不记录
-    assert body["width"] is None
-    assert body["height"] is None
+def test_edit_without_reference_is_rejected(client: TestClient) -> None:
+    response = client.post(
+        f"{API}/generations",
+        json={
+            "prompt": "make it night",
+            "model": "qwen_image_21",
+            "generation_type": "image_edit",
+            "count": 1,
+        },
+    )
+    assert response.status_code == 422
+    assert "参考图" in response.json()["detail"]
 
 
 def test_count_over_limit_is_rejected(client: TestClient) -> None:

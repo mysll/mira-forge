@@ -38,11 +38,11 @@ UI 模板是 subgraph 结构，**不能直接提交给 `/prompt`**；必须展�
 | 注册表条目 | 文件 | 采样方式 | 状态 |
 | --- | --- | --- | --- |
 | `qwen_image_21` / text_to_image | `backend/workflows/qwen_image_21_t2i.json` | KSampler 25 步 | ✅ 真实出图验证（4 张） |
-| `qwen_image_21` / image_edit | `backend/workflows/qwen_image_21_edit.json` | KSampler 25 步 | 结构就绪，待 P4 接上传后验证 |
+| `qwen_image_21` / image_edit | `backend/workflows/qwen_image_21_edit.json` | KSampler 25 步 | ✅ 真实编辑验证（2 张，约 12 s/张） |
 | `qwen_image_21_turbo` / text_to_image | `backend/workflows/qwen_image_21_turbo_t2i.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实出图验证（多张） |
-| `qwen_image_21_turbo` / image_edit | `backend/workflows/qwen_image_21_turbo_edit.json` | SamplerCustomAdvanced + 固定 sigma 表 | 结构就绪，待 P4 接上传后验证 |
+| `qwen_image_21_turbo` / image_edit | `backend/workflows/qwen_image_21_turbo_edit.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实编辑验证（多张，3–6 s/张） |
 
-编辑图的结构来自用户已真实执行过的 `qwen21_layer_extract_api.json`，但 MiraForge 自己的编辑图**尚未经过 POST /prompt 跑通**（P4 才接参考图上传），因此注册表里 `validated: false`。
+四张图都已通过 MiraForge 的 `POST /prompt` 真实跑通，注册表里 `validated: true`。编辑链路的参考图由 Worker 先 `POST /upload/image` 送进 ComfyUI 的 `input/`，再写进 `LoadImage.image`。
 
 ### 文生图链路
 
@@ -126,6 +126,16 @@ bindings:
 | --- | --- | --- | --- |
 | `qwen_image_21`（25 步） | 4 | 首张 12.1 s，其后 9.7 / 9.8 / 9.9 s | int8 权重 + 8.9 GB 文本编码器 |
 | `qwen_image_21_turbo`（8 步） | 3 | 6.3 / 3.9 / 6.3 s | 冷启动首张约 10 s |
+| `qwen_image_21` / image_edit | 2 | 约 12 s | 含参考图上传与 latent 来自编码器 |
+| `qwen_image_21_turbo` / image_edit | 3 | 3–6 s | 换场景/换主体的指令式编辑 |
+
+实测的编辑样例（同一张黄铜狐原图）：
+
+| 指令 | 结果 |
+| --- | --- |
+| `same scene but at night, moonlight` | 街景与霓虹保留，光线整体转夜 |
+| `replace the fox with a white marble statue of a fox` | 主体变白色大理石雕，构图与背景不变 |
+| `polished black granite` | 主体材质变黑花岗岩 |
 
 产物由 `GET /history/{prompt_id}` 的 `outputs["13"]["images"][0]` 给出，`metadata` 自带 `width`/`height`，无需解析 PNG 头。
 
@@ -137,12 +147,13 @@ bindings:
 2. `/ws` 的 `{"type":"progress","data":{"value","max","prompt_id","node"}}` 能驱动 0–100 进度；二进制预览帧需忽略。
 3. `SaveImage` 节点 id 即 `outputs` 的键，与配置里的 `output_node` 一致。
 4. 25 步与 turbo 8 步在相同 prompt 下均可正常出图（质量差异待人工评估）。
+5. 编辑图四张全部经 `POST /prompt` 真实执行；`images.image_1` 键名、`latent_image=[6,2]`、`resolution` 换算均正确。
+6. 批量 8 张串行、中途取消 / 重试、后端强杀后重启续跑均未出现显存问题。
 
-待验证：
+仍待观察：
 
-1. 编辑图经 `POST /prompt` 的真实执行（需先解决参考图上传，P4）。
-2. 连续多任务时显存是否稳定（P3 批量 8 张压力测试）。
-3. PE 支路（9 GB 编码器）在 16 GB 显存下的可行性——一期不启用。
+1. PE 支路（9 GB 编码器）在 16 GB 显存下的可行性——一期不启用。
+2. 16 GB 卡上同时跑编辑 + 大批量的极端情况（目前实测最多 8 张串行）。
 
 ## 提示词增强（PE，一期关闭）
 

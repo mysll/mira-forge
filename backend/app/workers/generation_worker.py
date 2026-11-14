@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -23,9 +25,9 @@ from app.models.task import GenerationTask, TaskStatus
 from app.schemas.generation import TaskRead
 from app.services import workflow_service
 from app.services.comfyui_client import ComfyUIClient, ComfyUIError
-from app.services.image_service import ImageStoreError, store_image
+from app.services.image_service import ImageStoreError, read_storage_file, store_image
 from app.services.prompt_builder import PromptBuildError, build_prompt, load_graph
-from app.services.workflow_config import WorkflowConfigError, load_workflow_config
+from app.services.workflow_config import WorkflowConfig, WorkflowConfigError, load_workflow_config
 
 logger = logging.getLogger("miraforge.worker")
 
@@ -33,6 +35,35 @@ PROGRESS_MIN_STEP = 2  # 进度百分比变化小于它就不写库，省得刷�
 HISTORY_POLL_SECONDS = 1.0
 TASK_TIMEOUT_SECONDS = 1800  # 单张图最长等 30 分钟，超时判失败
 IDLE_SLEEP_SECONDS = 1.0
+
+
+@dataclass
+class _Plan:
+    """一张图要提交的东西：图本身 + 参考图（编辑时才有）。"""
+
+    generation_id: int
+    graph: dict[str, Any]
+    config: WorkflowConfig
+    params: dict[str, Any]
+    reference_path: str | None = None
+
+
+def _edit_resolution(width: int | None, height: int | None) -> int:
+    """把「目标宽高」折成 Qwen 编码器的 resolution（约等于面积开方，对齐 32）。
+
+    节点内部按 sqrt(resolution² × 参考图比例) 算实际宽高，所以这里只给量级。
+    """
+    if not width or not height:
+        return 1024
+    area = math.sqrt(width * height)
+    return max(256, min(4096, int(round(area / 32) * 32)))
+
+
+def _suffix(path: str) -> str:
+    import os
+
+    extension = os.path.splitext(path)[1].lower()
+    return extension if extension in {".png", ".jpg", ".jpeg", ".webp"} else ".png"
 
 
 class GenerationWorker:
@@ -117,11 +148,35 @@ class GenerationWorker:
         if plan is None:
             return  # 已在 _build_plan 里判失败
 
-        generation_id, prompt, output_node = plan
+        generation_id = plan.generation_id
+        output_node = plan.config.output_node
 
         await self._broadcast_task(task_id)
         self._set_task(task_id, status=TaskStatus.RUNNING, progress=1, started_at=True)
         self._sync_generation_status(generation_id)
+
+        reference_name: str | None = None
+        if plan.reference_path:
+            try:
+                content = read_storage_file(plan.reference_path)
+                info = await self.client.upload_image(
+                    content, f"miraforge_ref_{task_id}{_suffix(plan.reference_path)}"
+                )
+            except Exception as exc:  # noqa: BLE001 - 上传失败就是这张图失败
+                self._fail(task_id, f"上传参考图失败：{exc}")
+                return
+            reference_name = info.get("name") or info.get("filename")
+            if not reference_name:
+                self._fail(task_id, f"ComfyUI 未返回参考图文件名：{info}")
+                return
+
+        try:
+            prompt = build_prompt(
+                plan.graph, plan.config, plan.params, reference_image=reference_name
+            )
+        except PromptBuildError as exc:
+            self._fail(task_id, str(exc))
+            return
 
         try:
             prompt_id = await self.client.submit(prompt, self.client_id)
@@ -135,7 +190,12 @@ class GenerationWorker:
         self._set_task(task_id, comfy_prompt_id=prompt_id)
         await self._broadcast_task(task_id)
 
-        history = await self._wait_for_history(task_id, prompt_id)
+        history, cancelled = await self._wait_for_history(task_id, prompt_id)
+        if cancelled:
+            logger.info("任务 %s 已被取消，丢弃这次结果", task_id)
+            self._sync_generation_status(generation_id)
+            await self._broadcast_task(task_id)
+            return
         if history is None:
             return  # 超时已被判失败
 
@@ -187,7 +247,7 @@ class GenerationWorker:
         await self._broadcast_task(task_id)
         logger.info("任务 %s 完成，产物 %s 张", task_id, saved)
 
-    def _build_plan(self, task_id: int) -> tuple[int, dict[str, Any], str] | None:
+    def _build_plan(self, task_id: int) -> _Plan | None:
         """组装可直接提交的 API 图；配置有问题就在这一步判失败。"""
         with SessionLocal() as db:
             task = db.get(GenerationTask, task_id)
@@ -212,10 +272,6 @@ class GenerationWorker:
                 self._fail(task_id, f"工作流 JSON 不存在：{target.json_path}")
                 return None
 
-            if generation.generation_type == GenerationType.IMAGE_EDIT:
-                self._fail(task_id, "图片编辑需要参考图，将在 P4 开放（当前仅支持文生图）")
-                return None
-
             params: dict[str, Any] = {
                 "prompt": generation.prompt,
                 "negative_prompt": "",
@@ -228,36 +284,55 @@ class GenerationWorker:
                 if key in model.defaults:
                     params[key] = model.defaults[key]
 
+            reference_path: str | None = None
+            if generation.generation_type == GenerationType.IMAGE_EDIT:
+                if not generation.reference_image_path:
+                    self._fail(task_id, "图片编辑缺少参考图，无法执行")
+                    return None
+                reference_path = generation.reference_image_path
+                # 比例跟参考图，resolution 决定像素量级（见 WORKFLOW_MAPPING）
+                params["resolution"] = _edit_resolution(generation.width, generation.height)
+
             try:
                 graph = load_graph(target.json_path)
                 config = load_workflow_config(target.config_path)
-                prompt = build_prompt(graph, config, params)
-            except (PromptBuildError, WorkflowConfigError) as exc:
+            except (WorkflowConfigError, OSError) as exc:
                 self._fail(task_id, str(exc))
                 return None
 
-            return generation.id, prompt, config.output_node
+            return _Plan(
+                generation_id=generation.id,
+                graph=graph,
+                config=config,
+                params=params,
+                reference_path=reference_path,
+            )
 
-    async def _wait_for_history(self, task_id: int, prompt_id: str) -> dict[str, Any] | None:
-        """边听 WS 进度边轮询 /history，直到完成或超时。"""
+    async def _wait_for_history(
+        self, task_id: int, prompt_id: str
+    ) -> tuple[dict[str, Any] | None, bool]:
+        """边听 WS 进度边轮询 /history。返回 (history, 是否被用户取消)。"""
         loop = asyncio.get_running_loop()
         deadline = loop.time() + TASK_TIMEOUT_SECONDS
         listener = asyncio.create_task(self._listen_progress(task_id, prompt_id))
         try:
             while loop.time() < deadline:
                 if self._stop.is_set():
-                    listener.cancel()
-                    return None
+                    return None, False
+                if self._is_cancelled(task_id):
+                    return None, True
                 try:
                     history = await self.client.history(prompt_id)
                 except Exception as exc:  # noqa: BLE001 - 轮询抖动不算失败
                     logger.debug("查询 history 暂时失败：%s", exc)
                     history = None
                 if history is not None:
-                    return history
+                    return history, False
                 await asyncio.sleep(HISTORY_POLL_SECONDS)
+            if self._is_cancelled(task_id):
+                return None, True
             self._fail(task_id, f"等待 ComfyUI 超时（{TASK_TIMEOUT_SECONDS} 秒）")
-            return None
+            return None, False
         finally:
             listener.cancel()
             try:
@@ -286,12 +361,23 @@ class GenerationWorker:
 
     # ---- 状态写入与广播 ----
 
+    def _is_cancelled(self, task_id: int) -> bool:
+        with SessionLocal() as db:
+            task = db.get(GenerationTask, task_id)
+            return task is not None and task.status == TaskStatus.CANCELLED
+
     def _set_task(self, task_id: int, *, started_at: bool = False, completed_at: bool = False, **fields: Any) -> None:
         from app.models.workflow import utcnow
 
         with SessionLocal() as db:
             task = db.get(GenerationTask, task_id)
             if task is None:
+                return
+            # 用户取消之后，worker 不能再把状态改回去
+            if task.status == TaskStatus.CANCELLED and fields.get("status") not in (
+                None,
+                TaskStatus.CANCELLED,
+            ):
                 return
             for key, value in fields.items():
                 setattr(task, key, value)
@@ -307,6 +393,8 @@ class GenerationWorker:
             task = db.get(GenerationTask, task_id)
             if task is None:
                 return
+            if task.status == TaskStatus.CANCELLED:
+                return  # 已取消的任务不必再标失败
             from app.models.workflow import utcnow
 
             task.status = TaskStatus.FAILED

@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.models.database import get_db
 from app.models.image import Image
 from app.schemas.image import ImageListResponse, ImageRead
-from app.services.image_service import absolute_path, list_images
+from app.services.image_service import (
+    ImageStoreError,
+    absolute_path,
+    delete_image,
+    ensure_thumbnail,
+    list_images,
+)
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -54,3 +60,33 @@ def get_image_file(image_id: int, db: Session = Depends(get_db)) -> FileResponse
             detail=f"图片文件缺失：{image.file_path}",
         )
     return FileResponse(path, media_type="image/png", filename=path.name)
+
+
+@router.get("/{image_id}/thumbnail", response_class=FileResponse)
+def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    """画廊用缩略图。首次访问时生成，之后走磁盘缓存。"""
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
+        )
+    try:
+        path = ensure_thumbnail(db, image)
+    except ImageStoreError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_image(image_id: int, db: Session = Depends(get_db)) -> Response:
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
+        )
+    delete_image(db, image)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

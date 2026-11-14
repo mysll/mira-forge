@@ -59,7 +59,7 @@ workflows 1 ──< generations 1 ──< generation_tasks 1 ──< images
 ### 几个刻意的设计
 
 - **一图一 task**：批量生成不合并成一个 ComfyUI 批次。原因是要支持单张重试、单张取消、单张进度，以及每图独立 seed。
-- **image_edit 不记宽高**：Qwen Image 2.1 编辑链路的潜空间由参考图编码器输出决定，宽高仅在切换到空 latent 时才生效。记录 `None` 比记录一个不生效的数字更诚实，前端显示"跟随参考图"。
+- **image_edit 的宽高只决定像素量级**：Qwen Image 2.1 编辑链路的潜空间由参考图编码器输出决定（`TextEncodeQwenImage21` 的第 3 个输出），宽高仅在切换到空 latent 时才生效。因此编辑时 `width/height` 不会写进 `EmptyLatentImage`，而是换算成 `resolution = round(sqrt(w×h)/32)×32` 交给编码器——输出比例跟随参考图，像素量级由用户选的尺寸决定。前端据此显示"输出比例跟随这张图"。
 - **相对路径一律以项目根为基准**：`DATABASE_URL=sqlite:///./data/app.db` 与 `STORAGE_DIR=./storage` 在 `config.py` 中被解析成绝对路径，因此从任何目录启动 uvicorn 都指向同一个库。
 
 ## 状态机
@@ -72,7 +72,11 @@ pending ──► queued ──► running ──► completed
 
 P1 只会产生 `pending`（没有 Worker 消费）。P2 起由 Worker 推进：`pending → queued` 在 `_claim_pending()` 取任务时落库，`running` 表示已拿到 `prompt_id`；`progress` 由 ComfyUI 的 `progress` 事件写 1–99，`completed` 写 100 并回填 `images` 行。
 
-Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`）——还有活跃任务就跟随它（running > queued > pending），全部终态后：全 completed → completed，全 cancelled → cancelled，否则 failed。终态时写 `completed_at`。
+取消是"旁路"操作：`POST /tasks/{id}/cancel` 直接改库（必要时顺手 `POST /interrupt`），Worker 每轮轮询 `_is_cancelled()`，发现被取消就丢弃结果；`_set_task()` 与 `_fail()` 都拒绝覆盖 `cancelled`，避免竞态把状态改回去。
+
+Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`）——还有活跃任务就跟随它（running > queued > pending），全部终态后：**任意一张 completed 就算 `completed`**（部分取消不该让已有的图变成失败），全 cancelled → `cancelled`，否则 `failed`。终态时写 `completed_at`。
+
+崩溃恢复：启动时 `reset_interrupted_tasks()` 把上次残留的 `queued`/`running` 任务复位成 `pending` 并清空进度与 `comfy_prompt_id`，Worker 随即续跑。因为产物的唯一真相是 ComfyUI 的 `/history`，残留任务重跑不会产生半成品记录。
 
 ## Worker 实现要点
 
@@ -85,10 +89,27 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 - **进度走 WS，结果以 `/history` 为准**：WS 只用来做进度条，断线/丢消息不影响正确性；`_wait_for_history()` 每秒轮询一次 `/history/{prompt_id}`，直到出现记录或 30 分钟超时。
 - **`client_id` 全程一致**：ComfyUI 按 `client_id` 把进度事件路由给提交者，所以 `submit` 和 `progress_messages` 用同一个实例字段。
 - **进度写库有节流**（`PROGRESS_MIN_STEP=2`）：ComfyUI 每步都发事件，不做节流会把 SQLite 写爆。
-- **失败写 `error_message` 而非抛异常**：任务状态是唯一真相，用户能在 UI 上看到"图片编辑需要参考图，将在 P4 开放"这样的具体原因。
+- **失败写 `error_message` 而非抛异常**：任务状态是唯一真相，用户能在 UI 上看到具体原因（ComfyUI 未启动、工作流 JSON 缺失、参数落点不存在……）。
 - **`build_prompt` 落点校验**：参数落点不存在直接判失败，不提交一个参数没生效的图。
+- **编辑先上传参考图**：`_execute()` 用 `POST /upload/image` 把参考图送进 ComfyUI 的 `input/`，拿回 `name` 再写进 `LoadImage.image`。这样 ComfyUI 与 MiraForge 的存储互不依赖路径，重启后也能重跑。
 
 产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `storage/images/{generation_id}/{task_id}_{i}.png` → 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
+
+缩略图是**首次请求时生成**的：`GET /images/{id}/thumbnail` 若 `thumbnail_path` 为空就用 Pillow 转 480px JPEG 写盘并回填数据库，之后一直走磁盘缓存（响应带 immutable 的 `Cache-Control`）。删除图片时原图与缩略图一起删。
+
+## 前端结构
+
+| 位置 | 作用 |
+| --- | --- |
+| `app/page.tsx` | 生成页：左表单 + 生成记录，右健康状态与阶段进度 |
+| `app/gallery/page.tsx` | 画廊页：缩略图网格、分页、下载/删除/用作参考图 |
+| `components/GenerationForm.tsx` | 提示词、比例×长边面板、文生图/图片编辑切换、参考图卡片、数量 |
+| `components/GenerationList.tsx` | 记录列表 + 展开详情（每 task 的 seed/进度/取消/重试、产物图墙） |
+| `components/GalleryGrid.tsx` | 画廊网格与分页 |
+| `stores/reference.ts` | Zustand：当前参考图（文件或画廊图），以及"跳到编辑模式"的一次性标记 |
+| `hooks/useTaskEvents.ts` | 订阅 `/ws/tasks`，收到事件后节流 invalidate React Query |
+
+跨页面的唯一共享状态是"用作参考图"：画廊里点按钮 → 写 store（`autoEdit=true`）→ 跳回 `/` → 表单消费标记并自动切到编辑模式。
 
 ## 模型注册表
 
@@ -117,10 +138,18 @@ models:
 - `/health` **永不返回 5xx**：用 `status=ok|degraded|error` 表达各依赖健康度，让前端能显示"ComfyUI 掉了"而不是整页崩。
 - CORS 只放行 `FRONTEND_ORIGIN`。
 
-## 当前阶段的边界
+## 一期的完成状态
 
-P1 已实现：配置、迁移、四张表、注册表解析、创建记录（含校验与参数回落）、查询接口、WebSocket 握手、健康检查、前端表单与列表。
+P1：配置、迁移、四张表、注册表解析、创建记录（含校验与参数回落）、查询接口、WebSocket 握手、健康检查、前端表单与列表。
 
-P2 已实现：四个 API 格式工作流 JSON + 参数绑定 YAML、`prompt_builder`、`comfyui_client`、`generation_worker`、图片落盘、`/images` 接口、WS 事件广播、真实出图。
+P2：四个 API 格式工作流 JSON + 参数绑定 YAML、`prompt_builder`、`comfyui_client`、`generation_worker`、图片落盘、`/images` 接口、WS 事件广播、真实出图。
 
-未实现（刻意留到后续阶段）：缩略图、`POST /generations/edit` 上传参考图、取消与重试、断线恢复、画廊页面（P5）。图片编辑任务在 P2 会被 Worker 判失败并给出明确原因——宁可失败得清楚，也不假装支持。
+P3：`GenerationSummary.progress`（任务进度均值）、生成记录展开详情（每 task 的 seed 与进度）、比例 × 长边尺寸面板、图片墙。
+
+P4：`POST /generations/edit`（multipart）、参考图上传到 ComfyUI、`GET /generations/{id}/reference`、`reference_image_path` 列（迁移 `0002`）、编辑链路真实出图。
+
+P5：Pillow 缩略图与缓存、`DELETE /images/{id}`、画廊页与分页、Zustand 参考图 store、"用作参考图"跨页跳转。
+
+P6：任务取消（含 `POST /interrupt`）、任务重试（同记录下追加新 seed）、启动时残留任务复位、前端实时刷新（WS + 轮询）、`_set_task`/`_fail` 的取消竞态防护。
+
+二期（视频）不在当前代码范围内。
