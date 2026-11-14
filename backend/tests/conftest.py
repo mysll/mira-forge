@@ -18,6 +18,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{(TMP_DIR / 'test.db').as_posix()}"
 os.environ["STORAGE_DIR"] = (TMP_DIR / "storage").as_posix()
 os.environ["AUTO_MIGRATE"] = "true"
 os.environ["FRONTEND_ORIGIN"] = "http://127.0.0.1:3000"
+# 关键：测试绝不启动后台 worker，否则会把测试任务真的提交给 ComfyUI
+os.environ["WORKER_ENABLED"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

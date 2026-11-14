@@ -6,12 +6,13 @@ P1 只负责「校验 + 落库」：生成 N 条 pending 任务，不触碰 Comf
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.generation import Generation, GenerationType
+from app.models.generation import Generation, GenerationStatus, GenerationType
 from app.models.task import GenerationTask, TaskStatus
 from app.models.workflow import Workflow
 from app.schemas.generation import GenerationCreate
@@ -19,9 +20,29 @@ from app.services import workflow_service
 
 MAX_SEED = 2**31 - 1
 
+_ACTIVE = {TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.RUNNING}
+
 
 class GenerationValidationError(ValueError):
     """请求本身合法（通过 Pydantic）但业务上不成立。"""
+
+
+def aggregate_generation_status(statuses: Sequence[str]) -> GenerationStatus:
+    """由子任务状态推出整体状态：还有活跃任务就跟着它，全终态再判成败。"""
+    if not statuses:
+        return GenerationStatus.PENDING
+    active = [status for status in statuses if status in _ACTIVE]
+    if active:
+        if TaskStatus.RUNNING in active:
+            return GenerationStatus.RUNNING
+        if TaskStatus.QUEUED in active:
+            return GenerationStatus.QUEUED
+        return GenerationStatus.PENDING
+    if all(status == TaskStatus.COMPLETED for status in statuses):
+        return GenerationStatus.COMPLETED
+    if all(status == TaskStatus.CANCELLED for status in statuses):
+        return GenerationStatus.CANCELLED
+    return GenerationStatus.FAILED
 
 
 def _distinct_seeds(count: int) -> list[int]:

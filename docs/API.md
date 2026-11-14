@@ -45,21 +45,24 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 {
   "items": [
     {
-      "id": "qwen_image_21",
-      "label": "Qwen Image 2.1",
-      "description": "Qwen Image 2.1 int8，25 步标准采样…",
-      "defaults": { "steps": 25, "cfg": 1.0, "sampler": "euler", "scheduler": "simple", "denoise": 1.0, "width": 1024, "height": 1024 },
-      "capabilities": { "exposes_steps": true, "exposes_cfg": true, "exposes_sampler": true },
+      "id": "qwen_image_21_turbo",
+      "label": "Qwen Image 2.1 Turbo",
+      "description": "8 步蒸馏版，速度优先；步数由固定 sigma 表决定，不可调",
+      "defaults": { "steps": 8, "cfg": 1.0, "sampler": "euler", "denoise": 1.0, "width": 1024, "height": 1024 },
+      "capabilities": { "exposes_steps": false, "exposes_cfg": false, "exposes_sampler": false },
       "workflows": [
-        { "type": "text_to_image", "label": "文生图", "json_path": "workflows/qwen_image_21_t2i.json", "config_path": "workflow_configs/qwen_image_21_t2i.yaml", "validated": false, "available": false }
+        { "type": "text_to_image", "label": "文生图", "json_path": "D:/AI/MiraForge/backend/workflows/qwen_image_21_turbo_t2i.json", "config_path": "D:/AI/MiraForge/backend/workflow_configs/qwen_image_21_turbo_t2i.yaml", "validated": true, "available": true }
       ],
-      "available": false
+      "available": true,
+      "is_default": true
     }
   ]
 }
 ```
 
-`available` 反映该模型至少有一种可用工作流；P1 阶段 JSON 未落地，因此为 `false`。
+- `available`：该模型至少一种工作流的 JSON 落地了。
+- `is_default`：前端下拉默认选中项（对应 `registry.yaml` 的 `default: true`）。
+- `validated`：该工作流是否真实跑通过（`qwen_image_21` 与 `qwen_image_21_turbo` 的文生图均为 `true`；编辑类待 P4）。
 
 ### `GET /models/{model_id}`
 
@@ -74,7 +77,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 ```json
 {
   "items": [
-    { "id": 1, "name": "Qwen Image 2.1", "type": "text_to_image", "json_path": "workflows/qwen_image_21_t2i.json", "config_path": "workflow_configs/qwen_image_21_t2i.yaml", "enabled": false }
+    { "id": 1, "name": "Qwen Image 2.1", "type": "text_to_image", "json_path": "D:/AI/MiraForge/backend/workflows/qwen_image_21_t2i.json", "config_path": "D:/AI/MiraForge/backend/workflow_configs/qwen_image_21_t2i.yaml", "enabled": true }
   ]
 }
 ```
@@ -83,7 +86,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 ### `POST /generations`
 
-只入库排队，**不在此请求内生成图片**。返回 `201`。
+只入库排队，**不在此请求内生成图片**。返回 `201`；随后 Worker 串行接管，前台轮询 `GET /generations/{id}` 或订阅 WS 观察进度。
 
 ```json
 {
@@ -104,25 +107,41 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | `width` / `height` | 否 | 64–4096；缺省回落到模型 defaults。**image_edit 会被忽略并记为 null** |
 | `count` | 否 | 1–`MAX_GENERATION_COUNT`（默认 8），每张独立 task + 独立 seed |
 
-响应（`GenerationRead`，含全部子任务）：
+响应（`GenerationRead`，含全部子任务；`model_name` 是模型 **id**，不是 label）：
 
 ```json
 {
-  "id": 1,
-  "prompt": "a copper automaton …",
-  "model_name": "Qwen Image 2.1",
+  "id": 3,
+  "prompt": "a ceramic fox in a rain-soaked neon alley, cinematic",
+  "model_name": "qwen_image_21_turbo",
   "generation_type": "text_to_image",
   "width": 1024,
   "height": 1024,
-  "requested_count": 4,
+  "requested_count": 2,
   "status": "pending",
-  "created_at": "2026-11-14T07:51:03Z",
+  "created_at": "2026-11-14T08:20:03Z",
   "completed_at": null,
   "tasks": [
-    { "id": 1, "seed": 545756017, "status": "pending", "progress": 0, "comfy_prompt_id": null, "error_message": null, "started_at": null, "completed_at": null }
+    { "id": 7, "seed": 1736329652, "status": "pending", "progress": 0, "comfy_prompt_id": null, "error_message": null, "started_at": null, "completed_at": null }
   ]
 }
 ```
+
+执行完成后同一端点返回：
+
+```json
+{
+  "status": "completed",
+  "completed_at": "2026-11-14T08:20:15Z",
+  "tasks": [
+    { "id": 7, "status": "completed", "progress": 100, "comfy_prompt_id": "f9c1…", "error_message": null,
+      "started_at": "2026-11-14T08:20:04Z", "completed_at": "2026-11-14T08:20:09Z" }
+  ]
+}
+```
+
+失败时 `status` 为 `failed`，`error_message` 是中文原因（例如未接入参考图时的
+`图片编辑需要参考图，将在 P4 开放（当前仅支持文生图）`）。
 
 校验失败示例：
 
@@ -153,7 +172,40 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 { "id": 1, "seed": 545756017, "status": "pending", "progress": 0, "comfy_prompt_id": null, "error_message": null, "started_at": null, "completed_at": null }
 ```
 
-`progress` 为 0–100 的整数；P2 起由 ComfyUI 的 `progress` 事件驱动。
+`progress` 为 0–100 的整数：`1` 表示已提交 ComfyUI，之后由 `progress` 事件推进到 99，完成时置 100。
+
+## 图片
+
+### `GET /images?limit=20&offset=0&generation_id=3`
+
+按 `id` 倒序返回产物。`generation_id` 可选，用于取某次生成的全部图片。
+
+```json
+{
+  "items": [
+    { "id": 6, "task_id": 7, "generation_id": 3, "file_path": "images/3/7_0.png",
+      "thumbnail_path": null, "original_image_id": null,
+      "width": 1024, "height": 1024, "file_size": 1767626, "created_at": "2026-11-14T08:20:09Z" }
+  ],
+  "total": 1, "limit": 20, "offset": 0
+}
+```
+
+`file_path` 相对 `STORAGE_DIR`，因此项目目录可整体搬迁。
+
+### `GET /images/{id}`
+
+返回单个 `ImageRead`；不存在 `404`。
+
+### `GET /images/{id}/file`
+
+返回原始 PNG（`image/png`，`Content-Disposition: attachment`）。可直接作为 `<img src>`：
+
+```html
+<img src="http://127.0.0.1:8000/api/v1/images/6/file" />
+```
+
+文件在磁盘上缺失时返回 `404` 并说明缺失的 `file_path`。
 
 ## WebSocket
 
@@ -162,10 +214,16 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 握手后立即收到：
 
 ```json
-{ "type": "connected", "active_tasks": 0 }
+{ "type": "connected", "active_tasks": 2 }
 ```
 
-P1 只做连接维持；P2 起广播 `{"type": "task.progress" | "task.completed" | "task.failed", "task_id": …, "progress": …}`。
+之后每次任务状态变化推送一条：
+
+```json
+{ "type": "task.updated", "data": { "id": 7, "generation_id": 3, "seed": 1736329652, "status": "running", "progress": 38, "comfy_prompt_id": "f9c1…", "error_message": null, "started_at": "…", "completed_at": null } }
+```
+
+`data` 结构与 `GET /tasks/{id}` 相同；一次生成通常产生 `queued → running(多个进度) → completed` 若干条。
 
 ## 尚未实现（后续阶段）
 
@@ -174,5 +232,5 @@ P1 只做连接维持；P2 起广播 `{"type": "task.progress" | "task.completed
 | `POST /generations/edit`（multipart 上传参考图） | P4 |
 | `POST /tasks/{id}/retry` | P6 |
 | `POST /tasks/{id}/cancel` | P6 |
-| `GET /images`、`DELETE /images/{id}` | P3/P5 |
-| `GET /images/{id}/file`、`/thumbnail` | P3/P5 |
+| `DELETE /images/{id}` | P5 |
+| `GET /images/{id}/thumbnail`（缩略图） | P5 |

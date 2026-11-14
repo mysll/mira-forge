@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # 任务
     max_generation_count: int = 8
     worker_concurrency: int = 1
+    # 后台 worker 是否随应用启动（测试置 false，避免真的去碰 ComfyUI）
+    worker_enabled: bool = True
 
     # 启动时自动执行 alembic upgrade head（测试可关闭）
     auto_migrate: bool = True

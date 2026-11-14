@@ -47,6 +47,7 @@ class ModelInfo(BaseModel):
     capabilities: ModelCapabilities
     workflows: list[WorkflowTarget]
     available: bool
+    is_default: bool = False
 
 
 class ModelListResponse(BaseModel):

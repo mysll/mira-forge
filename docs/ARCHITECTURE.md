@@ -11,9 +11,10 @@ Next.js (3000)  ── 只与 FastAPI 通信，不知道 ComfyUI 的存在
   ▼
 FastAPI (8000)
   ├─ api/ 同步端点：校验 → 写库 → 立即返回"任务已排队"
-  ├─ services/ 注册表解析、参数回落、记录创建
-  └─ workers/（P2）单 Worker 取 pending task → 提交 ComfyUI → 轮询/WS → 落盘
-  │  httpx
+  ├─ services/ 注册表解析、参数回落、记录创建、参数注入、图片落盘
+  ├─ workers/ 单协程 Worker：取 pending → 提交 ComfyUI → 收进度 → 下载产物
+  └─ core/events.py 向浏览器 WS 广播 task.updated
+  │  httpx / websockets
   ▼
 ComfyUI (8188)  ── 只有 Worker 访问
   │
@@ -69,9 +70,25 @@ pending ──► queued ──► running ──► completed
    └───────────┴──────────┴──► failed / cancelled
 ```
 
-P1 只会产生 `pending`（没有 Worker 消费）。P2 起由 Worker 推进；`pending → queued` 在取任务时发生，`running` 对应已提交 ComfyUI 且收到首个进度事件。
+P1 只会产生 `pending`（没有 Worker 消费）。P2 起由 Worker 推进：`pending → queued` 在 `_claim_pending()` 取任务时落库，`running` 表示已拿到 `prompt_id`；`progress` 由 ComfyUI 的 `progress` 事件写 1–99，`completed` 写 100 并回填 `images` 行。
 
-Derived：`Generation.status` 由子任务聚合——全部 completed 才算 completed，任一 failed 且无运行中任务即 failed。
+Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`）——还有活跃任务就跟随它（running > queued > pending），全部终态后：全 completed → completed，全 cancelled → cancelled，否则 failed。终态时写 `completed_at`。
+
+## Worker 实现要点
+
+`app/workers/generation_worker.py`，随 lifespan 启动/停止（`WORKER_ENABLED=false` 可关，测试就是这样关掉的）。
+
+一轮：`_claim_pending()`（取最小 id 的 pending，改 queued）→ `_build_plan()`（组装 API 图）→ `submit()` → `_wait_for_history()` → 下载 → 写 `images` → 更新状态并广播。
+
+几个刻意的选择：
+
+- **进度走 WS，结果以 `/history` 为准**：WS 只用来做进度条，断线/丢消息不影响正确性；`_wait_for_history()` 每秒轮询一次 `/history/{prompt_id}`，直到出现记录或 30 分钟超时。
+- **`client_id` 全程一致**：ComfyUI 按 `client_id` 把进度事件路由给提交者，所以 `submit` 和 `progress_messages` 用同一个实例字段。
+- **进度写库有节流**（`PROGRESS_MIN_STEP=2`）：ComfyUI 每步都发事件，不做节流会把 SQLite 写爆。
+- **失败写 `error_message` 而非抛异常**：任务状态是唯一真相，用户能在 UI 上看到"图片编辑需要参考图，将在 P4 开放"这样的具体原因。
+- **`build_prompt` 落点校验**：参数落点不存在直接判失败，不提交一个参数没生效的图。
+
+产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `storage/images/{generation_id}/{task_id}_{i}.png` → 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
 
 ## 模型注册表
 
@@ -79,16 +96,17 @@ Derived：`Generation.status` 由子任务聚合——全部 completed 才算 co
 
 ```yaml
 models:
-  qwen_image_21:
-    label: "Qwen Image 2.1"
-    defaults: { steps: 25, cfg: 1.0, sampler: euler, scheduler: simple, denoise: 1.0, width: 1024, height: 1024 }
-    capabilities: { exposes_steps: true, exposes_cfg: true, exposes_sampler: true }
+  - id: qwen_image_21_turbo
+    label: "Qwen Image 2.1 Turbo"
+    default: true            # 前端下拉默认选中它
+    defaults: { steps: 8, cfg: 1.0, sampler: euler, denoise: 1.0, width: 1024, height: 1024 }
+    capabilities: { exposes_steps: false, exposes_cfg: false, exposes_sampler: false }
     workflows:
-      - { type: text_to_image, json: workflows/qwen_image_21_t2i.json, config: workflow_configs/qwen_image_21_t2i.yaml, validated: false }
-      - { type: image_edit,   json: workflows/qwen_image_21_edit.json, config: workflow_configs/qwen_image_21_edit.yaml, validated: true }
+      - { type: text_to_image, json: workflows/qwen_image_21_turbo_t2i.json, config: workflow_configs/qwen_image_21_turbo_t2i.yaml, validated: true }
 ```
 
 - `capabilities` 控制前端**显示哪些控件**，避免出现"调了不生效"的假参数。Turbo 的步数由固定 sigma 表决定，因此 `exposes_steps: false`。
+- `default` 标记默认模型；没有标记时前端取第一个。
 - `validated` 记录该工作流是否被真实执行过；`available` 由 JSON 文件是否存在决定。
 - 启动时 `sync_workflows()` 幂等 upsert 进 `workflows` 表。
 
@@ -99,8 +117,10 @@ models:
 - `/health` **永不返回 5xx**：用 `status=ok|degraded|error` 表达各依赖健康度，让前端能显示"ComfyUI 掉了"而不是整页崩。
 - CORS 只放行 `FRONTEND_ORIGIN`。
 
-## P1 的边界
+## 当前阶段的边界
 
-已实现：配置、迁移、四张表、注册表解析、创建记录（含校验与参数回落）、查询接口、WebSocket 握手、健康检查、前端表单与列表。
+P1 已实现：配置、迁移、四张表、注册表解析、创建记录（含校验与参数回落）、查询接口、WebSocket 握手、健康检查、前端表单与列表。
 
-未实现（刻意留到 P2+）：Worker、ComfyUI 提交与轮询、图片落盘与缩略图、上传参考图、真实工作流 JSON、画廊。
+P2 已实现：四个 API 格式工作流 JSON + 参数绑定 YAML、`prompt_builder`、`comfyui_client`、`generation_worker`、图片落盘、`/images` 接口、WS 事件广播、真实出图。
+
+未实现（刻意留到后续阶段）：缩略图、`POST /generations/edit` 上传参考图、取消与重试、断线恢复、画廊页面（P5）。图片编辑任务在 P2 会被 Worker 判失败并给出明确原因——宁可失败得清楚，也不假装支持。

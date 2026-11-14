@@ -28,7 +28,7 @@ models:
         label: 文生图
         json: workflows/qwen_image_21_t2i.json
         config: workflow_configs/qwen_image_21_t2i.yaml
-        validated: false
+        validated: true
       - type: image_edit
         label: 图片编辑
         json: workflows/qwen_image_21_edit.json
@@ -38,6 +38,7 @@ models:
   - id: qwen_image_21_turbo
     label: Qwen Image 2.1 Turbo
     description: 8 步蒸馏版，速度优先；步数由固定 sigma 表决定，不可调
+    default: true
     defaults:
       steps: 8
       cfg: 1.0
@@ -54,7 +55,7 @@ models:
         label: 文生图
         json: workflows/qwen_image_21_turbo_t2i.json
         config: workflow_configs/qwen_image_21_turbo_t2i.yaml
-        validated: false
+        validated: true
       - type: image_edit
         label: 图片编辑
         json: workflows/qwen_image_21_turbo_edit.json

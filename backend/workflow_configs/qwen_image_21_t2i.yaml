@@ -1,0 +1,18 @@
+# Qwen Image 2.1 文生图（KSampler，25 步）
+#
+# 键 = MiraForge 参数名，值 = 图里的落点 {node, input}。
+# node 是 workflows/qwen_image_21_t2i.json 里的节点 id；input 必须是该节点真实存在的输入。
+output_node: "9"
+
+bindings:
+  prompt: { node: "5", input: prompt }
+  negative_prompt: { node: "5", input: negative_prompt }
+  width: { node: "6", input: width }
+  height: { node: "6", input: height }
+  seed: { node: "7", input: seed }
+  steps: { node: "7", input: steps }
+  cfg: { node: "7", input: cfg }
+  sampler: { node: "7", input: sampler_name }
+  scheduler: { node: "7", input: scheduler }
+  denoise: { node: "7", input: denoise }
+  filename_prefix: { node: "9", input: filename_prefix }

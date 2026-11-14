@@ -15,6 +15,7 @@ from app.core.events import manager
 from app.core.migrations import upgrade_to_head
 from app.models.database import SessionLocal
 from app.services.workflow_service import sync_workflows
+from app.workers.generation_worker import start_worker, stop_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("miraforge")
@@ -31,8 +32,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     with SessionLocal() as db:
         written = sync_workflows(db)
     logger.info("工作流注册表同步完成，共 %s 条", written)
+    if settings.worker_enabled:
+        start_worker()
+        logger.info("生成 worker 已随应用启动")
+    else:
+        logger.info("生成 worker 未启动（WORKER_ENABLED=false）")
     logger.info("MiraForge 后端就绪 http://%s:%s", settings.app_host, settings.app_port)
-    yield
+    try:
+        yield
+    finally:
+        await stop_worker()
 
 
 app = FastAPI(
@@ -65,13 +74,26 @@ def root() -> dict[str, str]:
 
 @app.websocket("/api/v1/ws/tasks")
 async def tasks_websocket(websocket: WebSocket) -> None:
-    """任务事件通道。P1 只握手并回一条 connected；P2 起由 worker 广播状态变更。"""
+    """任务事件通道：连接成功后推送 task.updated 事件。"""
     await manager.connect(websocket)
     try:
-        await websocket.send_json({"type": "connected", "active_tasks": 0})
+        await websocket.send_json({"type": "connected", "active_tasks": _active_task_count()})
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
     finally:
         await manager.disconnect(websocket)
+
+
+def _active_task_count() -> int:
+    from sqlalchemy import func, select
+
+    from app.models.task import GenerationTask, TaskStatus
+
+    with SessionLocal() as db:
+        return db.scalar(
+            select(func.count())
+            .select_from(GenerationTask)
+            .where(GenerationTask.status.in_([TaskStatus.QUEUED, TaskStatus.RUNNING]))
+        ) or 0

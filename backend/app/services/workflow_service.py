@@ -36,9 +36,12 @@ class _WorkflowSpec(BaseModel):
 
 
 class _ModelSpec(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     label: str
     description: str = ""
+    is_default: bool = Field(default=False, alias="default")
     defaults: dict[str, Any] = Field(default_factory=dict)
     capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
     workflows: list[_WorkflowSpec] = Field(default_factory=list)
@@ -83,6 +86,7 @@ def _to_model_info(spec: _ModelSpec) -> ModelInfo:
         capabilities=spec.capabilities,
         workflows=targets,
         available=any(target.available for target in targets),
+        is_default=spec.is_default,
     )
 
 

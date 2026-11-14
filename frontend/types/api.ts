@@ -47,6 +47,7 @@ export type ModelInfo = {
   capabilities: ModelCapabilities;
   workflows: WorkflowTarget[];
   available: boolean;
+  is_default: boolean;
 };
 
 export type GenerationType = "text_to_image" | "image_edit";
@@ -106,4 +107,24 @@ export type GenerationCreatePayload = {
   width?: number;
   height?: number;
   count: number;
+};
+
+export type ImageRead = {
+  id: number;
+  task_id: number | null;
+  generation_id: number | null;
+  file_path: string;
+  thumbnail_path: string | null;
+  original_image_id: number | null;
+  width: number;
+  height: number;
+  file_size: number;
+  created_at: string;
+};
+
+export type ImageListResponse = {
+  items: ImageRead[];
+  total: number;
+  limit: number;
+  offset: number;
 };

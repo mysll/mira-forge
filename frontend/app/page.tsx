@@ -16,7 +16,7 @@ export default function HomePage() {
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-100">MiraForge</h1>
           <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-            P1 骨架
+            P2 出图闭环
           </span>
         </div>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
@@ -47,9 +47,9 @@ export default function HomePage() {
           <section className="card">
             <h2 className="mb-3 text-sm font-semibold tracking-wide text-slate-200">阶段进度</h2>
             <ol className="space-y-1.5 text-[11px] text-slate-500">
-              <li className="text-emerald-400">P1 初始化 · 进行中</li>
-              <li>P2 ComfyUI 集成（真实出图）</li>
-              <li>P3 多图批量</li>
+              <li className="text-emerald-400">P1 初始化 · 完成</li>
+              <li className="text-emerald-400">P2 ComfyUI 集成（真实出图）· 完成</li>
+              <li className="text-slate-300">P3 多图批量 · 待开始</li>
               <li>P4 图片编辑</li>
               <li>P5 前端画廊 / 历史</li>
               <li>P6 稳定性</li>

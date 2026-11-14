@@ -2,7 +2,7 @@
 
 本地 AI 图片生成与编辑平台。浏览器 → Next.js → FastAPI → 单 GPU Worker → ComfyUI，生成结果落本地磁盘，元数据落 SQLite。
 
-一期只做**图片生成与编辑**（视频为二期）。当前进度：**P1 初始化完成**（骨架可运行、可测试、可持久化），尚未接入真实出图。
+一期只做**图片生成与编辑**（视频为二期）。当前进度：**P2 完成**——文生图已打通真实出图闭环（提交 ComfyUI → 进度回传 → 产物落盘 → 可访问），图片编辑留到 P4。
 
 ## 技术栈
 
@@ -40,17 +40,17 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health | ConvertTo-Json -Depth 5
 
 ```
 backend/            FastAPI 应用
-  app/api/          HTTP 端点（health / models / workflows / generations / tasks）
+  app/api/          HTTP 端点（health / models / workflows / generations / tasks / images）
   app/core/         配置、WebSocket 广播、Alembic 迁移入口
   app/models/       SQLAlchemy 模型（workflows / generations / generation_tasks / images）
   app/schemas/      Pydantic 响应与请求模型
-  app/services/     注册表解析、生成记录创建
-  app/workers/      任务执行（P2 落地）
+  app/services/     注册表、生成记录、参数注入、ComfyUI 客户端、图片落盘
+  app/workers/      generation_worker —— 串行消费任务、驱动 ComfyUI
   alembic/          迁移脚本
-  workflow_configs/ registry.yaml —— 模型目录唯一数据源
-  workflows/        ComfyUI API 格式工作流 JSON（P2 落地）
+  workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
+  workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-storage/            images / thumbnails / uploads
+storage/            images / thumbnails / uploads（产物）
 data/               app.db
 docs/               架构、API、工作流映射、开发说明
 ```
@@ -68,10 +68,10 @@ docs/               架构、API、工作流映射、开发说明
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | P1 | 前后端骨架、SQLite、健康检查、任务入库 | ✅ 完成 |
-| P2 | ComfyUI 集成，Qwen Image 2.1 真实出图 | 待开始 |
+| P2 | ComfyUI 集成，Qwen Image 2.1 / Turbo 真实出图、进度回传、产物落盘 | ✅ 完成 |
 | P3 | 多图批量（1/2/4/6/8，独立 seed，串行） | 待开始 |
 | P4 | 图片编辑（上传参考图） | 待开始 |
 | P5 | 前端画廊 / 历史 / 预览 | 待开始 |
 | P6 | 取消、重试、失败恢复、稳定性 | 待开始 |
 
-> 每个阶段结束时都必须能真实跑通并手动验证；P1 的"生成"只入库为 `pending`，不会产出图片——这是刻意的边界，不是缺陷。
+> 每个阶段结束时都必须能真实跑通并手动验证。P2 起，`POST /generations` 返回 `pending` 后由 Worker 接手，约 4–12 秒后图片出现在 `storage/images/`，可通过 `GET /api/v1/images/{id}/file` 访问。

@@ -3,6 +3,7 @@ import type {
   GenerationListResponse,
   GenerationRead,
   HealthResponse,
+  ImageListResponse,
   ModelInfo,
 } from "@/types/api";
 
@@ -66,4 +67,21 @@ export function createGeneration(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function fetchImages(params?: {
+  limit?: number;
+  generationId?: number;
+}): Promise<ImageListResponse> {
+  const search = new URLSearchParams();
+  search.set("limit", String(params?.limit ?? 20));
+  if (params?.generationId !== undefined) {
+    search.set("generation_id", String(params.generationId));
+  }
+  return request<ImageListResponse>(`/images?${search.toString()}`);
+}
+
+/** 图片原始文件的绝对地址，用于 <img src>。 */
+export function imageFileUrl(imageId: number): string {
+  return `${API_BASE}/images/${imageId}/file`;
 }

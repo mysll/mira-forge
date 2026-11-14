@@ -1,0 +1,21 @@
+# Qwen Image 2.1 图片编辑（参考图 → 编码器 latent → KSampler，25 步）
+#
+# 没有 width/height 绑定：编辑的潜空间来自参考图编码结果，宽高不参与计算。
+output_node: "9"
+
+reference_image:
+  loader_node: "1"
+  loader_input: image
+  encoder_node: "6"
+  encoder_input: images.image_1
+
+bindings:
+  prompt: { node: "6", input: prompt }
+  negative_prompt: { node: "6", input: negative_prompt }
+  seed: { node: "7", input: seed }
+  steps: { node: "7", input: steps }
+  cfg: { node: "7", input: cfg }
+  sampler: { node: "7", input: sampler_name }
+  scheduler: { node: "7", input: scheduler }
+  denoise: { node: "7", input: denoise }
+  filename_prefix: { node: "9", input: filename_prefix }

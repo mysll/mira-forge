@@ -15,7 +15,9 @@ type Props = {
 export function GenerationForm({ models }: Props) {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
-  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [modelId, setModelId] = useState(
+    () => models.find((model) => model.is_default)?.id ?? models[0]?.id ?? "",
+  );
   const [generationType, setGenerationType] = useState<GenerationType>("text_to_image");
   const [width, setWidth] = useState(1024);
   const [height, setHeight] = useState(1024);

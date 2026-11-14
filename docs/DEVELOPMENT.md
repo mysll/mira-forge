@@ -20,10 +20,12 @@
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest        # 13 项，约 3 秒
+.\.venv\Scripts\python.exe -m pytest        # 27 项，约 3 秒
 ```
 
 测试使用独立的临时库 `backend/.pytest-tmp/test.db`（在 `conftest.py` 里于 import app 之前设定 `DATABASE_URL`），**不会污染** `data/app.db`。
+
+`conftest.py` 还强制 `WORKER_ENABLED=false`：否则 TestClient 会触发 lifespan，把测试任务真的提交给本机 ComfyUI（第一版就踩到了，ComfyUI 队列里出现了一条测试 prompt）。
 
 前端类型检查：
 
@@ -54,6 +56,7 @@ npx tsc --noEmit
 | `STORAGE_DIR` | `./storage` | 同上 |
 | `MAX_GENERATION_COUNT` | `8` | 单次请求上限 |
 | `WORKER_CONCURRENCY` | `1` | 保持 1，单卡串行 |
+| `WORKER_ENABLED` | `true` | 是否随应用启动生成 Worker（测试/调试置 `false`） |
 | `APP_HOST` / `APP_PORT` | `127.0.0.1` / `8000` | |
 | `FRONTEND_ORIGIN` | `http://127.0.0.1:3000` | CORS 白名单 |
 | `AUTO_MIGRATE` | `true` | 启动时自动 `alembic upgrade head` |
@@ -66,11 +69,32 @@ npx tsc --noEmit
 
 不需要改 Python 代码，只改数据：
 
-1. 在 `backend/workflow_configs/registry.yaml` 的 `models:` 下加条目（id / label / description / defaults / capabilities / workflows）。
+1. 在 `backend/workflow_configs/registry.yaml` 的 `models:` 下加条目（id / label / description / defaults / capabilities / workflows，`default: true` 可标记默认模型）。
 2. 放两个工作流 JSON 到 `backend/workflows/`，路径与 `workflows[].json` 一致。
-3. 重启后端（或刷新页面）——`/models` 每次请求都重读 YAML，`available` 由 JSON 是否存在决定。
+3. 为每个工作流写 `backend/workflow_configs/<name>.yaml`：`output_node` + `bindings` +（编辑类）`reference_image`。
+4. 重启后端（或刷新页面）——`/models` 每次请求都重读 YAML，`available` 由 JSON 是否存在决定。
 
 新增工作流 JSON 的内容依据见 [WORKFLOW_MAPPING.md](WORKFLOW_MAPPING.md)，**不要凭印象填节点 ID**。
+
+## 调试生成链路
+
+```powershell
+# 1. 看 ComfyUI 是否在线
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health | ConvertTo-Json -Depth 5
+
+# 2. 提交一次生成
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/generations `
+  -ContentType application/json `
+  -Body '{"prompt":"a glass lighthouse at dusk","model":"qwen_image_21_turbo","count":1}'
+
+# 3. 轮询结果（Worker 串行执行，通常几秒）
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/generations/5 | ConvertTo-Json -Depth 6
+
+# 4. 取图
+Start-Process http://127.0.0.1:8000/api/v1/images/1/file
+```
+
+Worker 出错时先看后端日志（`logger "miraforge.worker"`），任务的 `error_message` 会保存同一句原因。
 
 ## 数据库迁移
 
