@@ -30,6 +30,7 @@ const click = arg("click", "");
 const prompt = arg("prompt", "");
 const file = arg("file", "");
 const submit = arg("submit", "");
+const evaluate = arg("eval", "");
 const wait = Number(arg("wait", "2500"));
 const port = Number(arg("port", "9222"));
 
@@ -177,6 +178,15 @@ try {
     const result = await send("Runtime.evaluate", { expression, returnByValue: true });
     console.log(`submit ${submit}: ${result.result?.value}`);
     await sleep(2000);
+  }
+
+  if (evaluate) {
+    const result = await send("Runtime.evaluate", {
+      expression: evaluate,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    console.log(`eval: ${JSON.stringify(result.result?.value ?? result.exceptionDetails?.text ?? null)}`);
   }
 
   const shot = await send("Page.captureScreenshot", { format: "png" });
