@@ -31,6 +31,18 @@ from app.services.image_service import (
 
 router = APIRouter(prefix="/generations", tags=["generations"])
 
+_VIDEO_TYPES = ("text_to_video", "image_to_video")
+_IMAGE_TYPES = ("text_to_image", "image_to_image", "image_edit")
+
+
+def _types_for_media(media: str | None) -> list[str] | None:
+    """把 media 参数翻成 generation_type 列表，None 表示不过滤。"""
+    if media == "video":
+        return list(_VIDEO_TYPES)
+    if media == "image":
+        return list(_IMAGE_TYPES)
+    return None
+
 
 def _overall_progress(tasks) -> int:
     """整体进度按任务数平均，避免 8 张里前 7 张完成却显示 99%。"""
@@ -285,17 +297,23 @@ def list_generations(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200),
     model: str | None = Query(default=None, description="模型 id，多个用逗号分隔"),
+    media: str | None = Query(default=None, description="image 或 video，只取该类型的批次"),
     favorite: bool = Query(default=False, description="只看含收藏图片的批次"),
     date_from: str | None = Query(default=None, description="ISO 时间，含"),
     date_to: str | None = Query(default=None, description="ISO 时间，含"),
     db: Session = Depends(get_db),
 ) -> GenerationListResponse:
     models = [item.strip() for item in model.split(",") if item.strip()] if model else None
+    if media is not None and media not in ("image", "video"):
+        raise HTTPException(
+            status_code=422, detail=f"media 只能是 image 或 video，收到 {media!r}"
+        )
     rows, total = GenerationRepository(db).list(
         limit=limit,
         offset=offset,
         q=q,
         models=models,
+        types=_types_for_media(media),
         favorites_only=favorite,
         date_from=_parse_datetime(date_from, "date_from"),
         date_to=_parse_datetime(date_to, "date_to"),

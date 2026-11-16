@@ -69,6 +69,7 @@ export function fetchGenerations(params?: {
   offset?: number;
   q?: string;
   model?: string | null;
+  media?: "image" | "video";
   favorite?: boolean;
   dateFrom?: string;
   dateTo?: string;
@@ -83,6 +84,9 @@ export function fetchGenerations(params?: {
   }
   if (params?.model) {
     search.set("model", params.model);
+  }
+  if (params?.media) {
+    search.set("media", params.media);
   }
   if (params?.favorite) {
     search.set("favorite", "true");

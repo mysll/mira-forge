@@ -191,7 +191,7 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
 
 `filename_prefix` 由 Worker 生成为 `miraforge/g{generation_id}_t{task_id}`，便于按 task 归集产物；结果通过 `GET /history/{prompt_id}` 的 `outputs[node_id].images[]` 取 `filename`/`subfolder`/`type`，再用 `GET /view` 下载。
 
-落盘路径为 `storage/images/{generation_id}/{task_id}_{序号}.png`，`images` 表记录相对路径（不带 storage 前缀），因此整个项目目录可以整体搬迁。
+落盘路径为 `storage/images/{generation_id}/{task_id}_{序号}.png`（视频进 `storage/videos/{generation_id}/{task_id}_{序号}.mp4`，封面帧在 `thumbnails/`），`images` 表记录相对路径（不带 storage 前缀），因此整个项目目录可以整体搬迁。
 
 ## 参数绑定配置
 

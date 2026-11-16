@@ -94,13 +94,18 @@ def store_image(
     frame_count: int | None = None,
     poster: bytes | None = None,
 ) -> Image:
-    """写入 storage/images/{generation_id}/{task_id}_{index}.{ext} 并登记产物行。
+    """写入 storage/{images|videos}/{generation_id}/{task_id}_{index}.{ext} 并登记产物行。
+
+    图片进 storage/images/，视频进 storage/videos/ —— 两者混在一个目录里既难清理
+    也没法用「打开文件夹」快速分辨。库里存的是相对 storage 的完整路径，
+    所以早期写在 images/ 下的视频仍然能正常读取。
 
     视频时 extension="mp4"、宽高与时长从 ComfyUI 的 metadata 传进来，
     poster 是封面帧 PNG —— 直接压成缩略图，作品流里用封面代替视频本身。
     """
     root = storage_root_for(storage_root)
-    relative = Path("images") / str(generation_id) / f"{task_id}_{index}.{extension}"
+    folder = "videos" if media_type == "video" else "images"
+    relative = Path(folder) / str(generation_id) / f"{task_id}_{index}.{extension}"
     absolute = root / relative
     try:
         absolute.parent.mkdir(parents=True, exist_ok=True)

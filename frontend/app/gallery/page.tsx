@@ -17,6 +17,14 @@ const ACTIVE = new Set(["pending", "queued", "running"]);
 const PAGE_SIZE = 60;
 const BUCKETS: DateBucket[] = ["今天", "昨天", "更早"];
 
+type MediaFilter = "all" | "image" | "video";
+
+const MEDIA_FILTERS: { value: MediaFilter; label: string }[] = [
+  { value: "all", label: "全部" },
+  { value: "image", label: "图片" },
+  { value: "video", label: "视频" },
+];
+
 type Asset = AssetRef;
 
 /**
@@ -30,6 +38,7 @@ export default function GalleryPage() {
   const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [detail, setDetail] = useState<FeedItem | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -52,13 +61,14 @@ export default function GalleryPage() {
   });
 
   const generationsQuery = useQuery({
-    queryKey: ["generations", "gallery", query, modelFilter, dateFilter, favoriteOnly, limit],
+    queryKey: ["generations", "gallery", query, modelFilter, dateFilter, favoriteOnly, mediaFilter, limit],
     queryFn: () => {
       const range = dateRangeFor(dateFilter);
       return fetchGenerations({
         limit,
         q: query.trim() || undefined,
         model: modelFilter ?? undefined,
+        media: mediaFilter === "all" ? undefined : mediaFilter,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
         dateTo: range.to,
@@ -285,6 +295,31 @@ export default function GalleryPage() {
       ) : null}
 
       <div className="scroll-thin flex-1 overflow-y-auto px-5 pb-10 pt-4">
+        <div className="mb-4 flex items-center gap-1.5">
+          {MEDIA_FILTERS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                setMediaFilter(option.value);
+                setLimit(PAGE_SIZE);
+              }}
+              className={[
+                "h-7 rounded-full border px-2.5 text-[11px] transition",
+                mediaFilter === option.value
+                  ? "border-accent/50 bg-accent/15 text-accentSoft"
+                  : "border-edge/70 bg-surface text-muted hover:text-ink",
+              ].join(" ")}
+            >
+              {option.label}
+            </button>
+          ))}
+          <span className="ml-1 text-[11px] text-muted/70">
+            {mediaFilter === "video" ? "视频" : mediaFilter === "image" ? "图片" : "图片与视频"} ·{" "}
+            {assets.length} 个产物
+          </span>
+        </div>
+
         {generationsQuery.isLoading ? (
           <p className="text-xs text-muted">正在读取资产…</p>
         ) : assets.length === 0 ? (
@@ -415,6 +450,8 @@ function AssetCard({
 }) {
   const { image, generation } = asset;
   const [loaded, setLoaded] = useState(false);
+  const isVideo = image.media_type === "video";
+  const duration = image.duration_seconds;
 
   return (
     <div
@@ -447,8 +484,31 @@ function AssetCard({
           alt={generation.prompt.slice(0, 60)}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+          className={[
+            "h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]",
+            isVideo ? "opacity-95" : "",
+          ].join(" ")}
         />
+
+        {isVideo ? (
+          <>
+            {/* 视频用播放键 + 时长标出来，缩略图本身和图片长得一样 */}
+            <span className="pointer-events-none absolute inset-0 grid place-items-center">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-black/55 text-white backdrop-blur-sm transition group-hover:scale-105">
+                <svg viewBox="0 0 24 24" className="ml-0.5 h-4 w-4" fill="currentColor" aria-hidden>
+                  <path d="M8 5.5v13l11-6.5z" />
+                </svg>
+              </span>
+            </span>
+            <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur">
+              {duration != null && duration > 0 ? `${duration.toFixed(1)} 秒` : "视频"}
+            </span>
+            <span className="pointer-events-none absolute right-2 top-2 rounded bg-accent/85 px-1.5 py-0.5 text-[10px] text-white">
+              视频
+            </span>
+          </>
+        ) : null}
+
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition group-hover:opacity-100" />
         <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2 opacity-0 transition group-hover:opacity-100">
           <span className="truncate text-[10px] text-white/85">{modelLabel ?? generation.model_name}</span>
@@ -481,9 +541,11 @@ function AssetCard({
           <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
             <StarIcon filled={image.is_favorite} />
           </CellAction>
-          <CellAction label="继续编辑" onClick={onEdit}>
-            <EditIcon />
-          </CellAction>
+          {isVideo ? null : (
+            <CellAction label="继续编辑" onClick={onEdit}>
+              <EditIcon />
+            </CellAction>
+          )}
           <CellAction label="下载" onClick={onDownload}>
             <DownloadIcon />
           </CellAction>

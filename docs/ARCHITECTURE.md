@@ -19,7 +19,7 @@ FastAPI (8000)
 ComfyUI (8188)  ── 只有 Worker 访问
   │
   ▼
-data/projects/default/{storage/images, app.db}
+data/projects/default/{storage/{images,videos}, app.db}
 ```
 
 三条不可动摇的边界：
@@ -48,7 +48,7 @@ data/projects/
   catalog.json                  项目清单（id / 名称 / 创建时间 / 激活项），原子写
   default/
     app.db                      这个项目自己的 SQLite（WAL）
-    storage/{images,thumbnails,uploads}/
+    storage/{images,videos,thumbnails,uploads}/
   p-20261116-160248-cce4/       新建的项目同样一套
 ```
 
@@ -118,7 +118,7 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 - **`build_prompt` 落点校验**：参数落点不存在直接判失败，不提交一个参数没生效的图。
 - **编辑先上传参考图**：`_execute()` 用 `POST /upload/image` 把参考图送进 ComfyUI 的 `input/`，拿回 `name` 再写进 `LoadImage.image`。这样 ComfyUI 与 MiraForge 的存储互不依赖路径，重启后也能重跑。
 
-产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `<项目>/storage/images/{generation_id}/{task_id}_{i}.png` → 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
+产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `<项目>/storage/{images|videos}/{generation_id}/{task_id}_{i}.{png|mp4}`（按 `media_type` 分目录，视频的封面帧另外压进 `thumbnails/`）→ 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
 
 缩略图是**首次请求时生成**的：`GET /images/{id}/thumbnail` 若 `thumbnail_path` 为空就用 Pillow 转 480px JPEG 写盘并回填数据库，之后一直走磁盘缓存（响应带 immutable 的 `Cache-Control`）。删除图片时原图与缩略图一起删。
 

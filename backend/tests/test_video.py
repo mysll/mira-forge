@@ -229,3 +229,80 @@ def test_video_length_snaps_to_five_plus_seventeen_k(seconds: int, expected: int
     assert frames >= 5 and (frames - 5) % 17 == 0
 
 
+
+
+def test_media_filter_separates_images_and_videos(client: TestClient) -> None:
+    image = client.post(
+        f"{API}/generations",
+        json={"prompt": "a paper boat", "model": "qwen_image_21_turbo", "count": 1},
+    )
+    assert image.status_code == 201
+    video = client.post(
+        f"{API}/generations",
+        json={
+            "prompt": "a paper boat drifting",
+            "model": "minimax_h3",
+            "generation_type": "text_to_video",
+            "duration_seconds": 3,
+            "width": 864,
+            "height": 480,
+            "count": 1,
+        },
+    )
+    assert video.status_code == 201
+
+    only_images = client.get(f"{API}/generations", params={"media": "image"})
+    only_videos = client.get(f"{API}/generations", params={"media": "video"})
+    assert only_images.status_code == 200 and only_videos.status_code == 200
+    assert all(
+        item["generation_type"] in ("text_to_image", "image_to_image", "image_edit")
+        for item in only_images.json()["items"]
+    )
+    assert all(
+        item["generation_type"] in ("text_to_video", "image_to_video")
+        for item in only_videos.json()["items"]
+    )
+    assert any(item["id"] == image.json()["id"] for item in only_images.json()["items"])
+    assert any(item["id"] == video.json()["id"] for item in only_videos.json()["items"])
+
+    bad = client.get(f"{API}/generations", params={"media": "audio"})
+    assert bad.status_code == 422
+
+
+def test_video_files_are_stored_under_videos(client: TestClient) -> None:
+    from app.core.projects import active_project
+    from app.models.database import session_for
+    from app.services.image_service import store_image
+
+    project = active_project()
+    with session_for(project) as db:
+        generation = client.post(
+            f"{API}/generations",
+            json={
+                "prompt": "a paper lantern",
+                "model": "minimax_h3",
+                "generation_type": "text_to_video",
+                "duration_seconds": 3,
+                "width": 864,
+                "height": 480,
+                "count": 1,
+            },
+        ).json()
+        image = store_image(
+            db,
+            content=b"\x00\x00\x00 ftypisom",
+            generation_id=generation["id"],
+            task_id=generation["tasks"][0]["id"],
+            index=0,
+            width=864,
+            height=480,
+            extension="mp4",
+            media_type="video",
+            duration_seconds=3.0,
+            fps=24.0,
+            frame_count=73,
+        )
+        db.commit()
+        assert image.file_path.startswith("videos/")
+        assert (project.storage_path / image.file_path).exists()
+

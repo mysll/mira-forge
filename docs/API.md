@@ -13,7 +13,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 ## 项目
 
-一个项目 = `data/projects/<id>/` 一个文件夹（`app.db` + `storage/images|thumbnails|uploads`），项目清单在 `data/projects/catalog.json`。
+一个项目 = `data/projects/<id>/` 一个文件夹（`app.db` + `storage/images|videos|thumbnails|uploads`），项目清单在 `data/projects/catalog.json`。
 
 ### `GET /projects`
 
@@ -219,6 +219,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | `limit` / `offset` | 分页，`limit` 1–100 |
 | `q` | 提示词模糊匹配（`LIKE %q%`） |
 | `model` | 模型 id，多个用逗号分隔 |
+| `media` | `image` / `video`：只要图片批次或只要视频批次；其它值 422。创作页固定传 `image`，视频页固定传 `video`，资产页按用户筛选传 |
 | `favorite` | `true` 时只返回「批次内至少有一张被收藏」的记录 |
 | `date_from` / `date_to` | ISO 时间，按 epoch 比较（避开 SQLite 时区字符差异）；非法值 422 |
 

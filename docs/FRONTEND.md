@@ -58,7 +58,7 @@
 | --- | --- |
 | `app/layout.tsx` | 两栏外壳 + Providers |
 | `app/page.tsx` | 创作页：筛选状态、数据拉取、批次扁平化、Toast，把五个图片操作交给 `hooks/useImageActions` |
-| `app/video/page.tsx` | 视频工作台：与创作页同构，但模型只取 `capabilities.media === "video"`、查询固定收在视频模型上、卡片宽度 340、单位用「条」 |
+| `app/video/page.tsx` | 视频工作台：与创作页同构，但模型只取 `capabilities.media === "video"`、查询固定 `media=video`、卡片宽度 340、单位用「条」 |
 | `app/gallery/page.tsx` | 资产页：把 `/generations` 里的 `images` 摊平成一个图片流，按 `image.created_at` 倒序、按日期分节、响应式网格 |
 | `app/settings/page.tsx` | 系统状态：后端版本、SQLite、ComfyUI 版本/连接/GPU、存储路径、生成上限 |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |
@@ -130,6 +130,7 @@
 - 分组只按日期（今天 / 昨天 / 更早），**不再按批次分块**——同一批的几张图在这里只是时间相邻的几张图；
 - 网格是 `grid-template-columns: repeat(auto-fill, minmax(168px, 1fr))`，窄屏自动降列；
 - 顶栏隐藏网格/列表切换（资产页只有网格），搜索 / 日期 / 模型 / 仅收藏照常可用；
+- 图片与视频在同一个网格里，但视频有明确标记：右上角「视频」角标、正中播放键、左下角时长；不想要混排时用网格上方的「全部 / 图片 / 视频」切换（对应 `GET /generations?media=`）；
 - 点击卡片打开与创作页同一个 `ImageDetail`；「继续编辑 / 重新生成」会把参数填回创作框并 `router.push("/")`，否则填了也没地方用。
 - 图片操作（收藏 / 下载 / 删除 / 继续编辑 / 重新生成）抽在 `hooks/useImageActions.ts`，两个页面共用一份，避免两份实现慢慢跑偏。
 

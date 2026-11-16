@@ -48,7 +48,6 @@ export default function VideoPage() {
     () => (modelsQuery.data ?? []).filter((model) => model.capabilities.media === "video"),
     [modelsQuery.data],
   );
-  const videoModelIds = useMemo(() => videoModels.map((model) => model.id), [videoModels]);
 
   // 默认落在第一个视频模型上；用户也可以在下拉里切换到「全部」
   useEffect(() => {
@@ -64,8 +63,9 @@ export default function VideoPage() {
       return fetchGenerations({
         limit,
         q: query.trim() || undefined,
-        // 视频页永远只捞视频：即使选了「全部」，也把范围收在视频模型上
-        model: modelFilter ?? (videoModelIds.length > 0 ? videoModelIds.join(",") : undefined),
+        // 视频页永远只捞视频，类型过滤比枚举模型 id 更可靠
+        media: "video",
+        model: modelFilter ?? undefined,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
         dateTo: range.to,

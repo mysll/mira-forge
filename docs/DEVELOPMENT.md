@@ -152,7 +152,7 @@ node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui-detail.png -
 ## 多项目
 
 - 清单：`data/projects/catalog.json`（`id / name / created_at / active`），写入用临时文件 + `os.replace`。
-- 每个项目：`data/projects/<id>/app.db` + `storage/{images,thumbnails,uploads}`。
+- 每个项目：`data/projects/<id>/app.db` + `storage/{images,videos,thumbnails,uploads}`。
 - 接口：`GET /projects`、`POST /projects`、`PATCH /projects/{id}`、`POST /projects/{id}/activate`、`DELETE /projects/{id}`。
 - 测试隔离：`tests/conftest.py` 把 `PROJECTS_DIR` 指到 pytest 临时目录，并让 `DATABASE_URL` / `STORAGE_DIR` 指向不存在的路径，避免把真实项目搬进临时目录。
 - 手工验证项目隔离：

@@ -85,7 +85,7 @@ frontend/           Next.js 应用
   stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）
   lib/              api · size（比例与分辨率）· date（日期分组与筛选）
 storage/            旧布局的产物目录（首次启动后被搬进 data/projects/default/storage）
-data/projects/      每个项目一个文件夹：<id>/app.db + <id>/storage/{images,thumbnails,uploads}
+data/projects/      每个项目一个文件夹：<id>/app.db + <id>/storage/{images,videos,thumbnails,uploads}
                     catalog.json 是项目清单
 docs/               架构、API、工作流映射、开发说明
 ```
@@ -114,5 +114,5 @@ docs/               架构、API、工作流映射、开发说明
 | P9 | 视频二期（MiniMax H3）：文生视频 / 图生视频（首帧 + 尾帧），独立 `/video` 工作台、音视频同出、封面帧与播放 | ✅ 完成 |
 
 > 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）与视频的生成（二期第一批）都已跑通；视频编辑、参考视频等留待后续。
-> `POST /generations` 返回 `pending` 后由 Worker 接手：图片约 3–12 秒、5 秒视频约 40–60 秒出现在 `storage/images/`（视频是 `.mp4`），可通过 `GET /api/v1/images/{id}/file` 访问。
+> `POST /generations` 返回 `pending` 后由 Worker 接手：图片约 3–12 秒写进 `storage/images/`，视频约 30–160 秒写进 `storage/videos/`（`.mp4`，封面帧在 `thumbnails/`），都能通过 `GET /api/v1/images/{id}/file` 访问。
 > 界面在 `http://127.0.0.1:3000`（`/` 图片创作、`/video` 视频、`/gallery` 资产库、`/settings` 系统状态）。

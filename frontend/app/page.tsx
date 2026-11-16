@@ -44,14 +44,21 @@ export default function WorkspacePage() {
     staleTime: 60_000,
   });
 
+  // 创作页只处理图片，视频模型在 /video 里；模型目录本身是共用的
+  const imageModels = useMemo(
+    () => (modelsQuery.data ?? []).filter((model) => model.capabilities.media !== "video"),
+    [modelsQuery.data],
+  );
+
   const generationsQuery = useQuery({
-    queryKey: ["generations", query, modelFilter, dateFilter, favoriteOnly, limit],
+    queryKey: ["generations", "image", query, modelFilter, dateFilter, favoriteOnly, limit],
     queryFn: () => {
       const range = dateRangeFor(dateFilter);
       return fetchGenerations({
         limit,
         q: query.trim() || undefined,
         model: modelFilter ?? undefined,
+        media: "image",
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
         dateTo: range.to,
@@ -119,7 +126,6 @@ export default function WorkspacePage() {
       ),
     [modelsQuery.data],
   );
-
   const actions = useImageActions({
     onToast: toast,
     onDeleted: (imageId) => {
@@ -140,7 +146,7 @@ export default function WorkspacePage() {
           setQuery(value);
           setLimit(PAGE_SIZE);
         }}
-        models={modelsQuery.data ?? []}
+        models={imageModels}
         modelFilter={modelFilter}
         onModelFilter={(value) => {
           setModelFilter(value);
@@ -187,7 +193,7 @@ export default function WorkspacePage() {
       </div>
 
       {/* 创作框悬浮在作品流之上：absolute 定位，不再占据独立的一段高度 */}
-      <Composer models={modelsQuery.data ?? []} onToast={toast} />
+      <Composer models={imageModels} onToast={toast} />
 
       {detail ? (
         <ImageDetail

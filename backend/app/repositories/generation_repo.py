@@ -28,6 +28,7 @@ class GenerationRepository:
         *,
         q: str | None = None,
         models: list[str] | None = None,
+        types: list[str] | None = None,
         favorites_only: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -38,6 +39,8 @@ class GenerationRepository:
             stmt = stmt.where(Generation.prompt.ilike(pattern))
         if models:
             stmt = stmt.where(Generation.model_name.in_(models))
+        if types:
+            stmt = stmt.where(Generation.generation_type.in_(types))
         if favorites_only:
             stmt = stmt.where(
                 Generation.id.in_(
@@ -57,6 +60,7 @@ class GenerationRepository:
         *,
         q: str | None = None,
         models: list[str] | None = None,
+        types: list[str] | None = None,
         favorites_only: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
@@ -64,6 +68,7 @@ class GenerationRepository:
         stmt = self._filtered(
             q=q,
             models=models,
+            types=types,
             favorites_only=favorites_only,
             date_from=date_from,
             date_to=date_to,

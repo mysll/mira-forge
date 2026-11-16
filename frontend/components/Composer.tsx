@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import Popover from "@/components/Popover";
@@ -263,9 +264,13 @@ export default function Composer({ models, onToast }: Props) {
               {tab.label}
             </button>
           ))}
-          <span className="cursor-not-allowed rounded-lg px-2.5 py-1 text-xs text-muted/40" title="视频生成在二期开放">
+          <Link
+            href="/video"
+            className="rounded-lg px-2.5 py-1 text-xs text-muted transition hover:bg-surface2 hover:text-ink"
+            title="视频在独立的工作台里"
+          >
             视频
-          </span>
+          </Link>
           <span className="ml-auto text-[11px] text-muted/60">
             {activeModel ? `${activeModel.label}` : "模型加载中"}
           </span>
