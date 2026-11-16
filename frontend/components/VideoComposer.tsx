@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import CountMenu from "@/components/CountMenu";
 import ImagePicker from "@/components/ImagePicker";
 import Popover from "@/components/Popover";
+import SlotMenu from "@/components/SlotMenu";
 import { createGeneration, createImageToVideoGeneration, imageAsFile, imageThumbnailUrl } from "@/lib/api";
 import {
   VIDEO_DURATION_MAX,
@@ -592,44 +593,7 @@ function FrameSlot({
   }, [source]);
 
   const menu = open ? (
-    <div
-      className="absolute bottom-full left-0 z-30 mb-2 w-36 overflow-hidden rounded-lg border border-edge bg-surface p-1 shadow-pop"
-      role="menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        onClick={onUpload}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink transition hover:bg-white/[0.06]"
-      >
-        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted" fill="none" aria-hidden>
-          <path
-            d="M12 16V4m0 0L8 8m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        从本机上传
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={onPickAsset}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink transition hover:bg-white/[0.06]"
-      >
-        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted" fill="none" aria-hidden>
-          <path
-            d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4l1.5 2h7.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-11Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
-        从资产选
-      </button>
-    </div>
+    <SlotMenu open onUpload={onUpload} onPickAsset={onPickAsset} />
   ) : null;
 
   if (!url) {

@@ -5,18 +5,21 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import CountMenu from "@/components/CountMenu";
+import ImagePicker from "@/components/ImagePicker";
 import Popover from "@/components/Popover";
+import SlotMenu from "@/components/SlotMenu";
 import {
   createEditGeneration,
   createGeneration,
   createImageToImageGeneration,
   imageAsFile,
+  imageFileUrl,
 } from "@/lib/api";
 import { IMAGE_RATIOS, IMAGE_TIERS, megapixels } from "@/lib/size";
 import { useComposerStore } from "@/stores/composer";
 import { MAX_GENERATION_REFS, useGenerationRefStore } from "@/stores/generationRefs";
 import { useReferenceStore } from "@/stores/reference";
-import type { GenerationCreatePayload, ModelInfo } from "@/types/api";
+import type { GenerationCreatePayload, ImageBrief, ModelInfo } from "@/types/api";
 
 type Props = {
   models: ModelInfo[];
@@ -35,6 +38,8 @@ export default function Composer({ models, onToast }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const genFileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [slotMenu, setSlotMenu] = useState<"edit" | "add" | null>(null);
+  const [picking, setPicking] = useState<"edit" | "add" | null>(null);
 
   const mode = useComposerStore((state) => state.mode);
   const prompts = useComposerStore((state) => state.prompts);
@@ -195,6 +200,49 @@ export default function Composer({ models, onToast }: Props) {
     (mode === "text_to_image" || !!reference.source) &&
     !submit.isPending;
 
+  // 点开小菜单后，点别处/Esc 收起
+  useEffect(() => {
+    if (!slotMenu) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-slot]")) {
+        setSlotMenu(null);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSlotMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [slotMenu]);
+
+  // 资产库里选一张：编辑模式当参考图，生成模式追加进参考图列表
+  const pickAsset = async (image: ImageBrief) => {
+    const target = picking;
+    setPicking(null);
+    if (target === "edit") {
+      reference.setImage({ id: image.id, url: imageFileUrl(image) });
+      return;
+    }
+    try {
+      const file = await imageAsFile(image.id);
+      const added = genRefs.addFiles([file]);
+      if (added === 0) {
+        onToast(`最多 ${MAX_GENERATION_REFS} 张参考图，多出的没有加入`);
+      }
+    } catch {
+      onToast("读取这张图失败，请重试");
+    }
+  };
+
   const handleFiles = (files: FileList | File[] | null | undefined) => {
     const accepted = Array.from(files ?? []).filter((file) => {
       if (!file.type.startsWith("image/")) {
@@ -282,28 +330,45 @@ export default function Composer({ models, onToast }: Props) {
         {/* 输入区 + 参考图 */}
         <div className="flex items-start gap-2">
           {mode === "image_edit" ? (
-            <div className="shrink-0">
+            <div className="relative shrink-0" data-slot>
               {reference.previewUrl ? (
                 <div className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={reference.previewUrl} alt="参考图" className="h-full w-full object-cover" />
                   <button
                     type="button"
-                    onClick={() => reference.clear()}
-                    title="移除参考图"
+                    onClick={() => setSlotMenu(slotMenu === "edit" ? null : "edit")}
+                    title="更换参考图"
                     className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                      <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <path
+                        d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinejoin="round"
+                      />
                     </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reference.clear()}
+                    title="移除参考图"
+                    className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
+                  >
+                    ×
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-edge text-muted transition hover:border-accent/50 hover:text-accentSoft"
-                  title="点击或拖入图片"
+                  onClick={() => setSlotMenu(slotMenu === "edit" ? null : "edit")}
+                  className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed transition ${
+                    slotMenu === "edit"
+                      ? "border-accent/60 text-accentSoft"
+                      : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
+                  }`}
+                  title="参考图：从本机上传，或从资产里挑一张"
                 >
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
                     <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
@@ -311,6 +376,17 @@ export default function Composer({ models, onToast }: Props) {
                   <span className="text-[10px]">参考图</span>
                 </button>
               )}
+              <SlotMenu
+                open={slotMenu === "edit"}
+                onUpload={() => {
+                  setSlotMenu(null);
+                  fileRef.current?.click();
+                }}
+                onPickAsset={() => {
+                  setSlotMenu(null);
+                  setPicking("edit");
+                }}
+              />
             </div>
           ) : (
             <div className="flex shrink-0 items-center gap-1.5">
@@ -335,17 +411,34 @@ export default function Composer({ models, onToast }: Props) {
                 </div>
               ))}
               {genRefs.items.length < MAX_GENERATION_REFS ? (
-                <button
-                  type="button"
-                  onClick={() => genFileRef.current?.click()}
-                  title="可选：加 1–2 张参考图，只参考构图，出图尺寸仍按右下角设置"
-                  className="flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-edge text-muted transition hover:border-accent/50 hover:text-accentSoft"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                  <span className="text-[10px]">参考图?</span>
-                </button>
+                <div className="relative" data-slot>
+                  <button
+                    type="button"
+                    onClick={() => setSlotMenu(slotMenu === "add" ? null : "add")}
+                    title="可选：加 1–2 张参考图，只参考构图，出图尺寸仍按右下角设置"
+                    className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed transition ${
+                      slotMenu === "add"
+                        ? "border-accent/60 text-accentSoft"
+                        : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
+                    }`}
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+                      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                    <span className="text-[10px]">参考图?</span>
+                  </button>
+                  <SlotMenu
+                    open={slotMenu === "add"}
+                    onUpload={() => {
+                      setSlotMenu(null);
+                      genFileRef.current?.click();
+                    }}
+                    onPickAsset={() => {
+                      setSlotMenu(null);
+                      setPicking("add");
+                    }}
+                  />
+                </div>
               ) : null}
             </div>
           )}
@@ -710,6 +803,27 @@ export default function Composer({ models, onToast }: Props) {
           onChange={(event) => {
             handleFiles(event.target.files);
             event.target.value = "";
+          }}
+        />
+
+        <ImagePicker
+          open={picking !== null}
+          title={picking === "edit" ? "选参考图（编辑）" : "加参考图（生成）"}
+          hint={
+            picking === "edit"
+              ? "图片编辑需要 1 张参考图，从已生成的作品里挑一张最省事"
+              : `最多 ${MAX_GENERATION_REFS} 张，只参考构图与材质，出图尺寸仍按右下角设置`
+          }
+          onClose={() => setPicking(null)}
+          onPick={pickAsset}
+          onUpload={() => {
+            const target = picking;
+            setPicking(null);
+            if (target === "edit") {
+              fileRef.current?.click();
+            } else {
+              genFileRef.current?.click();
+            }
           }}
         />
       </div>

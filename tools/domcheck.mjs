@@ -103,21 +103,24 @@ if (clickSelector) {
 }
 
 if (click) {
-  const clicked = await evaluate(`(() => {
-    const want = ${JSON.stringify(click)};
-    const nodes = [...document.querySelectorAll("button, a, [role=button]")];
-    const target = nodes.find((node) => node.textContent?.trim() === want)
-      || nodes.find((node) => node.textContent?.trim().startsWith(want))
-      || nodes.find((node) => node.getAttribute("title") === want);
-    if (!target) return false;
-    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
-      target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
-    }
-    target.click();
-    return true;
-  })()`);
-  console.log("click", click, clicked ? "ok" : "未找到");
-  await sleep(wait);
+  // 支持用逗号串起多次点击：--click "图片编辑,参考图,从资产选"
+  for (const label of click.split(",").map((item) => item.trim()).filter(Boolean)) {
+    const clicked = await evaluate(`(() => {
+      const want = ${JSON.stringify(label)};
+      const nodes = [...document.querySelectorAll("button, a, [role=button]")];
+      const target = nodes.find((node) => node.textContent?.trim() === want)
+        || nodes.find((node) => node.textContent?.trim().startsWith(want))
+        || nodes.find((node) => node.getAttribute("title") === want);
+      if (!target) return false;
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"]) {
+        target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      }
+      target.click();
+      return true;
+    })()`);
+    console.log("click", label, clicked ? "ok" : "未找到");
+    await sleep(wait);
+  }
 }
 
 const text = await evaluate(`(() => {
