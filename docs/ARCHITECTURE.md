@@ -104,7 +104,7 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 | 位置 | 作用 |
 | --- | --- |
 | `app/layout.tsx` | 两栏外壳：72px `Sidebar` + `main`（顶栏 / 作品流 / 创作框三段式） |
-| `app/page.tsx` | 工作台：筛选状态、`GET /generations` 拉取、扁平化为 `FeedItem`、批次条、各类操作的 Toast |
+| `app/page.tsx` | 工作台：筛选状态、`GET /generations` 拉取、扁平化为 `FeedSlot`（每个任务一格，未出图为占位卡）、各类操作的 Toast |
 | `app/settings/page.tsx` | 系统状态（后端版本、SQLite、ComfyUI、GPU、存储路径） |
 | `app/gallery/page.tsx` | 旧链接兼容，重定向到 `/` |
 | `components/Composer.tsx` | 底部创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |

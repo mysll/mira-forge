@@ -72,7 +72,7 @@ export default function ImageDetail({
         <div className="flex min-w-0 flex-1 items-center justify-center bg-black/40 p-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={imageFileUrl(image.id)}
+            src={imageFileUrl(image)}
             alt={generation.prompt}
             className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
           />

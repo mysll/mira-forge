@@ -1,7 +1,7 @@
 "use client";
 
 import { bucketOf, formatTime, type DateBucket } from "@/lib/date";
-import type { FeedItem, GenerationRead } from "@/types/api";
+import type { FeedSlot, GenerationRead } from "@/types/api";
 
 import FeedCard, { ACTIVE_STATUS, statusLabel } from "./FeedCard";
 
@@ -10,24 +10,24 @@ const BUCKETS: DateBucket[] = ["今天", "昨天", "更早"];
 const CARD = 200; // 网格卡宽度（px）
 
 type Props = {
-  items: FeedItem[];
+  items: FeedSlot[];
   view: "grid" | "list";
   loading: boolean;
   hasMore: boolean;
   onLoadMore: () => void;
-  onOpen: (item: FeedItem) => void;
-  onFavorite: (item: FeedItem) => void;
-  onDownload: (item: FeedItem) => void;
-  onDelete: (item: FeedItem) => void;
-  onEdit: (item: FeedItem) => void;
+  onOpen: (item: FeedSlot) => void;
+  onFavorite: (item: FeedSlot) => void;
+  onDownload: (item: FeedSlot) => void;
+  onDelete: (item: FeedSlot) => void;
+  onEdit: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
   emptyHint?: string;
 };
 
-type Batch = { generation: GenerationRead; items: FeedItem[] };
+type Batch = { generation: GenerationRead; items: FeedSlot[] };
 
 // 同一批次的多张图必须连成一组，所以按 generation 聚合，而不是逐张平铺。
-function byBatch(list: FeedItem[]): Batch[] {
+function byBatch(list: FeedSlot[]): Batch[] {
   const groups = new Map<number, Batch>();
   for (const item of list) {
     const existing = groups.get(item.generation.id);
@@ -51,16 +51,18 @@ const STATUS_TONE: Record<string, string> = {
 
 function BatchHeader({ batch }: { batch: Batch }) {
   const { generation, items } = batch;
+  const done = items.filter((item) => item.image !== null).length;
   const active = ACTIVE_STATUS.has(generation.status);
-  const done = generation.status === "completed";
+  const finished = generation.status === "completed";
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-baseline gap-2 text-[11px]">
         <span className="shrink-0 text-muted">批次 #{generation.id}</span>
-        {done ? (
-          <span className="shrink-0 text-muted/60">· {items.length} 张</span>
-        ) : (
+        <span className="shrink-0 text-muted/60">
+          · {done}/{items.length} 张
+        </span>
+        {finished ? null : (
           <span className={`shrink-0 ${STATUS_TONE[generation.status] ?? "text-muted"}`}>
             · {statusLabel(generation.status)}
             {active && generation.progress > 0 ? ` ${generation.progress}%` : ""}
@@ -74,7 +76,6 @@ function BatchHeader({ batch }: { batch: Batch }) {
     </div>
   );
 }
-
 export default function Feed({
   items,
   view,

@@ -144,6 +144,18 @@ export type ImageListResponse = {
 };
 
 /** 作品流里的一条卡片数据：图片 + 它所属批次的全部上下文。 */
+/** 作品流里的一张卡：已完成的是图片，未完成的用占位卡（image 为 null）。 */
+export type FeedSlot = {
+  key: string;
+  generation: GenerationRead;
+  image: ImageBrief | null;
+  task: TaskRead | null;
+  index: number;
+  total: number;
+  seed: number | null;
+};
+
+/** 详情弹窗只接受已经出图的那一张。 */
 export type FeedItem = {
   key: string;
   image: ImageBrief;

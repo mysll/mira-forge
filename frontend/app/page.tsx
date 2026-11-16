@@ -19,15 +19,12 @@ import {
 import { dateRangeFor, type DateFilter } from "@/lib/date";
 import { useComposerStore } from "@/stores/composer";
 import { useReferenceStore } from "@/stores/reference";
-import type { FeedItem, GenerationRead } from "@/types/api";
+import type { FeedItem, FeedSlot, GenerationRead, ImageBrief } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
+type CardRef = { image: ImageBrief; generation: GenerationRead };
 const PAGE_SIZE = 40;
 
-const MODE_LABEL: Record<string, string> = {
-  text_to_image: "图片生成",
-  image_edit: "图片编辑",
-};
 
 export default function WorkspacePage() {
   const queryClient = useQueryClient();
@@ -40,7 +37,6 @@ export default function WorkspacePage() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [detail, setDetail] = useState<FeedItem | null>(null);
-  const [hiddenBatches, setHiddenBatches] = useState<number[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const toast = useCallback((text: string) => {
@@ -80,34 +76,46 @@ export default function WorkspacePage() {
   const generations: GenerationRead[] = generationsQuery.data?.items ?? [];
   const total = generationsQuery.data?.total ?? 0;
 
-  const items: FeedItem[] = useMemo(() => {
-    const flat: FeedItem[] = [];
+  // 每个任务占一格：已完成的用图片，排队/生成中的用占位卡，这样新批次一提交就出现在最终位置。
+  const slots: FeedSlot[] = useMemo(() => {
+    const flat: FeedSlot[] = [];
     for (const generation of generations) {
-      const seedsByTask = new Map(generation.tasks.map((task) => [task.id, task.seed]));
-      for (const image of generation.images) {
+      const tasks = [...generation.tasks].sort((left, right) => left.id - right.id);
+      const imageByTask = new Map(generation.images.map((image) => [image.task_id, image]));
+      tasks.forEach((task, position) => {
+        const image = imageByTask.get(task.id) ?? null;
+        // 已完成的图被用户删掉后，占位卡没有意义，直接跳过（批次里剩下的照样显示）
+        if (!image && task.status === "completed") {
+          return;
+        }
         flat.push({
-          key: `${generation.id}-${image.id}`,
-          image,
+          key: `${generation.id}-t${task.id}`,
           generation,
-          seed: image.task_id === null ? null : (seedsByTask.get(image.task_id) ?? null),
+          image,
+          task,
+          index: position + 1,
+          total: tasks.length,
+          seed: task.seed,
         });
-      }
+      });
+      // 兜底：没有对应任务的图（例如任务行被删）也要显示出来
+      const orphans = generation.images.filter(
+        (image) => image.task_id === null || !tasks.some((task) => task.id === image.task_id),
+      );
+      orphans.forEach((image, position) => {
+        flat.push({
+          key: `${generation.id}-i${image.id}`,
+          generation,
+          image,
+          task: null,
+          index: tasks.length + position + 1,
+          total: tasks.length + orphans.length,
+          seed: null,
+        });
+      });
     }
     return flat;
   }, [generations]);
-
-  // 还没有产物但正在进行（或已失败）的批次，单独列在顶部，避免状态消失
-  const pendingBatches = useMemo(
-    () =>
-      generations
-        .filter(
-          (generation) =>
-            !hiddenBatches.includes(generation.id) &&
-            (ACTIVE.has(generation.status) || generation.status === "failed"),
-        )
-        .slice(0, 3),
-    [generations, hiddenBatches],
-  );
 
   const modelLabels = useMemo(
     () =>
@@ -126,7 +134,7 @@ export default function WorkspacePage() {
     queryClient.invalidateQueries({ queryKey: ["images"] });
   };
 
-  const onFavorite = (item: FeedItem) => {
+  const onFavorite = (item: CardRef) => {
     const next = !item.image.is_favorite;
     void setImageFavorite(item.image.id, next)
       .then(() => {
@@ -136,9 +144,9 @@ export default function WorkspacePage() {
       .catch((error: Error) => toast(error.message || "操作失败"));
   };
 
-  const onDownload = async (item: FeedItem) => {
+  const onDownload = async (item: CardRef) => {
     try {
-      const response = await fetch(imageFileUrl(item.image.id));
+      const response = await fetch(imageFileUrl(item.image));
       if (!response.ok) {
         throw new Error("图片下载失败");
       }
@@ -154,7 +162,7 @@ export default function WorkspacePage() {
     }
   };
 
-  const onDelete = async (item: FeedItem) => {
+  const onDelete = async (item: CardRef) => {
     if (!window.confirm("删除这张图？文件会从磁盘移除。")) {
       return;
     }
@@ -170,16 +178,16 @@ export default function WorkspacePage() {
     }
   };
 
-  const onEdit = (item: FeedItem) => {
+  const onEdit = (item: CardRef) => {
     setDetail(null);
     useReferenceStore.getState().setImage({
       id: item.image.id,
-      url: imageFileUrl(item.image.id),
+      url: imageFileUrl(item.image),
     });
     toast("已作为参考图，写在下方提示词里描述要改成什么");
   };
 
-  const onRegenerate = (item: FeedItem) => {
+  const onRegenerate = (item: CardRef) => {
     const store = useComposerStore.getState();
     const { generation } = item;
     store.setMode(generation.generation_type === "image_edit" ? "image_edit" : "text_to_image");
@@ -222,71 +230,26 @@ export default function WorkspacePage() {
       />
 
       <div className="scroll-thin flex-1 overflow-y-auto px-5 pb-[240px] pt-4">
-        {pendingBatches.length > 0 ? (
-          <div className="mb-4 flex flex-col gap-2">
-            {pendingBatches.map((generation) => {
-              const failed = generation.status === "failed";
-              const reason = generation.tasks.find((task) => task.error_message)?.error_message;
-              return (
-                <div
-                  key={generation.id}
-                  className="flex items-center gap-3 rounded-xl border border-edge/70 bg-surface/70 px-3 py-2"
-                >
-                  <span className="shrink-0 rounded-md bg-accent/12 px-1.5 py-0.5 text-[10px] text-accentSoft">
-                    批次 #{generation.id}
-                  </span>
-                  <span className="min-w-0 truncate text-xs text-ink/85">{generation.prompt}</span>
-                  <span className="shrink-0 text-[11px] text-muted">
-                    {MODE_LABEL[generation.generation_type] ?? generation.generation_type} ·{" "}
-                    {generation.tasks.length} 张
-                  </span>
-                  {failed && reason ? (
-                    <span className="min-w-0 truncate text-[11px] text-bad/80" title={reason}>
-                      {reason}
-                    </span>
-                  ) : null}
-                  <div className="ml-auto flex shrink-0 items-center gap-2">
-                    {failed ? null : (
-                      <div className="h-1 w-24 overflow-hidden rounded-full bg-surface2">
-                        <div
-                          className="h-full rounded-full bg-accent transition-all"
-                          style={{ width: `${Math.max(2, generation.progress)}%` }}
-                        />
-                      </div>
-                    )}
-                    <span className={["text-[11px]", failed ? "text-bad" : "text-muted"].join(" ")}>
-                      {failed ? "失败" : `${generation.progress}%`}
-                    </span>
-                    {failed ? (
-                      <button
-                        type="button"
-                        onClick={() => setHiddenBatches((current) => [...current, generation.id])}
-                        title="收起这条失败记录"
-                        className="rounded p-1 text-muted transition hover:bg-surface2 hover:text-ink"
-                      >
-                        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden>
-                          <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
 
         <Feed
-          items={items}
+          items={slots}
           view={view}
           loading={generationsQuery.isLoading}
-          hasMore={items.length < total && generations.length < total}
+          hasMore={generations.length < total}
           onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
-          onOpen={setDetail}
-          onFavorite={onFavorite}
-          onDownload={(item) => void onDownload(item)}
-          onDelete={(item) => void onDelete(item)}
-          onEdit={onEdit}
+          onOpen={(slot) => { if (slot.image) setDetail({ key: slot.key, image: slot.image, generation: slot.generation, seed: slot.seed }); }}
+          onFavorite={(slot) => {
+            if (slot.image) onFavorite({ image: slot.image, generation: slot.generation });
+          }}
+          onDownload={(slot) => {
+            if (slot.image) void onDownload({ image: slot.image, generation: slot.generation });
+          }}
+          onDelete={(slot) => {
+            if (slot.image) void onDelete({ image: slot.image, generation: slot.generation });
+          }}
+          onEdit={(slot) => {
+            if (slot.image) onEdit({ image: slot.image, generation: slot.generation });
+          }}
           modelLabels={modelLabels}
         />
       </div>
@@ -298,11 +261,11 @@ export default function WorkspacePage() {
         <ImageDetail
           item={detail}
           onClose={() => setDetail(null)}
-          onFavorite={onFavorite}
-          onDownload={(item) => void onDownload(item)}
-          onDelete={(item) => void onDelete(item)}
-          onEdit={onEdit}
-          onRegenerate={onRegenerate}
+          onFavorite={(item) => onFavorite({ image: item.image, generation: item.generation })}
+          onDownload={(item) => void onDownload({ image: item.image, generation: item.generation })}
+          onDelete={(item) => void onDelete({ image: item.image, generation: item.generation })}
+          onEdit={(item) => onEdit({ image: item.image, generation: item.generation })}
+          onRegenerate={(item) => onRegenerate({ image: item.image, generation: item.generation })}
           onToast={toast}
           modelLabels={modelLabels}
         />

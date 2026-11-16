@@ -144,18 +144,30 @@ export function fetchImages(params?: {
 }
 
 /** 图片原始文件的绝对地址，用于 <img src>。 */
-export function imageFileUrl(imageId: number): string {
-  return `${API_BASE}/images/${imageId}/file`;
+/**
+ * 图片地址带上版本号：SQLite 会复用被删除行的最大 id，而缩略图响应是 immutable 缓存，
+ * 只按 id 拼 URL 会让新图沿用旧图的缓存。用 created_at 做版本串可以彻底避开这个坑。
+ */
+function stamp(createdAt?: string): string {
+  if (!createdAt) {
+    return "";
+  }
+  const value = Date.parse(createdAt.endsWith("Z") ? createdAt : `${createdAt}Z`);
+  return Number.isNaN(value) ? "" : `?v=${value}`;
+}
+
+export function imageFileUrl(image: { id: number; created_at?: string }): string {
+  return `${API_BASE}/images/${image.id}/file${stamp(image.created_at)}`;
 }
 
 /** 编辑记录的参考图地址（P4 才有值）。 */
-export function referenceImageUrl(generationId: number): string {
-  return `${API_BASE}/generations/${generationId}/reference`;
+export function referenceImageUrl(generationId: number, createdAt?: string): string {
+  return `${API_BASE}/generations/${generationId}/reference${stamp(createdAt)}`;
 }
 
 /** 画廊用缩略图（后端首次访问时生成并缓存）。 */
-export function imageThumbnailUrl(imageId: number): string {
-  return `${API_BASE}/images/${imageId}/thumbnail`;
+export function imageThumbnailUrl(image: { id: number; created_at?: string }): string {
+  return `${API_BASE}/images/${image.id}/thumbnail${stamp(image.created_at)}`;
 }
 
 export async function deleteImage(imageId: number): Promise<void> {

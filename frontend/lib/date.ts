@@ -10,8 +10,19 @@ function startOfDay(date: Date): Date {
   return copy;
 }
 
+/**
+ * 后端存的是 UTC，但 SQLite/Pydantic 出来的字符串常常不带时区后缀
+ * （例如 "2026-11-16T03:52:44"）。直接 new Date() 会按本地时间解析，
+ * 于是东八区的时间会凭空早 8 小时、还会把「今天」分到「昨天」。缺时区就补 Z。
+ */
+const HAS_ZONE = /(?:[zZ]|[+-]\d{2}:?\d{2})$/;
+
+export function parseIso(iso: string): Date {
+  return new Date(HAS_ZONE.test(iso) ? iso : `${iso}Z`);
+}
+
 export function bucketOf(iso: string): DateBucket {
-  const value = new Date(iso);
+  const value = parseIso(iso);
   const today = startOfDay(new Date());
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
@@ -45,7 +56,7 @@ export function dateRangeFor(filter: DateFilter): { from?: string; to?: string }
 }
 
 export function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
+  return parseIso(iso).toLocaleString("zh-CN", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

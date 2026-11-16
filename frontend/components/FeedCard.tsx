@@ -1,8 +1,8 @@
 "use client";
 
-import { imageFileUrl, imageThumbnailUrl } from "@/lib/api";
+import { imageThumbnailUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
-import type { FeedItem } from "@/types/api";
+import type { FeedSlot, ImageBrief } from "@/types/api";
 
 export const ACTIVE_STATUS = new Set(["pending", "queued", "running"]);
 
@@ -20,16 +20,19 @@ export function statusLabel(status: string): string {
 }
 
 type Props = {
-  item: FeedItem;
+  item: FeedSlot;
   view: "grid" | "list";
   busy?: boolean;
-  onOpen: (item: FeedItem) => void;
-  onFavorite: (item: FeedItem) => void;
-  onDownload: (item: FeedItem) => void;
-  onDelete: (item: FeedItem) => void;
-  onEdit: (item: FeedItem) => void;
+  onOpen: (item: FeedSlot) => void;
+  onFavorite: (item: FeedSlot) => void;
+  onDownload: (item: FeedSlot) => void;
+  onDelete: (item: FeedSlot) => void;
+  onEdit: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
 };
+
+/** 已经有产物的格子：操作栏只在图存在时出现。 */
+type FilledSlot = FeedSlot & { image: ImageBrief };
 
 function IconStar({ filled }: { filled: boolean }) {
   return (
@@ -78,6 +81,15 @@ function IconExpand() {
   );
 }
 
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-block animate-spin rounded-full border border-muted/30 border-t-accentSoft ${className}`}
+      aria-hidden
+    />
+  );
+}
+
 function ActionBar({
   item,
   busy,
@@ -86,7 +98,7 @@ function ActionBar({
   onDelete,
   onEdit,
   onOpen,
-}: Props & { busy?: boolean }) {
+}: Omit<Props, "item"> & { item: FilledSlot; busy?: boolean }) {
   const buttons = [
     { key: "open", title: "查看大图", icon: <IconExpand />, run: () => onOpen(item) },
     {
@@ -126,43 +138,111 @@ function ActionBar({
   );
 }
 
+function toneOf(status: string): string {
+  if (status === "running") {
+    return "text-accentSoft";
+  }
+  if (status === "failed") {
+    return "text-bad";
+  }
+  if (status === "cancelled") {
+    return "text-muted/70";
+  }
+  return "text-warn";
+}
+
+/** 还没有产物的格子：排队中直接说排队，生成中给进度条，失败给原因。 */
+function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) {
+  const { generation, task, index, total } = item;
+  const status = task?.status ?? generation.status;
+  const progress = task?.progress ?? 0;
+  const running = status === "running";
+  const failed = status === "failed";
+  const reason = task?.error_message ?? null;
+  // 对用户来说「还没轮到我」就是排队，不必区分 pending 与 queued
+  const label = status === "pending" ? "排队中" : statusLabel(status);
+  const tone = toneOf(status);
+
+  if (view === "list") {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-dashed border-edge/70 px-1 py-1">
+        <div className="grid h-[54px] w-[54px] shrink-0 place-items-center rounded-lg border border-dashed border-edge/70 bg-surface2/60">
+          {running ? <Spinner className="h-3.5 w-3.5" /> : <span className="text-[10px] text-muted/50">·</span>}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs text-ink/75">第 {index} / {total} 张</p>
+          <p className="mt-0.5 truncate text-[11px] text-muted/70">{reason ?? (running ? `${label} ${progress}%` : label)}</p>
+        </div>
+        <span className={`shrink-0 text-[11px] ${tone}`}>{label}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative flex flex-col overflow-hidden rounded-xl border border-dashed border-edge/70 bg-surface/30">
+      <div className="relative flex aspect-square flex-col items-center justify-center gap-2 text-[11px]">
+        {running ? <Spinner className="h-5 w-5" /> : <span className="h-5 w-5 rounded-full border border-dashed border-muted/30" />}
+        <span className={tone}>{running ? `${label} ${progress}%` : label}</span>
+        {failed && reason ? (
+          <p className="line-clamp-2 px-3 text-center text-[10px] leading-snug text-bad/70">{reason}</p>
+        ) : null}
+        {running ? (
+          <div className="absolute inset-x-3 bottom-3 h-0.5 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.max(3, progress)}%` }} />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+        <span className="truncate text-[11px] text-muted/60">第 {index} / {total} 张</span>
+        <span className={`shrink-0 text-[10px] ${tone}`}>{label}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function FeedCard(props: Props) {
   const { item, view } = props;
-  const { image, generation } = item;
-  const active = ACTIVE_STATUS.has(generation.status);
-  const position = generation.images.findIndex((candidate) => candidate.id === image.id) + 1;
+  const { image, generation, task } = item;
+
+  if (!image) {
+    return <Placeholder item={item} view={view} />;
+  }
+
+  const filled: FilledSlot = { ...item, image };
+  const status = task?.status ?? generation.status;
+  const active = ACTIVE_STATUS.has(status);
+  const progress = task?.progress ?? generation.progress;
+  const position = item.index;
 
   if (view === "list") {
     return (
       <div
         role="button"
         tabIndex={0}
-        onClick={() => props.onOpen(item)}
-        onKeyDown={(event) => event.key === "Enter" && props.onOpen(item)}
+        onClick={() => props.onOpen(filled)}
+        onKeyDown={(event) => event.key === "Enter" && props.onOpen(filled)}
         className="group flex cursor-pointer items-center gap-2 rounded-xl border border-transparent px-1 py-1 transition hover:border-edge hover:bg-surface"
       >
         <div className="relative h-[54px] w-[54px] shrink-0 overflow-hidden rounded-lg border border-edge/70 bg-surface2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageThumbnailUrl(image.id)}
-            alt={generation.prompt}
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
+          <img src={imageThumbnailUrl(image)} alt={generation.prompt} loading="lazy" className="h-full w-full object-cover" />
           {active ? (
-            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" style={{ width: `${generation.progress}%` }} />
+            <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" style={{ width: `${progress}%` }} />
           ) : null}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-ink/90">第 {position} 张 · {props.modelLabels?.[generation.model_name] ?? generation.model_name}</p>
+          <p className="truncate text-xs text-ink/90">
+            第 {position} 张 · {props.modelLabels?.[generation.model_name] ?? generation.model_name}
+          </p>
           <p className="mt-0.5 truncate text-[11px] text-muted">
             {image.width}×{image.height} · {formatBytes(image.file_size)} · {formatTime(image.created_at)}
           </p>
         </div>
 
         <span className="shrink-0 text-[11px] text-muted">
-          {active ? `${statusLabel(generation.status)} ${generation.progress}%` : statusLabel(generation.status)}
+          {active ? `${statusLabel(status)} ${progress}%` : statusLabel(status)}
         </span>
 
         <div className="flex shrink-0 gap-1">
@@ -171,12 +251,9 @@ export default function FeedCard(props: Props) {
             title={image.is_favorite ? "取消收藏" : "收藏"}
             onClick={(event) => {
               event.stopPropagation();
-              props.onFavorite(item);
+              props.onFavorite(filled);
             }}
-            className={[
-              "icon-btn",
-              image.is_favorite ? "text-warn" : "",
-            ].join(" ")}
+            className={["icon-btn", image.is_favorite ? "text-warn" : ""].join(" ")}
           >
             <IconStar filled={image.is_favorite} />
           </button>
@@ -185,7 +262,7 @@ export default function FeedCard(props: Props) {
             title="下载"
             onClick={(event) => {
               event.stopPropagation();
-              props.onDownload(item);
+              props.onDownload(filled);
             }}
             className="icon-btn"
           >
@@ -196,7 +273,7 @@ export default function FeedCard(props: Props) {
             title="删除"
             onClick={(event) => {
               event.stopPropagation();
-              props.onDelete(item);
+              props.onDelete(filled);
             }}
             className="icon-btn hover:!text-bad"
           >
@@ -211,21 +288,20 @@ export default function FeedCard(props: Props) {
     <div
       role="button"
       tabIndex={0}
-      onClick={() => props.onOpen(item)}
-      onKeyDown={(event) => event.key === "Enter" && props.onOpen(item)}
+      onClick={() => props.onOpen(filled)}
+      onKeyDown={(event) => event.key === "Enter" && props.onOpen(filled)}
       className="group relative cursor-pointer overflow-hidden rounded-xl border border-edge/60 bg-surface2 transition hover:border-accent/40 hover:shadow-pop"
     >
       <div className="relative aspect-square overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={imageThumbnailUrl(image.id)}
+          src={imageThumbnailUrl(image)}
           alt={generation.prompt}
           loading="lazy"
           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
         />
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
-
           {image.is_favorite ? (
             <span className="rounded-md bg-black/55 p-1 text-warn backdrop-blur">
               <IconStar filled />
@@ -236,11 +312,11 @@ export default function FeedCard(props: Props) {
         {active ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
             <div className="mb-1 flex items-center justify-between text-[10px] text-white/85">
-              <span>{statusLabel(generation.status)}</span>
-              <span>{generation.progress}%</span>
+              <span>{statusLabel(status)}</span>
+              <span>{progress}%</span>
             </div>
             <div className="h-0.5 w-full overflow-hidden rounded-full bg-white/20">
-              <div className="h-full rounded-full bg-accentSoft" style={{ width: `${generation.progress}%` }} />
+              <div className="h-full rounded-full bg-accentSoft" style={{ width: `${progress}%` }} />
             </div>
           </div>
         ) : (
@@ -249,7 +325,7 @@ export default function FeedCard(props: Props) {
           </div>
         )}
 
-        <ActionBar {...props} />
+        <ActionBar {...props} item={filled} />
       </div>
 
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
