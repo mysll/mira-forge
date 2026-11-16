@@ -48,7 +48,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   longEdge: 1024,
   width: initial.width,
   height: initial.height,
-  count: 1,
+  count: 4,
   seedMode: "random",
   seed: "",
   negative: "",

@@ -101,14 +101,16 @@ export default function Composer({ models, onToast }: Props) {
   };
 
   const submit = useMutation({
-    mutationFn: async () => {
+    // 把提交瞬间的提示词与模式带进来，成功后只清掉"还是同一句"的输入，
+    // 避免用户已经敲下一条提示时被清空
+    mutationFn: async (variables: { text: string; mode: typeof mode }) => {
       if (!activeModel) {
         throw new Error("还没有可用模型");
       }
       const base: GenerationCreatePayload = {
-        prompt: prompt.trim(),
+        prompt: variables.text.trim(),
         model: activeModel.id,
-        generation_type: mode,
+        generation_type: variables.mode,
         count,
         width,
         height,
@@ -146,7 +148,7 @@ export default function Composer({ models, onToast }: Props) {
         return form;
       };
 
-      if (mode === "text_to_image") {
+      if (variables.mode === "text_to_image") {
         // 没放参考图就是纯文生图；放了就变成图生图（参考图只影响构图，尺寸照样生效）
         if (genRefs.items.length === 0) {
           return createGeneration(base);
@@ -165,7 +167,11 @@ export default function Composer({ models, onToast }: Props) {
       form.set("images", file);
       return createEditGeneration(form);
     },
-    onSuccess: (created) => {
+    onSuccess: (created, variables) => {
+      // 提交成功即清空输入框（同模式下、且没被改写成别的句子）
+      if (mode === variables.mode && prompts[variables.mode] === variables.text) {
+        setPrompt("");
+      }
       onToast(created.generation_type === "image_to_image" ? "已提交，参考图已生效" : "已提交，正在排队生成");
       if (created.generation_type === "image_to_image") {
         genRefs.clear();
@@ -342,7 +348,7 @@ export default function Composer({ models, onToast }: Props) {
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && canSubmit) {
-                submit.mutate();
+                submit.mutate({ text: prompt, mode });
               }
             }}
             rows={1}
@@ -632,7 +638,7 @@ export default function Composer({ models, onToast }: Props) {
 
           <button
             type="button"
-            onClick={() => submit.mutate()}
+            onClick={() => submit.mutate({ text: prompt, mode })}
             disabled={!canSubmit}
             className="btn-primary ml-2 min-w-[104px]"
           >

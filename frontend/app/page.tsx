@@ -32,7 +32,7 @@ export default function WorkspacePage() {
 
   const [query, setQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("today");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [limit, setLimit] = useState(PAGE_SIZE);
