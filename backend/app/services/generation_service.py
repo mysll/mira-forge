@@ -188,6 +188,15 @@ def create_generation(
     width = payload.width or model.defaults.get("width")
     height = payload.height or model.defaults.get("height")
 
+    negative_prompt = (payload.negative_prompt or "").strip() or None
+    cfg = payload.cfg if payload.cfg is not None else model.defaults.get("cfg")
+    # ComfyUI 在 cfg≈1 时会走 cfg1 优化，直接跳过 uncond 分支（comfy/samplers.py:610），
+    # 负面提示词因此完全不参与采样。用户没有显式指定 CFG 时，按模型建议值自动提上去；
+    # 显式给了 CFG（包括显式 1.0）一律尊重，落库的就是实际生效值。
+    if negative_prompt and payload.cfg is None and model.negative_prompt_cfg:
+        if cfg is None or float(cfg) <= 1.0:
+            cfg = model.negative_prompt_cfg
+
     workflow_row = db.scalar(
         select(Workflow).where(Workflow.name == model.label, Workflow.type == target.type)
     )
@@ -203,9 +212,9 @@ def create_generation(
         status="pending",
         reference_image_path=paths[0] if paths else None,
         reference_image_paths=encode_reference_paths(paths),
-        negative_prompt=(payload.negative_prompt or "").strip() or None,
+        negative_prompt=negative_prompt,
         steps=payload.steps,
-        cfg=payload.cfg,
+        cfg=cfg,
         sampler=payload.sampler,
     )
     if payload.seed is not None:

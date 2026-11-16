@@ -3,7 +3,7 @@
 // 用法：
 //   node tools/screenshot.mjs --url http://127.0.0.1:3000 --out data/ui.png \
 //        [--width 1500] [--height 1250] [--click "文字"] [--prompt "文字"] \
-//        [--file 路径] [--submit "文字"] [--wait 1500]
+//        [--file 路径] [--submit "文字"] [--eval "JS"] [--wait 1500]
 //
 // 存在理由：这个项目每阶段都要"能运行、能看到"，而 headless 的 --screenshot
 // 无法点击、无法等待异步数据，只能靠 CDP 注入。
@@ -138,6 +138,16 @@ try {
     const result = await send("Runtime.evaluate", { expression, returnByValue: true });
     console.log(`click ${clickSelector}: ${result.result?.value}`);
     await sleep(1200);
+  }
+
+  if (evaluate) {
+    const result = await send("Runtime.evaluate", {
+      expression: evaluate,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    console.log(`eval: ${JSON.stringify(result.result?.value ?? result.exceptionDetails?.text)}`);
+    await sleep(600);
   }
 
   if (file) {

@@ -111,7 +111,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | `count` | 否 | 1–`MAX_GENERATION_COUNT`（默认 8），每张独立 task + 独立 seed |
 | `seed` | 否 | 给定则固定 seed，N 张时按 `seed, seed+1, …` 递增；缺省随机且批内不重复 |
 | `steps` / `cfg` / `sampler` | 否 | 高级参数，落库并在 Worker 组装工作流时注入；工作流绑定表里没有对应落点的模型（如 Turbo）会被自动跳过 |
-| `negative_prompt` | 否 | 负面提示词；缺省空串 |
+| `negative_prompt` | 否 | 负面提示词；缺省空串。**不填 `cfg` 时后端会自动把 CFG 提到模型的 `negative_prompt_cfg`**（标准 3.0 / Turbo 2.0）——因为 ComfyUI 在 cfg=1 时会跳过负面分支，写了也等于没写；显式填了 `cfg` 就一律用你的值 |
 
 响应（`GenerationRead`，含全部子任务；`model_name` 是模型 **id**，不是 label）：
 

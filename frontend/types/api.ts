@@ -52,6 +52,8 @@ export type ModelInfo = {
   workflows: WorkflowTarget[];
   available: boolean;
   is_default: boolean;
+  /** 有负面提示词、用户又没显式给 CFG 时，后端会自动用的 CFG；null 表示不支持负面提示词 */
+  negative_prompt_cfg: number | null;
 };
 
 export type GenerationType = "text_to_image" | "image_to_image" | "image_edit";

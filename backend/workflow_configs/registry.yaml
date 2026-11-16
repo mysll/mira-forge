@@ -11,6 +11,10 @@ models:
   - id: qwen_image_21
     label: Qwen Image 2.1
     description: 标准质量，25 步采样，官方 2.1 模板参数
+    # 有负面提示词且用户没有显式指定 CFG 时，用它替换默认的 1.0。
+    # 原因：ComfyUI 在 cfg≈1 时会走 cfg1 优化，直接跳过 uncond 分支（comfy/samplers.py:610），
+    # 负面提示词因此完全不生效。
+    negative_prompt_cfg: 3.0
     defaults:
       steps: 25
       cfg: 1.0
@@ -44,6 +48,8 @@ models:
     label: Qwen Image 2.1 Turbo
     description: 8 步蒸馏版，速度优先；步数由固定 sigma 表决定，不可调
     default: true
+    # 蒸馏模型的 CFG 弹性较差，用 2.0 而不是 3.0；再高会开始过饱和。
+    negative_prompt_cfg: 2.0
     defaults:
       steps: 8
       cfg: 1.0

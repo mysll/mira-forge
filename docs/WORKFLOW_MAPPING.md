@@ -96,6 +96,39 @@ EmptyLatentImage(width,height,1) ─────────────┴─�
 
 所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端显示"步数固定 8 步，由 sigma 表决定，不可调"而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。
 
+## 负面提示词与 CFG
+
+**默认 CFG=1 时，负面提示词完全不参与计算。** ComfyUI 的 `comfy/samplers.py:610`：
+
+```python
+def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_options={}, seed=None):
+    if math.isclose(cond_scale, 1.0) and model_options.get("disable_cfg1_optimization", False) == False:
+        uncond_ = None        # cfg1 优化：负面分支连算都不算
+```
+
+`cfg_function`（同文件 598 行）的公式是 `uncond_pred + (cond_pred - uncond_pred) * cond_scale`，把 `cond_scale` 固定成 1 时结果恒等于 `cond_pred`；而上面的 cfg1 优化更彻底——`uncond` 直接置 `None`，`/history` 里还能看到负面的 CONDITIONING 被建过，但它从未进入采样。`SamplerCustomAdvanced` 用的 `CFGGuider.predict_noise`（同文件 1217 行）也转调同一个 `sampling_function`，所以 **Turbo 的 CFGGuider 在 cfg=1 时同样跳过负面**。
+
+注册表因此给每个模型一个建议值：
+
+```yaml
+  - id: qwen_image_21
+    negative_prompt_cfg: 3.0     # 标准模型：CFG 提到 3.0 画质仍然稳
+  - id: qwen_image_21_turbo
+    negative_prompt_cfg: 2.0     # 蒸馏模型 CFG 弹性差，3.0 开始过饱和
+```
+
+规则（`generation_service.create_generation`）：
+
+| 情况 | 实际使用的 CFG |
+| --- | --- |
+| 有负面提示词 + 用户没填 CFG | 模型的 `negative_prompt_cfg`（标准 3.0 / Turbo 2.0），并写进 `generation.cfg` |
+| 有负面提示词 + 用户显式填了 CFG | 用户的值，原样保留（包括显式 1.0，前端会提示此时不生效） |
+| 没有负面提示词 | 模型默认 1.0 |
+
+落库的 `generation.cfg` 永远是**实际生效值**，所以详情弹窗里看到的就是真正跑的那个数。实测确认：`POST /generations` 带负面提示词不填 CFG → 返回 `cfg: 3.0`，并从 `/history` 的 `prompt[2]` 里读到提交给 ComfyUI 的 `KSampler.cfg` 确实是 3.0。
+
+> 注意：本机 ComfyUI **不是逐位可复现的**——同 seed 同参数跑两次，产物 sha256 也不一样（实测 `d6418b44…` vs `217c705b…`）。所以不要用"产物是否完全相同"来判断某个参数有没有生效，要么看 `/history` 里提交的图，要么目视对比。
+
 ## 参数映射表
 
 | API 参数 | 文生图落点 | 编辑落点 |

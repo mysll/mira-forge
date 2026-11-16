@@ -50,6 +50,7 @@ class ModelInfo(BaseModel):
     workflows: list[WorkflowTarget]
     available: bool
     is_default: bool = False
+    negative_prompt_cfg: float | None = None
 
 
 class ModelListResponse(BaseModel):

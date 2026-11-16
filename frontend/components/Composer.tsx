@@ -452,13 +452,17 @@ export default function Composer({ models, onToast }: Props) {
 
             {capabilities?.exposes_negative_prompt ? (
               <label className="col-span-1 flex flex-col gap-1 sm:col-span-2 lg:col-span-4">
-                <span className="label">负面提示词</span>
+                <span className="flex items-baseline justify-between">
+                  <span className="label">负面提示词</span>
+                  <span className="text-[10px] text-muted">CFG=1 时不会被计算</span>
+                </span>
                 <input
                   value={negative}
                   onChange={(event) => setNegative(event.target.value)}
                   placeholder="不希望出现的元素，例如 blurry, watermark, text"
                   className="field h-7 px-2 py-0 text-[11px]"
                 />
+                {negative.trim() ? <NegativeHint cfg={cfg} negativeCfg={activeModel?.negative_prompt_cfg ?? null} /> : null}
               </label>
             ) : null}
           </div>
@@ -682,4 +686,34 @@ export default function Composer({ models, onToast }: Props) {
       </div>
     </div>
   );
+}
+
+/**
+ * 负面提示词在 CFG=1 时会被 ComfyUI 的 cfg1 优化跳过（comfy/samplers.py:610 把 uncond 置 None），
+ * 用户看不出「写了但没生效」。这里把实际会用的 CFG 说出来，避免静默失效。
+ */
+function NegativeHint({ cfg, negativeCfg }: { cfg: string; negativeCfg: number | null }) {
+  if (!negativeCfg) {
+    return <span className="text-[10px] text-warn">当前模型不支持负面提示词</span>;
+  }
+
+  const typed = Number.parseFloat(cfg);
+
+  if (!Number.isFinite(typed)) {
+    return (
+      <span className="text-[10px] text-muted">
+        未指定 CFG，本次自动用 {negativeCfg.toFixed(1)} —— CFG=1 时 ComfyUI 会跳过负面分支，提示词等于没写
+      </span>
+    );
+  }
+
+  if (typed <= 1) {
+    return (
+      <span className="text-[10px] text-warn">
+        CFG {typed.toFixed(1)} 时负面提示词不会生效（ComfyUI 会跳过负面分支），建议改到 {negativeCfg.toFixed(1)}
+      </span>
+    );
+  }
+
+  return <span className="text-[10px] text-muted">实际 CFG {typed.toFixed(1)}，负面提示词会参与采样</span>;
 }

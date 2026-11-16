@@ -42,6 +42,9 @@ class _ModelSpec(BaseModel):
     label: str
     description: str = ""
     is_default: bool = Field(default=False, alias="default")
+    # 负面提示词需要 CFG > 1 才会被 ComfyUI 计算（cfg=1 时走 cfg1 优化，uncond 被跳过）。
+    # 这个值是「用户没显式给 CFG 时的自动值」，None 表示该模型不支持负面提示词。
+    negative_prompt_cfg: float | None = None
     defaults: dict[str, Any] = Field(default_factory=dict)
     capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
     workflows: list[_WorkflowSpec] = Field(default_factory=list)
@@ -111,6 +114,7 @@ def _to_model_info(spec: _ModelSpec) -> ModelInfo:
         workflows=targets,
         available=any(target.available for target in targets),
         is_default=spec.is_default,
+        negative_prompt_cfg=spec.negative_prompt_cfg,
     )
 
 
