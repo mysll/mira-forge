@@ -152,10 +152,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col items-center gap-2 px-2 pb-1">
-        <span className="rounded-md border border-edge px-1.5 py-0.5 text-[10px] text-muted/70">
-          一期
-        </span>
+      <div className="mt-auto flex flex-col items-center px-2 pb-2">
         <span className="text-[10px] text-muted/50">v0.1</span>
       </div>
     </aside>
