@@ -93,3 +93,53 @@ def test_workflows_table_synced_from_registry(client: TestClient) -> None:
     }
     # P1 阶段工作流 JSON 尚未落地，enabled 必须如实为 False
     assert all(row["json_path"].endswith(".json") for row in rows)
+
+def test_unload_comfyui_models_reports_freed_memory(client: TestClient, monkeypatch) -> None:
+    """点「释放显存」要真的调用 ComfyUI 的 /free，并把前后显存差报回来。"""
+    from app.api import health as health_module
+
+    calls: list[bool] = []
+    readings: list[tuple[int, int]] = [
+        (2 * 1024**3, 16 * 1024**3),  # 调用前：只空闲 2GB
+        (14 * 1024**3, 16 * 1024**3),  # 调用后：回到 14GB
+    ]
+
+    async def fake_free_memory(self, *, unload_models: bool = True, free_memory: bool = True) -> None:
+        calls.append(unload_models and free_memory)
+
+    async def fake_read_vram(_client) -> tuple[int, int]:
+        return readings[min(len(calls), len(readings) - 1)]
+
+    monkeypatch.setattr(health_module.ComfyUIClient, "free_memory", fake_free_memory)
+    monkeypatch.setattr(health_module, "_read_vram", fake_read_vram)
+
+    response = client.post("/api/v1/comfyui/unload")
+    assert response.status_code == 200
+    body = response.json()
+    assert calls, "没有调用 ComfyUI 的 /free"
+    assert body["ok"] is True
+    assert body["freed"] == 12 * 1024**3
+    assert body["vram_free_before"] == 2 * 1024**3
+    assert body["vram_free_after"] == 14 * 1024**3
+    assert body["vram_total"] == 16 * 1024**3
+
+
+def test_unload_comfyui_models_survives_unreachable_comfyui(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.api import health as health_module
+
+    async def broken_free_memory(self, **_kwargs) -> None:
+        raise ConnectionError("Connect call failed ('127.0.0.1', 8188)")
+
+    async def no_vram(_client) -> tuple[None, None]:
+        return None, None
+
+    monkeypatch.setattr(health_module.ComfyUIClient, "free_memory", broken_free_memory)
+    monkeypatch.setattr(health_module, "_read_vram", no_vram)
+
+    response = client.post("/api/v1/comfyui/unload")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is False
+    assert "ConnectionError" in body["detail"]

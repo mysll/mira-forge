@@ -1,4 +1,5 @@
 import type {
+  FreeMemoryResponse,
   GenerationCreatePayload,
   GenerationListResponse,
   GenerationRead,
@@ -57,6 +58,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
+}
+
+/** 让 ComfyUI 卸载模型、把显存还回来（设置页的「释放显存」按钮） */
+export function unloadComfyModels(): Promise<FreeMemoryResponse> {
+  return request<FreeMemoryResponse>("/comfyui/unload", { method: "POST" });
 }
 
 export async function fetchModels(): Promise<ModelInfo[]> {

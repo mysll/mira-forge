@@ -1,8 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
-import { fetchHealth } from "@/lib/api";
+import { fetchHealth, unloadComfyModels } from "@/lib/api";
+import { formatBytes } from "@/lib/date";
 
 type Row = { label: string; value: React.ReactNode };
 
@@ -29,7 +31,17 @@ function StatusDot({ status }: { status: string }) {
   return <span className={["inline-block h-1.5 w-1.5 rounded-full", tone].join(" ")} />;
 }
 
-function Card({ title, hint, rows }: { title: string; hint?: string; rows: Row[] }) {
+function Card({
+  title,
+  hint,
+  rows,
+  footer,
+}: {
+  title: string;
+  hint?: string;
+  rows: Row[];
+  footer?: React.ReactNode;
+}) {
   return (
     <section className="panel p-4">
       <header className="mb-3 flex items-baseline justify-between">
@@ -44,15 +56,34 @@ function Card({ title, hint, rows }: { title: string; hint?: string; rows: Row[]
           </div>
         ))}
       </dl>
+      {footer ? <div className="mt-3 border-t border-edge/50 pt-3">{footer}</div> : null}
     </section>
   );
 }
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
+  const [note, setNote] = useState<string | null>(null);
   const health = useQuery({
     queryKey: ["health"],
     queryFn: fetchHealth,
     refetchInterval: 5000,
+  });
+
+  const unload = useMutation({
+    mutationFn: unloadComfyModels,
+    onSuccess: (result) => {
+      // 显存变了，让健康检查立刻重读一次
+      void queryClient.invalidateQueries({ queryKey: ["health"] });
+      if (result.ok && result.vram_free_after != null && result.vram_total != null) {
+        setNote(`已卸载模型：空闲显存 ${formatBytes(result.vram_free_after)} / ${formatBytes(result.vram_total)}`);
+      } else if (result.ok) {
+        setNote("已发出卸载指令（没读到显存，可能刚启动）");
+      } else {
+        setNote(`卸载失败：${result.detail ?? "未知原因"}`);
+      }
+    },
+    onError: (error: Error) => setNote(`请求失败：${error.message}`),
   });
 
   const data = health.data;
@@ -128,9 +159,54 @@ export default function SettingsPage() {
             { label: "地址", value: data?.comfyui.url ?? "—" },
             { label: "版本", value: data?.comfyui.version ?? "—" },
             { label: "GPU", value: data?.comfyui.device ?? "—" },
+            {
+              label: "显存",
+              value:
+                data?.comfyui.vram_total != null ? (
+                  <span>
+                    空闲 {formatBytes(data.comfyui.vram_free ?? 0)} / 共{" "}
+                    {formatBytes(data.comfyui.vram_total)}
+                    {data.comfyui.vram_free != null ? (
+                      <span className="ml-1 text-muted">
+                        （{Math.round(((data.comfyui.vram_total - data.comfyui.vram_free) / data.comfyui.vram_total) * 100)}
+                        % 占用）
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  "—"
+                ),
+            },
             ...(data?.comfyui.error ? [{ label: "错误", value: data.comfyui.error }] : []),
           ]}
+          footer={
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setNote(null);
+                  unload.mutate();
+                }}
+                disabled={unload.isPending || !data?.comfyui.reachable}
+                className="btn border border-edge bg-surface2 px-3 py-1.5 text-xs text-ink transition hover:border-accent/50 hover:text-accentSoft disabled:cursor-not-allowed disabled:opacity-50"
+                title="调用 ComfyUI 的 /free：卸载已加载的模型，把显存还回来（下次生成会重新加载，首张会慢一些）"
+              >
+                {unload.isPending ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-3 w-3 animate-spin rounded-full border border-muted/40 border-t-accentSoft" />
+                    正在卸载…
+                  </span>
+                ) : (
+                  "卸载模型 · 释放显存"
+                )}
+              </button>
+              <span className="text-[11px] text-muted">
+                切到大模型或跑视频前腾显存用；不影响已生成的图片。
+              </span>
+            </div>
+          }
         />
+        {note ? <p className="-mt-2 px-1 text-[11px] text-muted">{note}</p> : null}
 
         <Card
           title="存储"
@@ -144,8 +220,8 @@ export default function SettingsPage() {
         <section className="panel p-4 text-xs leading-relaxed text-muted">
           <h2 className="mb-2 text-sm text-ink">关于</h2>
           <p>
-            MiraForge 一期：本地文生图与图片编辑。所有推理走本机 ComfyUI（Qwen Image 2.1 / Turbo），
-            任务串行执行，图片落在本机磁盘。视频生成属于二期，入口先留位置。
+            MiraForge：本地 AI 图片与视频生成。所有推理走本机 ComfyUI（Qwen Image 2.1 / Turbo、MiniMax
+            H3），任务串行执行，产物落在本机磁盘，一个项目一个文件夹。
           </p>
         </section>
       </div>

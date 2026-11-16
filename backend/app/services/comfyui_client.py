@@ -39,6 +39,20 @@ class ComfyUIClient:
             response.raise_for_status()
             return response.json()
 
+    async def free_memory(
+        self, *, unload_models: bool = True, free_memory: bool = True
+    ) -> None:
+        """让 ComfyUI 卸载模型、释放显存（POST /free）。
+
+        注意：ComfyUI 只是给队列打标记，真正的卸载发生在它下一次处理队列时，
+        所以调用方要自己等一小会儿再看显存。
+        """
+        async with self._client() as client:
+            response = await client.post(
+                "/free", json={"unload_models": unload_models, "free_memory": free_memory}
+            )
+            response.raise_for_status()
+
     async def submit(self, graph: dict[str, Any], client_id: str) -> str:
         """POST /prompt，返回 prompt_id。校验失败抛 ComfyUIError（带 node_errors 摘要）。"""
         async with self._client() as client:

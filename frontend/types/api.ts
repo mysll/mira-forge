@@ -13,6 +13,19 @@ export type ComfyUIStatus = ComponentStatus & {
   version: string | null;
   device: string | null;
   error: string | null;
+  vram_total: number | null;
+  vram_free: number | null;
+};
+
+/** POST /comfyui/unload 的结果：卸载模型前后各读一次显存 */
+export type FreeMemoryResponse = {
+  ok: boolean;
+  url: string;
+  vram_total: number | null;
+  vram_free_before: number | null;
+  vram_free_after: number | null;
+  freed: number | null;
+  detail: string | null;
 };
 
 export type HealthResponse = {

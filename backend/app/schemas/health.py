@@ -20,6 +20,21 @@ class ComfyUIStatus(ComponentStatus):
     version: str | None = None
     device: str | None = None
     error: str | None = None
+    # 显存（字节）；ComfyUI 不可达时为 None
+    vram_total: int | None = None
+    vram_free: int | None = None
+
+
+class FreeMemoryResponse(BaseModel):
+    """POST /comfyui/unload 的结果。"""
+
+    ok: bool
+    url: str
+    vram_total: int | None = None
+    vram_free_before: int | None = None
+    vram_free_after: int | None = None
+    freed: int | None = None
+    detail: str | None = None
 
 
 class HealthResponse(BaseModel):

@@ -80,7 +80,9 @@ Base URL：`http://127.0.0.1:8000/api/v1`
     "reachable": true,
     "version": "0.44.0",
     "device": "cuda:0 NVIDIA GeForce RTX 5070 Ti : cudaMallocAsync",
-    "error": null
+    "error": null,
+    "vram_total": 17066033152,
+    "vram_free": 2380563372
   },
   "storage": { "status": "ok", "detail": "D:/AI/MiraForge/data/projects/default/storage" },
   "storage_path": "D:/AI/MiraForge/data/projects/default/storage",
@@ -90,7 +92,29 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 `status` 取值：`ok`（全部正常）· `degraded`（DB 正常但 ComfyUI 或存储异常）· `error`（DB 不可用）。
 `storage_path` 与 `max_generation_count` 供前端「设置 → 系统状态」页展示，不用再读环境变量。
-`project_id / project_name / project_path` 说明当前激活的是哪个项目——多项目下，`/health` 报的 DB 与存储路径都是激活项目自己的。
+`project_id / project_name / project_path` 说明当前激活的是哪个项目——多项目下，`/health` 报的 DB 与存储路径都是激活项目自己的。`comfyui.vram_total / vram_free` 是显存字节数（ComfyUI 不可达时为 `null`），设置页用它显示占用比例。
+
+### `POST /comfyui/unload`
+
+让 ComfyUI 卸载已加载的模型、把显存还回来（对应 ComfyUI 的 `POST /free`，body `{"unload_models": true, "free_memory": true}`）。
+设置页「ComfyUI」卡片上的「卸载模型 · 释放显存」按钮就是调它。
+
+因为 ComfyUI 收到 `/free` 只是给队列打标记、真正卸载发生在它跑下一轮队列时，这个接口会**轮询最多约 3 秒**，等空闲显存涨上来（或超时）再返回。
+
+```json
+{
+  "ok": true,
+  "url": "http://127.0.0.1:8188",
+  "vram_total": 17066033152,
+  "vram_free_before": 2380170156,
+  "vram_free_after": 15647637504,
+  "freed": 13267467348,
+  "detail": null
+}
+```
+
+ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionError: ..."}`，前端直接把 `detail` 显示出来。
+副作用：下一次生成会重新加载模型，首张会慢一些（约 10–15 秒）；已生成的图片与工作流不受影响。
 
 ## 模型目录
 
