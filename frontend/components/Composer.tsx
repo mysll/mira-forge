@@ -184,11 +184,14 @@ export default function Composer({ models, onToast }: Props) {
   const sizeLabel = longEdge > 0 ? `${ratioKey} · ${longEdge}` : `自定义 · ${width}×${height}`;
 
   return (
-    <div className="shrink-0 border-t border-edge/70 bg-bg/95 px-5 pb-4 pt-3 backdrop-blur">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4">
+      {/* 渐隐遮罩：让作品流在创作框下方自然淡出，而不是被一条硬边切成上下两块 */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 -top-32 bg-gradient-to-t from-bg via-bg via-70% to-transparent" />
+
       <div
         className={[
-          "mx-auto flex max-w-[1180px] flex-col gap-2.5 rounded-xl2 border bg-surface p-3 transition",
-          dragOver ? "border-accent/70 ring-2 ring-accent/20" : "border-edge",
+          "pointer-events-auto relative mx-auto flex max-w-[1180px] flex-col gap-2.5 rounded-xl2 border bg-surface/92 p-3 shadow-pop backdrop-blur-2xl transition",
+          dragOver ? "border-accent/70 ring-2 ring-accent/20" : "border-edge/80",
         ].join(" ")}
         onDragOver={(event) => {
           event.preventDefault();

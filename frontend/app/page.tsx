@@ -221,7 +221,7 @@ export default function WorkspacePage() {
         total={total}
       />
 
-      <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
+      <div className="scroll-thin flex-1 overflow-y-auto px-5 pb-[240px] pt-4">
         {pendingBatches.length > 0 ? (
           <div className="mb-4 flex flex-col gap-2">
             {pendingBatches.map((generation) => {
@@ -291,6 +291,7 @@ export default function WorkspacePage() {
         />
       </div>
 
+      {/* 创作框悬浮在作品流之上：absolute 定位，不再占据独立的一段高度 */}
       <Composer models={modelsQuery.data ?? []} onToast={toast} />
 
       {detail ? (

@@ -24,8 +24,8 @@
 | 约束 | 实现 |
 | --- | --- |
 | 只有两栏，禁止第三栏 | `app/layout.tsx` 里 `Sidebar`（72px 固定）+ `main`（`flex-1 min-w-0`）；参数一律走弹出层 |
-| 作品流是主空间 | `main` 内部 `flex-col`：顶栏 `h-14 shrink-0`、作品流 `flex-1 overflow-y-auto`、创作框 `shrink-0` |
-| 创作框固定在右侧工作区底部 | 创作框是 `main` 的最后一个子元素，**不是** `fixed`，所以不会横跨左导航，也不会盖住作品流 |
+| 作品流是主空间 | `main` 内部 `flex-col`：顶栏 `h-14 shrink-0`、作品流 `flex-1 overflow-y-auto`，创作框浮在作品流之上 |
+| 创作框悬浮在底部 | 创作框是 `main`（`relative`）里的 `absolute inset-x-0 bottom-0`，**不是** `fixed`，所以不会横跨左导航；上方有一层 `bg-gradient-to-t` 渐隐遮罩，作品流从它后面滚过而不是被一条硬边切成两段 |
 | 页面不出现多层滚动条 | `body` 是 `h-screen overflow-hidden`，只有作品流和弹出层内部滚动 |
 | 系统状态不进首页 | 搬到 `app/settings/page.tsx` |
 
@@ -93,8 +93,8 @@
 | --- | --- |
 | 两栏、无第三栏 | `app/layout.tsx` + 全站无右侧固定栏 |
 | 作品流占主空间 | `main` 中 `flex-1` 的滚动区 |
-| 创作框固定在工作区底部 | `main` 内最后一个 `shrink-0` 子元素 |
-| 创作框不横跨左导航 | 非 `fixed`，只占 `main` 宽度 |
+| 创作框固定在工作区底部 | `main` 内 `absolute bottom-0` 的悬浮层，作品流 `pb-[240px]` 留出滚动余量 |
+| 创作框不横跨左导航 | 非 `fixed`，`absolute` 只相对 `main` 定位 |
 | 提示词 / 参考图 / 参数入口齐全 | `components/Composer.tsx` |
 | 高级设置默认折叠 | `advancedOpen` 默认 `false` |
 | 历史来自真实后端 | `GET /generations`，无任何静态假数据 |

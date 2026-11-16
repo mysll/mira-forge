@@ -11,7 +11,7 @@ type Props = {
 
 export default function ToastStack({ items, onDismiss }: Props) {
   return (
-    <div className="pointer-events-none fixed bottom-[150px] right-6 z-50 flex w-[280px] flex-col gap-2">
+    <div className="pointer-events-none fixed bottom-[200px] right-6 z-50 flex w-[280px] flex-col gap-2">
       {items.map((item) => (
         <Toast key={item.id} item={item} onDismiss={onDismiss} />
       ))}
