@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import CountMenu from "@/components/CountMenu";
 import Popover from "@/components/Popover";
 import { createGeneration, createImageToVideoGeneration } from "@/lib/api";
 import {
@@ -404,33 +405,22 @@ export default function VideoComposer({
               )}
             </Popover>
 
-            {/* 数量：视频一次最多 4 条，默认 1 条 */}
-            <Popover label={`${count} 条`} title="数量" width={188}>
+            {/* 数量：视频一次最多 4 条，默认 1 条；和图片创作框共用同一个菜单样式 */}
+            <Popover
+              label={`${count} 条`}
+              title={`串行生成，${count} 条约需 ${count * estimateMinutes} 分钟（最多 4 条）`}
+              width={80}
+            >
               {(close) => (
-                <div className="grid gap-1.5">
-                  <div className="grid grid-cols-4 gap-1">
-                    {countOptions.map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => {
-                          setCount(value);
-                          close();
-                        }}
-                        className={`rounded-md border py-1.5 text-[11px] transition ${
-                          value === count
-                            ? "border-accent/60 bg-accent/15 text-accentSoft"
-                            : "border-edge/70 text-muted hover:border-edge hover:text-ink"
-                        }`}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] leading-relaxed text-muted">
-                    串行生成，{count} 条约需 {count * estimateMinutes} 分钟（同一条提示词、不同 seed）
-                  </p>
-                </div>
+                <CountMenu
+                  options={countOptions}
+                  value={count}
+                  unit="条"
+                  onSelect={(value) => {
+                    setCount(value);
+                    close();
+                  }}
+                />
               )}
             </Popover>
 

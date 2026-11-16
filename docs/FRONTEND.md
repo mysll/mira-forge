@@ -68,6 +68,7 @@
 | `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多 |
 | `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9 |
 | `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器、五个操作；视频则换成 `<video controls>` 播放器 + 时长 / 帧数，并隐藏「继续编辑」 |
+| `components/CountMenu.tsx` | 数量菜单（一列数字 + 选中勾），图片 1–8 张与视频 1–4 条共用 |
 | `components/Composer.tsx` | 图片创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
 | `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点击或拖入，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、数量（1–4 条，默认 1）、模型，`⌘/Ctrl+Enter` 提交 |
 | `components/Popover.tsx` | 参数用的小弹层（点外部 / ESC 关闭，向上弹出） |

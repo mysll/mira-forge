@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import CountMenu from "@/components/CountMenu";
 import Popover from "@/components/Popover";
 import {
   createEditGeneration,
@@ -22,7 +23,7 @@ type Props = {
   onToast: (message: string) => void;
 };
 
-const COUNT_OPTIONS = [1, 2, 4, 6, 8];
+const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function PillIcon({ children }: { children: React.ReactNode }) {
   return <span className="text-muted">{children}</span>;
@@ -623,28 +624,19 @@ export default function Composer({ models, onToast }: Props) {
 
           <Popover
             label={<span>数量 {count}</span>}
-            title="每批生成张数（各自独立 seed、串行执行）"
-            width={104}
+            title={`每批生成张数（最多 8 张，各自独立 seed、串行执行）`}
+            width={80}
           >
             {(close) => (
-              <div className="flex flex-col">
-                {COUNT_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => {
-                      setCount(option);
-                      close();
-                    }}
-                    className={[
-                      "flex items-center rounded-lg px-2 py-1.5 text-xs transition",
-                      count === option ? "bg-accent/12 text-accentSoft" : "text-ink/85 hover:bg-surface2",
-                    ].join(" ")}
-                  >
-                    <span>{option} 张</span>
-                  </button>
-                ))}
-              </div>
+              <CountMenu
+                options={COUNT_OPTIONS}
+                value={count}
+                unit="张"
+                onSelect={(option) => {
+                  setCount(option);
+                  close();
+                }}
+              />
             )}
           </Popover>
 
