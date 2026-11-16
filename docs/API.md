@@ -318,6 +318,31 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
 
 删除原图与缩略图（磁盘文件 + 数据库行），返回 `204`。不存在返回 `404`。已删除的图片若是某次生成的唯一产物，生成记录本身保留。
 
+### `POST /images/batch-delete`
+
+批量删除，body `{"ids": [12, 14, 15]}`（最多 500 个）。
+
+```json
+{ "deleted": [12, 14], "missing": [15] }
+```
+
+本来就不存在的 id 进 `missing` 而不是整批失败——多标签页同时删是常态。删除是逐条 best-effort：某个文件删不掉只留日志，不会回滚其他记录。
+
+### `POST /images/clear`
+
+清空工作区：删除**全部**图片与**全部**生成记录（含任务），并清掉 `storage/` 下的 `images`、`thumbnails`、`uploads` 三个目录。不可撤销，前端必须先让用户确认。
+
+```json
+{ "images": 70, "generations": 40 }
+```
+
+- 响应 `409` 的条件：还有任务处于 `queued / running`——此时清空会把正在写的文件删掉一半，必须先等完成或取消：
+
+  ```json
+  { "detail": "还有 1 个任务在排队或生成，清空会丢掉它们，请先等完成或取消" }
+  ```
+- 不动的东西：模型注册表、工作流 JSON 与绑定配置、数据库文件本身。
+
 ## WebSocket
 
 ### `WS /ws/tasks`

@@ -28,3 +28,17 @@ class ImageListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ImageBatchDeleteRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=500)
+
+
+class ImageBatchDeleteResponse(BaseModel):
+    deleted: list[int] = Field(default_factory=list)
+    missing: list[int] = Field(default_factory=list)
+
+
+class WorkspaceClearResponse(BaseModel):
+    images: int
+    generations: int

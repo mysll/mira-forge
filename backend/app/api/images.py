@@ -8,15 +8,23 @@ from sqlalchemy.orm import Session
 
 from app.models.database import get_db
 from app.models.image import Image
-from app.schemas.image import ImageListResponse, ImageRead
+from app.schemas.image import (
+    ImageBatchDeleteRequest,
+    ImageBatchDeleteResponse,
+    ImageListResponse,
+    ImageRead,
+    WorkspaceClearResponse,
+)
 from app.services.image_service import (
     ImageStoreError,
     absolute_path,
     delete_image,
+    delete_images,
     ensure_thumbnail,
     list_images,
     set_favorite,
 )
+from app.services.workspace_service import WorkspaceBusyError, clear_workspace
 
 router = APIRouter(prefix="/images", tags=["images"])
 
@@ -113,3 +121,23 @@ def remove_image(image_id: int, db: Session = Depends(get_db)) -> Response:
         )
     delete_image(db, image)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/batch-delete", response_model=ImageBatchDeleteResponse)
+def remove_images(
+    payload: ImageBatchDeleteRequest,
+    db: Session = Depends(get_db),
+) -> ImageBatchDeleteResponse:
+    """批量删除。已不存在的 id 放进 missing 而不是整批失败——多标签页同时删是常态。"""
+    deleted, missing = delete_images(db, payload.ids)
+    return ImageBatchDeleteResponse(deleted=deleted, missing=missing)
+
+
+@router.post("/clear", response_model=WorkspaceClearResponse)
+def clear_all(db: Session = Depends(get_db)) -> WorkspaceClearResponse:
+    """清空工作区：删除全部图片与生成记录，并清掉 storage 下的产物。不可撤销。"""
+    try:
+        counts = clear_workspace(db)
+    except WorkspaceBusyError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return WorkspaceClearResponse(**counts)

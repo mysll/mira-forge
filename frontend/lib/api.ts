@@ -3,10 +3,12 @@ import type {
   GenerationListResponse,
   GenerationRead,
   HealthResponse,
+  ImageBatchDeleteResponse,
   ImageListResponse,
   ImageRead,
   ModelInfo,
   TaskRead,
+  WorkspaceClearResponse,
 } from "@/types/api";
 
 const API_BASE =
@@ -198,6 +200,19 @@ export function setImageFavorite(imageId: number, favorite: boolean): Promise<Im
     method: "POST",
     body: JSON.stringify({ favorite }),
   });
+}
+
+/** 批量删除。返回真正删掉的 id 与本来就不存在的 id。 */
+export function deleteImages(ids: number[]): Promise<ImageBatchDeleteResponse> {
+  return request<ImageBatchDeleteResponse>("/images/batch-delete", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/** 清空工作区：删除全部图片与生成记录，不可撤销。 */
+export function clearWorkspace(): Promise<WorkspaceClearResponse> {
+  return request<WorkspaceClearResponse>("/images/clear", { method: "POST" });
 }
 
 export function cancelTask(taskId: number): Promise<TaskRead> {

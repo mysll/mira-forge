@@ -147,6 +147,16 @@ export type ImageListResponse = {
   offset: number;
 };
 
+export type ImageBatchDeleteResponse = {
+  deleted: number[];
+  missing: number[];
+};
+
+export type WorkspaceClearResponse = {
+  images: number;
+  generations: number;
+};
+
 /** 作品流里的一条卡片数据：图片 + 它所属批次的全部上下文。 */
 /** 作品流里的一张卡：已完成的是图片，未完成的用占位卡（image 为 null）。 */
 export type FeedSlot = {

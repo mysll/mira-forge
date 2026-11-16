@@ -3,12 +3,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
+import ConfirmDialog from "@/components/ConfirmDialog";
 import ImageDetail from "@/components/ImageDetail";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import TopBar from "@/components/TopBar";
 import { useImageActions, type AssetRef } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { fetchGenerations, fetchModels, imageThumbnailUrl } from "@/lib/api";
+import { clearWorkspace, deleteImages, fetchGenerations, fetchModels, imageThumbnailUrl } from "@/lib/api";
 import { bucketOf, dateRangeFor, formatTime, parseIso, type DateBucket, type DateFilter } from "@/lib/date";
 import type { FeedItem, GenerationRead, ImageBrief } from "@/types/api";
 
@@ -32,6 +33,10 @@ export default function GalleryPage() {
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [detail, setDetail] = useState<FeedItem | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [managing, setManaging] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirm, setConfirm] = useState<"selected" | "all" | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const toast = (text: string) => {
     setToasts((current) => [...current, { id: Date.now() + Math.random(), text }]);
@@ -123,6 +128,70 @@ export default function GalleryPage() {
     });
   };
 
+  const loadedIds = useMemo(() => assets.map((asset) => asset.image.id), [assets]);
+  const allSelected = loadedIds.length > 0 && selected.size === loadedIds.length;
+
+  const toggleOne = (imageId: number) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(imageId)) {
+        next.delete(imageId);
+      } else {
+        next.add(imageId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(loadedIds));
+  };
+
+  const startManaging = () => {
+    setManaging(true);
+    setSelected(new Set());
+  };
+
+  const stopManaging = () => {
+    setManaging(false);
+    setSelected(new Set());
+  };
+
+  const removeSelected = async () => {
+    const ids = [...selected];
+    if (ids.length === 0) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await deleteImages(ids);
+      setConfirm(null);
+      setSelected(new Set());
+      actions.refresh();
+      toast(result.deleted.length > 0 ? `已删除 ${result.deleted.length} 张` : "这些图片已经不在了");
+    } catch (error) {
+      toast((error as Error).message || "删除失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const wipeWorkspace = async () => {
+    setBusy(true);
+    try {
+      const result = await clearWorkspace();
+      setConfirm(null);
+      setSelected(new Set());
+      setManaging(false);
+      actions.refresh();
+      toast(`已清空：${result.images} 张图片、${result.generations} 个批次`);
+    } catch (error) {
+      toast((error as Error).message || "清空失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <TopBar
@@ -153,7 +222,66 @@ export default function GalleryPage() {
         view="grid"
         onView={() => {}}
         total={total}
+        actions={
+          <button
+            type="button"
+            onClick={managing ? stopManaging : startManaging}
+            className={[
+              "inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition",
+              managing
+                ? "border-accent/50 bg-accent/15 text-accentSoft"
+                : "border-edge bg-surface2 text-muted hover:text-ink",
+            ].join(" ")}
+            title={managing ? "退出管理" : "批量选择图片"}
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+              <rect x="4" y="4" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="13" y="4" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+              <rect x="4" y="13" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M14.5 17.2 16.4 19l3.1-4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {managing ? "完成" : "管理"}
+          </button>
+        }
       />
+
+      {managing ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge/70 bg-surface/70 px-5 py-2">
+          <button
+            type="button"
+            onClick={toggleAll}
+            disabled={loadedIds.length === 0}
+            className="h-8 rounded-lg border border-edge bg-surface2 px-2.5 text-xs text-ink/90 transition hover:border-accent/40 disabled:opacity-40"
+          >
+            {allSelected ? "取消全选" : "全选"}
+          </button>
+          <span className="text-xs text-muted">
+            已选 <span className="text-ink">{selected.size}</span> / {loadedIds.length} 张
+          </span>
+          <span className="hidden text-[11px] text-muted/70 sm:inline">点图片即可选择或取消</span>
+
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirm("selected")}
+              disabled={selected.size === 0}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge bg-surface2 px-2.5 text-xs text-ink/90 transition hover:border-bad/50 hover:text-bad disabled:opacity-40"
+            >
+              <TrashIcon />
+              删除所选
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirm("all")}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-bad/40 bg-bad/10 px-2.5 text-xs text-bad transition hover:bg-bad/15"
+              title="删除全部图片与生成记录，不可恢复"
+            >
+              <TrashIcon />
+              清空工作区
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="scroll-thin flex-1 overflow-y-auto px-5 pb-10 pt-4">
         {generationsQuery.isLoading ? (
@@ -179,6 +307,9 @@ export default function GalleryPage() {
                     key={asset.image.id}
                     asset={asset}
                     modelLabel={modelLabels[asset.generation.model_name]}
+                    selectable={managing}
+                    selected={selected.has(asset.image.id)}
+                    onToggle={() => toggleOne(asset.image.id)}
                     onOpen={() => openDetail(asset)}
                     onFavorite={() => actions.favorite(asset)}
                     onDownload={() => void actions.download(asset)}
@@ -221,6 +352,38 @@ export default function GalleryPage() {
         />
       ) : null}
 
+      <ConfirmDialog
+        open={confirm === "selected"}
+        title={`删除选中的 ${selected.size} 张图片？`}
+        description={
+          <>
+            图片文件会从磁盘移除，数据库记录一并删除，<span className="text-bad">不可恢复</span>。
+            对应的批次会留在作品流里，只是少了几张图。
+          </>
+        }
+        confirmLabel="删除"
+        danger
+        busy={busy}
+        onConfirm={() => void removeSelected()}
+        onCancel={() => setConfirm(null)}
+      />
+
+      <ConfirmDialog
+        open={confirm === "all"}
+        title="清空工作区？"
+        description={
+          <>
+            会删除全部图片与全部生成记录（当前视图里 {assets.length} 张 / {total} 个批次），
+            <span className="text-bad">文件从磁盘移除且无法恢复</span>。模型与工作流配置不受影响。
+          </>
+        }
+        confirmLabel="清空工作区"
+        danger
+        busy={busy}
+        onConfirm={() => void wipeWorkspace()}
+        onCancel={() => setConfirm(null)}
+      />
+
       <ToastStack items={toasts} onDismiss={dismissToast} />
     </>
   );
@@ -229,6 +392,9 @@ export default function GalleryPage() {
 function AssetCard({
   asset,
   modelLabel,
+  selectable,
+  selected,
+  onToggle,
   onOpen,
   onFavorite,
   onDownload,
@@ -237,6 +403,9 @@ function AssetCard({
 }: {
   asset: Asset;
   modelLabel?: string;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onFavorite: () => void;
   onDownload: () => void;
@@ -247,51 +416,81 @@ function AssetCard({
   const [loaded, setLoaded] = useState(false);
 
   return (
-    <div className="group relative overflow-hidden rounded-xl border border-edge/70 bg-surface">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full"
-        title={`${generation.prompt}\n${formatTime(image.created_at)}`}
-      >
-        <div className="relative aspect-square w-full overflow-hidden bg-surface2">
-          {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageThumbnailUrl(image)}
-            alt={generation.prompt.slice(0, 60)}
-            loading="lazy"
-            onLoad={() => setLoaded(true)}
-            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
-          />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition group-hover:opacity-100" />
-          <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2 opacity-0 transition group-hover:opacity-100">
-            <span className="truncate text-[10px] text-white/85">{modelLabel ?? generation.model_name}</span>
-            <span className="shrink-0 text-[10px] text-white/70">{formatTime(image.created_at)}</span>
-          </div>
+    <div
+      className={[
+        "group relative overflow-hidden rounded-xl border bg-surface transition",
+        selected ? "border-accent ring-2 ring-accent/40" : "border-edge/70",
+        selectable ? "cursor-pointer" : "",
+      ].join(" ")}
+      onClick={selectable ? onToggle : onOpen}
+      role={selectable ? "checkbox" : "button"}
+      aria-checked={selectable ? selected : undefined}
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (selectable) {
+            onToggle();
+          } else {
+            onOpen();
+          }
+        }
+      }}
+      title={selectable ? "点击选择这张图" : `${generation.prompt}\n${formatTime(image.created_at)}`}
+    >
+      <div className="relative aspect-square w-full overflow-hidden bg-surface2">
+        {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageThumbnailUrl(image)}
+          alt={generation.prompt.slice(0, 60)}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+        />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition group-hover:opacity-100" />
+        <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2 opacity-0 transition group-hover:opacity-100">
+          <span className="truncate text-[10px] text-white/85">{modelLabel ?? generation.model_name}</span>
+          <span className="shrink-0 text-[10px] text-white/70">{formatTime(image.created_at)}</span>
         </div>
-      </button>
+      </div>
 
-      {image.is_favorite ? (
+      {selectable ? (
+        <span
+          className={[
+            "pointer-events-none absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border transition",
+            selected
+              ? "border-accent bg-accent text-white"
+              : "border-white/70 bg-black/35 text-transparent backdrop-blur",
+          ].join(" ")}
+          aria-hidden
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none">
+            <path d="m5.5 12.5 4.2 4L18.5 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+      ) : image.is_favorite ? (
         <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/45 p-1 text-warn">
           <StarIcon filled />
         </span>
       ) : null}
 
-      <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 transition group-hover:opacity-100">
-        <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
-          <StarIcon filled={image.is_favorite} />
-        </CellAction>
-        <CellAction label="继续编辑" onClick={onEdit}>
-          <EditIcon />
-        </CellAction>
-        <CellAction label="下载" onClick={onDownload}>
-          <DownloadIcon />
-        </CellAction>
-        <CellAction label="删除" onClick={onDelete} danger>
-          <TrashIcon />
-        </CellAction>
-      </div>
+      {selectable ? null : (
+        <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 transition group-hover:opacity-100">
+          <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
+            <StarIcon filled={image.is_favorite} />
+          </CellAction>
+          <CellAction label="继续编辑" onClick={onEdit}>
+            <EditIcon />
+          </CellAction>
+          <CellAction label="下载" onClick={onDownload}>
+            <DownloadIcon />
+          </CellAction>
+          <CellAction label="删除" onClick={onDelete} danger>
+            <TrashIcon />
+          </CellAction>
+        </div>
+      )}
     </div>
   );
 }

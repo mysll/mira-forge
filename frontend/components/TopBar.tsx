@@ -20,6 +20,8 @@ type Props = {
   viewToggle?: boolean;
   /** 右上角的计数说明，缺省按批次数显示 */
   countText?: string;
+  /** 插在搜索框左侧的额外操作（如资产页的「管理」） */
+  actions?: React.ReactNode;
 };
 
 const DATE_LABELS: Record<DateFilter, string> = {
@@ -48,6 +50,7 @@ export default function TopBar({
   title = "作品库",
   viewToggle = true,
   countText,
+  actions,
 }: Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-edge/70 px-5">
@@ -175,6 +178,8 @@ export default function TopBar({
             </button>
           ))}
         </div>
+
+        {actions}
       </div>
     </header>
   );

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import struct
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
 
 from sqlalchemy import select
@@ -159,8 +160,8 @@ def ensure_thumbnail(db: Session, image: Image) -> Path:
     return target
 
 
-def delete_image(db: Session, image: Image) -> None:
-    """删库 + 删盘（原图与缩略图都清掉），文件缺失不认为是错误。"""
+def remove_files(image: Image) -> None:
+    """删掉原图与缩略图；文件缺失或删不掉都不算错误。"""
     storage_root = get_settings().storage_path
     paths = [storage_root / image.file_path]
     if image.thumbnail_path:
@@ -173,8 +174,31 @@ def delete_image(db: Session, image: Image) -> None:
             # 删不掉就留着，不要因为文件系统问题让接口失败
             pass
 
+
+def delete_image(db: Session, image: Image) -> None:
+    """删库 + 删盘（原图与缩略图都清掉），文件缺失不认为是错误。"""
+    remove_files(image)
     db.delete(image)
     db.commit()
+
+
+def delete_images(db: Session, image_ids: Sequence[int]) -> tuple[list[int], list[int]]:
+    """批量删除。返回 (真正删掉的 id, 本来就不存在的 id)。
+
+    一次事务、一次 commit：中途某个文件删不掉不影响其余记录，也不回滚。
+    """
+    wanted = list(dict.fromkeys(int(image_id) for image_id in image_ids))
+    if not wanted:
+        return [], []
+
+    rows = list(db.scalars(select(Image).where(Image.id.in_(wanted))).all())
+    found = {row.id for row in rows}
+    for row in rows:
+        remove_files(row)
+        db.delete(row)
+
+    db.commit()
+    return sorted(found), sorted(set(wanted) - found)
 
 
 def list_images(
