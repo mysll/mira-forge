@@ -178,7 +178,9 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 ### `GET /generations/{id}`
 
-返回单个 `GenerationRead`（含 `tasks` 与 `reference_image_path`）。不存在返回 `404`。
+返回单个 `GenerationRead`（含 `tasks`、`images`、`reference_images`）。不存在返回 `404`。
+
+`reference_images` 是**相对 `STORAGE_DIR`** 的路径数组：文生图为空，编辑为 1 张，图生图为 1–2 张。
 
 ### `POST /generations/edit`
 
@@ -208,9 +210,40 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
 422 {"detail": "参考图不能超过 20 MB"}
 ```
 
+### `POST /generations/image-to-image`
+
+图生图：`multipart/form-data`，字段与 `POST /generations` 相同，外加 `images`（1–2 张）。`generation_type` 固定为 `image_to_image`。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `prompt` | 是 | 想要的画面；参考图只影响构图/材质，不会被原样复制 |
+| `model` | 是 | 支持 `image_to_image` 的模型 id |
+| `images` | 是 | 1–2 张；PNG / JPEG / WEBP；单张 ≤ 20 MB；按文件魔数校验 |
+| `width` / `height` | 否 | **生效**（与文生图一致，落到工作流里的 `EmptyLatentImage`） |
+| `count` | 否 | 1–8 |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
+  -F "prompt=put the teapot and the lamp on a stone table in a rainy neon alley" \
+  -F "model=qwen_image_21_turbo" \
+  -F "width=1024" -F "height=1024" -F "count=1" \
+  -F "images=@D:/AI/MiraForge/storage/images/22/52_0.png" \
+  -F "images=@D:/AI/MiraForge/storage/images/21/48_0.png"
+```
+
+返回结构与 `POST /generations` 相同（`201`）。错误：
+
+```
+422 {"detail": "图生图最多 2 张参考图，收到 3 张"}
+422 {"detail": "图生图需要至少 1 张参考图"}
+422 {"detail": "第 2 张参考图需要是 PNG / JPEG / WEBP 图片"}
+```
+
+工作流侧：参考图接到编码器的 `images.image_1` / `images.image_2`，潜空间来自 `EmptyLatentImage`（这点与图片编辑相反），只有 1 张参考图时第二张的 `LoadImage` 节点会被自动摘掉。
+
 ### `GET /generations/{id}/reference`
 
-回显该次生成用的参考图（`FileResponse`，按扩展名给 `image/png` / `image/jpeg` / `image/webp`）。没有参考图或文件缺失时 `404`。
+回显该次生成用的参考图（`FileResponse`，按扩展名给 `image/png` / `image/jpeg` / `image/webp`）。查询参数 `index` 从 `0` 开始，缺省 `0`。没有参考图、文件缺失、或 `index` 越界时 `404`（例如「generation 25 只有 2 张参考图，没有第 3 张」）。
 
 ## 任务
 

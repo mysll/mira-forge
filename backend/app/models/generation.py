@@ -28,6 +28,8 @@ class GenerationStatus(StrEnum):
 
 class GenerationType(StrEnum):
     TEXT_TO_IMAGE = "text_to_image"
+    # 参考图引导：参考图只进条件，潜空间仍按 width/height 新开一张
+    IMAGE_TO_IMAGE = "image_to_image"
     IMAGE_EDIT = "image_edit"
 
 
@@ -45,6 +47,8 @@ class Generation(Base):
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     reference_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 参考图全部路径（JSON 数组），reference_image_path 是其中第一张，方便单图端点直接用
+    reference_image_paths: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 用户显式给出的生成参数；为 None 时回落到 registry.yaml 里模型默认值
     negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     steps: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -33,14 +33,16 @@ UI 模板是 subgraph 结构，**不能直接提交给 `/prompt`**；必须展�
 - **AUTOGROW 输入的 API 键名带子前缀**：第 1 张参考图写作 `"images.image_1"`，不是 `images`，也不是数组。
 - **编辑链路的 latent 直接取自编码器第 3 个输出**：`latent_image=[6,2]`（`TextEncodeQwenImage21` 的 output `['positive','negative','latent']`）。因此编辑时 `EmptyLatentImage` 不参与，宽高不生效。
 
-## 四个目标工作流
+## 六个目标工作流
 
 | 注册表条目 | 文件 | 采样方式 | 状态 |
 | --- | --- | --- | --- |
 | `qwen_image_21` / text_to_image | `backend/workflows/qwen_image_21_t2i.json` | KSampler 25 步 | ✅ 真实出图验证（4 张） |
 | `qwen_image_21` / image_edit | `backend/workflows/qwen_image_21_edit.json` | KSampler 25 步 | ✅ 真实编辑验证（2 张，约 12 s/张） |
+| `qwen_image_21` / image_to_image | `backend/workflows/qwen_image_21_i2i.json` | KSampler 25 步 | ✅ 结构验证（同一套节点，仅 latent 换成 EmptyLatentImage） |
 | `qwen_image_21_turbo` / text_to_image | `backend/workflows/qwen_image_21_turbo_t2i.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实出图验证（多张） |
 | `qwen_image_21_turbo` / image_edit | `backend/workflows/qwen_image_21_turbo_edit.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实编辑验证（多张，3–6 s/张） |
+| `qwen_image_21_turbo` / image_to_image | `backend/workflows/qwen_image_21_turbo_i2i.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实出图验证（1 张 / 2 张参考图） |
 
 四张图都已通过 MiraForge 的 `POST /prompt` 真实跑通，注册表里 `validated: true`。编辑链路的参考图由 Worker 先 `POST /upload/image` 送进 ComfyUI 的 `input/`，再写进 `LoadImage.image`。
 
@@ -69,6 +71,20 @@ LoadImage ─► TextEncodeQwenImage21(clip, vae, prompt, negative_prompt, resol
 - 参考图数量 1–10，键名依次 `images.image_1` … `images.image_10`。
 - `resolution=0` 表示沿用参考图原尺寸；非 0 时编码器按 `resolution×resolution` 近似并保持比例、对齐到 32 的倍数。
 - 默认 `width`/`height` 不参与计算，所以后端对 image_edit 记录 `null`。
+
+### 参考图引导（图生图）链路
+
+```
+LoadImage#20 / LoadImage#21 ─► TextEncodeQwenImage21(clip, vae, prompt, negative_prompt, resolution,
+                                                      images.image_1, images.image_2)
+                                              │positive │negative │latent(不用)
+EmptyLatentImage(width,height,1) ─────────────┴─────────┴─────────┴────► KSampler ─► VAEDecode ─► SaveImage
+```
+
+- 与图片编辑**只差潜空间来源**：编辑用编码器的 `latent`（跟随参考图比例），图生图用 `EmptyLatentImage`（宽高生效、参考图只进条件）。
+- 参考图槽位固定为 `images.image_1` ← 节点 `20`、`images.image_2` ← 节点 `21`；只给 1 张时 `prompt_builder` 会摘掉 `images.image_2` 并删掉节点 `21`（否则 ComfyUI 会去找模版里的 `placeholder.png`）。
+- `resolution` 决定参考图进入编码器前的分辨率，Worker 用 `round(sqrt(w×h)/32)×32`（夹 256–4096）换算。
+- 没有"强度/denoise"参数：参考图只影响条件，不控制保留程度。需要"只在原图上改一点"时用图片编辑链路（或二期补经典 img2img：`VAEEncode` + 可调 denoise）。
 
 ### Turbo 的固定 sigma 表
 
@@ -128,6 +144,10 @@ bindings:
 | `qwen_image_21_turbo`（8 步） | 3 | 6.3 / 3.9 / 6.3 s | 冷启动首张约 10 s |
 | `qwen_image_21` / image_edit | 2 | 约 12 s | 含参考图上传与 latent 来自编码器 |
 | `qwen_image_21_turbo` / image_edit | 3 | 3–6 s | 换场景/换主体的指令式编辑 |
+| `qwen_image_21_turbo` / image_to_image（1 张参考图） | 1 | 17.4 s | 陶壶原图 → 秋日庭院，器型/角度/光影跟随参考图 |
+| `qwen_image_21_turbo` / image_to_image（2 张参考图） | 1 | 15.1 s | 陶壶 + 黄铜台灯同时进同一个庭院石桌场景 |
+
+图生图的对照实验（同 prompt、同 seed）：带参考图 10.0 s、不带参考图 6.1 s；带参考图那张连树形、苔藓土丘、左下角耙纹走向都跟着参考图，不带参考图则自己编了螺旋纹、石头与远山 —— 说明参考图确实进了条件分支，而不是被忽略。
 
 实测的编辑样例（同一张黄铜狐原图）：
 
@@ -149,6 +169,7 @@ bindings:
 4. 25 步与 turbo 8 步在相同 prompt 下均可正常出图（质量差异待人工评估）。
 5. 编辑图四张全部经 `POST /prompt` 真实执行；`images.image_1` 键名、`latent_image=[6,2]`、`resolution` 换算均正确。
 6. 批量 8 张串行、中途取消 / 重试、后端强杀后重启续跑均未出现显存问题。
+7. 图生图的 `EmptyLatentImage` 潜空间 + `images.image_1/image_2` 双槽位：1 张与 2 张参考图都真实出图；只给 1 张时多余的 `LoadImage` 节点被摘掉，ComfyUI 未报「找不到 placeholder.png」。
 
 仍待观察：
 

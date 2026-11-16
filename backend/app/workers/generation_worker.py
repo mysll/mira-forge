@@ -12,7 +12,7 @@ import asyncio
 import logging
 import math
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
@@ -25,6 +25,7 @@ from app.models.task import GenerationTask, TaskStatus
 from app.schemas.generation import TaskRead
 from app.services import workflow_service
 from app.services.comfyui_client import ComfyUIClient, ComfyUIError
+from app.services.generation_service import decode_reference_paths
 from app.services.image_service import ImageStoreError, read_storage_file, store_image
 from app.services.prompt_builder import PromptBuildError, build_prompt, load_graph
 from app.services.workflow_config import WorkflowConfig, WorkflowConfigError, load_workflow_config
@@ -39,13 +40,13 @@ IDLE_SLEEP_SECONDS = 1.0
 
 @dataclass
 class _Plan:
-    """一张图要提交的东西：图本身 + 参考图（编辑时才有）。"""
+    """一张图要提交的东西：图本身 + 参考图（编辑 / 图生图时才有，可多张）。"""
 
     generation_id: int
     graph: dict[str, Any]
     config: WorkflowConfig
     params: dict[str, Any]
-    reference_path: str | None = None
+    reference_paths: list[str] = field(default_factory=list)
 
 
 def _edit_resolution(width: int | None, height: int | None) -> int:
@@ -155,24 +156,25 @@ class GenerationWorker:
         self._set_task(task_id, status=TaskStatus.RUNNING, progress=1, started_at=True)
         self._sync_generation_status(generation_id)
 
-        reference_name: str | None = None
-        if plan.reference_path:
+        reference_names: list[str] = []
+        for index, reference_path in enumerate(plan.reference_paths, start=1):
             try:
-                content = read_storage_file(plan.reference_path)
+                content = read_storage_file(reference_path)
                 info = await self.client.upload_image(
-                    content, f"miraforge_ref_{task_id}{_suffix(plan.reference_path)}"
+                    content, f"miraforge_ref_{task_id}_{index}{_suffix(reference_path)}"
                 )
             except Exception as exc:  # noqa: BLE001 - 上传失败就是这张图失败
-                self._fail(task_id, f"上传参考图失败：{exc}")
+                self._fail(task_id, f"上传第 {index} 张参考图失败：{exc}")
                 return
-            reference_name = info.get("name") or info.get("filename")
-            if not reference_name:
+            name = info.get("name") or info.get("filename")
+            if not name:
                 self._fail(task_id, f"ComfyUI 未返回参考图文件名：{info}")
                 return
+            reference_names.append(name)
 
         try:
             prompt = build_prompt(
-                plan.graph, plan.config, plan.params, reference_image=reference_name
+                plan.graph, plan.config, plan.params, reference_images=reference_names
             )
         except PromptBuildError as exc:
             self._fail(task_id, str(exc))
@@ -291,13 +293,18 @@ class GenerationWorker:
                 if value is not None:
                     params[key] = value
 
-            reference_path: str | None = None
-            if generation.generation_type == GenerationType.IMAGE_EDIT:
-                if not generation.reference_image_path:
-                    self._fail(task_id, "图片编辑缺少参考图，无法执行")
+            reference_paths: list[str] = []
+            if generation.generation_type in (
+                GenerationType.IMAGE_EDIT,
+                GenerationType.IMAGE_TO_IMAGE,
+            ):
+                reference_paths = decode_reference_paths(
+                    generation.reference_image_paths, generation.reference_image_path
+                )
+                if not reference_paths:
+                    self._fail(task_id, "缺少参考图，无法执行")
                     return None
-                reference_path = generation.reference_image_path
-                # 比例跟参考图，resolution 决定像素量级（见 WORKFLOW_MAPPING）
+                # resolution 决定参考图被缩到多大再进编码器（见 WORKFLOW_MAPPING）
                 params["resolution"] = _edit_resolution(generation.width, generation.height)
 
             try:
@@ -312,7 +319,7 @@ class GenerationWorker:
                 graph=graph,
                 config=config,
                 params=params,
-                reference_path=reference_path,
+                reference_paths=reference_paths,
             )
 
     async def _wait_for_history(

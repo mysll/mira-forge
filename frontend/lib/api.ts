@@ -113,6 +113,14 @@ export function createEditGeneration(form: FormData): Promise<GenerationRead> {
   });
 }
 
+/** 图生图：参考图走 multipart，字段名同样是 images，后端接受 1–2 张。 */
+export function createImageToImageGeneration(form: FormData): Promise<GenerationRead> {
+  return request<GenerationRead>("/generations/image-to-image", {
+    method: "POST",
+    body: form,
+  });
+}
+
 /** 把画廊里已有的图取回成 File，供编辑时复用，避免再让用户选一次文件。 */
 export async function imageAsFile(imageId: number): Promise<File> {
   const response = await fetch(`${API_BASE}/images/${imageId}/file`, {
@@ -160,9 +168,11 @@ export function imageFileUrl(image: { id: number; created_at?: string }): string
   return `${API_BASE}/images/${image.id}/file${stamp(image.created_at)}`;
 }
 
-/** 编辑记录的参考图地址（P4 才有值）。 */
-export function referenceImageUrl(generationId: number, createdAt?: string): string {
-  return `${API_BASE}/generations/${generationId}/reference${stamp(createdAt)}`;
+/** 参考图地址；index 从 0 开始，图生图最多 2 张。 */
+export function referenceImageUrl(generationId: number, createdAt?: string, index = 0): string {
+  const version = stamp(createdAt);
+  const query = `?index=${index}${version ? `&${version.slice(1)}` : ""}`;
+  return `${API_BASE}/generations/${generationId}/reference${query}`;
 }
 
 /** 画廊用缩略图（后端首次访问时生成并缓存）。 */

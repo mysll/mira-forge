@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { imageFileUrl } from "@/lib/api";
+import { imageFileUrl, referenceImageUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
 import type { FeedItem } from "@/types/api";
 
@@ -112,9 +112,38 @@ export default function ImageDetail({
               </div>
             ) : null}
 
+            {generation.reference_images?.length ? (
+              <div className="mt-2 rounded-xl border border-edge/70 bg-surface2/60 p-2.5">
+                <p className="label mb-1.5">
+                  参考图 {generation.reference_images.length} 张
+                  <span className="ml-1 font-normal text-muted/60">（只参考构图）</span>
+                </p>
+                <div className="flex gap-1.5">
+                  {generation.reference_images.map((_, index) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={index}
+                      src={referenceImageUrl(generation.id, generation.created_at, index)}
+                      alt={`参考图 ${index + 1}`}
+                      className="h-16 w-16 rounded-lg border border-edge object-cover"
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-3">
               <Row label="模型" value={modelLabels?.[generation.model_name] ?? generation.model_name} />
-              <Row label="类型" value={generation.generation_type === "image_edit" ? "图片编辑" : "文生图"} />
+              <Row
+                label="类型"
+                value={
+                  generation.generation_type === "image_edit"
+                    ? "图片编辑"
+                    : generation.generation_type === "image_to_image"
+                      ? "参考图生成"
+                      : "文生图"
+                }
+              />
               <Row
                 label="Seed"
                 value={

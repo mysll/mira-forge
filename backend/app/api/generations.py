@@ -16,7 +16,11 @@ from app.schemas.generation import (
     GenerationListResponse,
     GenerationRead,
 )
-from app.services.generation_service import GenerationValidationError, create_generation
+from app.services.generation_service import (
+    GenerationValidationError,
+    create_generation,
+    decode_reference_paths,
+)
 from app.services.image_service import (
     MAX_UPLOAD_BYTES,
     ImageStoreError,
@@ -37,7 +41,29 @@ def _overall_progress(tasks) -> int:
 def _to_read(generation) -> GenerationRead:
     payload = GenerationRead.model_validate(generation)
     payload.progress = _overall_progress(generation.tasks)
+    payload.reference_images = decode_reference_paths(
+        generation.reference_image_paths, generation.reference_image_path
+    )
     return payload
+
+
+async def _validated_upload(upload: UploadFile, label: str) -> tuple[bytes, str]:
+    """读入并校验一张参考图，返回内容与扩展名。"""
+    content = await upload.read()
+    if not content:
+        raise HTTPException(status_code=422, detail=f"{label}内容为空")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{label}过大（{len(content) // 1024} KB），"
+                f"上限 {MAX_UPLOAD_BYTES // 1024 // 1024} MB"
+            ),
+        )
+    extension = detect_image_extension(content)
+    if extension is None:
+        raise HTTPException(status_code=422, detail=f"{label}必须是 PNG / JPEG / WEBP")
+    return content, extension
 
 
 def _parse_datetime(value: str | None, field: str) -> datetime | None:
@@ -84,17 +110,7 @@ async def create_edit(
         )
 
     upload = images[0]
-    content = await upload.read()
-    if not content:
-        raise HTTPException(status_code=422, detail="参考图内容为空")
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"参考图过大（{len(content) // 1024} KB），上限 {MAX_UPLOAD_BYTES // 1024 // 1024} MB",
-        )
-    extension = detect_image_extension(content)
-    if extension is None:
-        raise HTTPException(status_code=422, detail="参考图必须是 PNG / JPEG / WEBP")
+    content, extension = await _validated_upload(upload, "参考图")
 
     try:
         relative = store_upload(content, extension=extension)
@@ -121,15 +137,88 @@ async def create_edit(
     return _to_read(generation)
 
 
+@router.post(
+    "/image-to-image", response_model=GenerationRead, status_code=status.HTTP_201_CREATED
+)
+async def create_image_to_image(
+    prompt: str = Form(..., min_length=1, max_length=8000),
+    model: str = Form(..., min_length=1, max_length=64),
+    count: int = Form(1, ge=1),
+    width: int | None = Form(None, ge=64, le=4096),
+    height: int | None = Form(None, ge=64, le=4096),
+    negative_prompt: str | None = Form(None, max_length=8000),
+    seed: int | None = Form(None, ge=0, le=2**31 - 1),
+    steps: int | None = Form(None, ge=1, le=100),
+    cfg: float | None = Form(None, ge=0, le=30),
+    sampler: str | None = Form(None, max_length=64),
+    images: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+) -> GenerationRead:
+    """创建一次图生图请求（multipart，带 1–2 张参考图）。
+
+    与图片编辑的区别：参考图只进条件，输出按 width/height 新开一张，
+    所以宽高生效、不跟随参考图比例。
+    """
+    limit = get_settings().max_reference_images
+    if not images:
+        raise HTTPException(status_code=422, detail="图生图至少需要 1 张参考图")
+    if len(images) > limit:
+        raise HTTPException(
+            status_code=422,
+            detail=f"图生图最多 {limit} 张参考图，收到 {len(images)} 张",
+        )
+
+    paths: list[str] = []
+    for index, upload in enumerate(images, start=1):
+        content, extension = await _validated_upload(upload, f"第 {index} 张参考图")
+        try:
+            paths.append(store_upload(content, extension=extension))
+        except ImageStoreError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload = GenerationCreate(
+        prompt=prompt,
+        model=model,
+        generation_type="image_to_image",
+        width=width,
+        height=height,
+        count=count,
+        negative_prompt=negative_prompt,
+        seed=seed,
+        steps=steps,
+        cfg=cfg,
+        sampler=sampler,
+    )
+    try:
+        generation = create_generation(db, payload, reference_image_paths=paths)
+    except GenerationValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _to_read(generation)
+
+
 @router.get("/{generation_id}/reference")
-def get_reference(generation_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def get_reference(
+    generation_id: int,
+    index: int = Query(default=0, ge=0, description="第几张参考图，从 0 开始"),
+    db: Session = Depends(get_db),
+) -> FileResponse:
     """回显该次生成使用的参考图（前端历史里用）。"""
     generation = GenerationRepository(db).get(generation_id)
-    if generation is None or not generation.reference_image_path:
+    if generation is None:
+        raise HTTPException(status_code=404, detail=f"generation {generation_id} 不存在")
+    paths = decode_reference_paths(
+        generation.reference_image_paths, generation.reference_image_path
+    )
+    if not paths:
         raise HTTPException(
             status_code=404, detail=f"generation {generation_id} 没有参考图"
         )
-    path = get_settings().storage_path / generation.reference_image_path
+    if index >= len(paths):
+        raise HTTPException(
+            status_code=404,
+            detail=f"generation {generation_id} 只有 {len(paths)} 张参考图，没有第 {index + 1} 张",
+        )
+    path = get_settings().storage_path / paths[index]
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"参考图文件缺失：{path}")
     return FileResponse(path)

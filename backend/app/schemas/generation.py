@@ -69,6 +69,8 @@ class GenerationRead(TimestampedModel):
     status: str
     progress: int = 0
     reference_image_path: str | None = None
+    # 该次生成用到的全部参考图（相对 STORAGE_DIR）；第一张与 reference_image_path 相同
+    reference_images: list[str] = Field(default_factory=list)
     steps: int | None = None
     cfg: float | None = None
     sampler: str | None = None

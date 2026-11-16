@@ -29,6 +29,8 @@ const height = Number(arg("height", "1250"));
 const click = arg("click", "");
 const prompt = arg("prompt", "");
 const file = arg("file", "");
+const fileSelector = arg("selector", "input[type=file]");
+const clickSelector = arg("click-selector", "");
 const submit = arg("submit", "");
 const evaluate = arg("eval", "");
 const wait = Number(arg("wait", "2500"));
@@ -126,18 +128,33 @@ try {
     await sleep(1200);
   }
 
+  if (clickSelector) {
+    const expression = `(() => {
+      const target = document.querySelector(${JSON.stringify(clickSelector)});
+      if (!target) return "not-found";
+      target.click();
+      return "clicked";
+    })()`;
+    const result = await send("Runtime.evaluate", { expression, returnByValue: true });
+    console.log(`click ${clickSelector}: ${result.result?.value}`);
+    await sleep(1200);
+  }
+
   if (file) {
     await send("DOM.enable");
     const document = await send("DOM.getDocument", { depth: 1 });
     const found = await send("DOM.querySelector", {
       nodeId: document.root.nodeId,
-      selector: "input[type=file]",
+      selector: fileSelector,
     });
     if (!found.nodeId) {
-      console.log(`file ${file}: no input[type=file] found`);
+      console.log(`file ${file}: no ${fileSelector} found`);
     } else {
       await send("DOM.setFileInputFiles", {
-        files: [resolve(file)],
+        files: file
+          .split(",")
+          .map((item) => resolve(item.trim()))
+          .filter(Boolean),
         nodeId: found.nodeId,
       });
       console.log(`file ${file}: attached`);

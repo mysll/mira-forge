@@ -47,7 +47,7 @@ def test_models_catalog_is_data_driven(client: TestClient) -> None:
 
     for item in items:
         types = {workflow["type"] for workflow in item["workflows"]}
-        assert types == {"text_to_image", "image_edit"}
+        assert types == {"text_to_image", "image_to_image", "image_edit"}
         for workflow in item["workflows"]:
             assert isinstance(workflow["available"], bool)
 
@@ -61,7 +61,7 @@ def test_workflows_table_synced_from_registry(client: TestClient) -> None:
     response = client.get("/api/v1/workflows")
     assert response.status_code == 200
     rows = response.json()["items"]
-    assert len(rows) == 4  # 2 个模型 × 2 种任务类型
-    assert {row["type"] for row in rows} == {"text_to_image", "image_edit"}
+    assert len(rows) == 6  # 2 个模型 × 3 种任务类型
+    assert {row["type"] for row in rows} == {"text_to_image", "image_to_image", "image_edit"}
     # P1 阶段工作流 JSON 尚未落地，enabled 必须如实为 False
     assert all(row["json_path"].endswith(".json") for row in rows)

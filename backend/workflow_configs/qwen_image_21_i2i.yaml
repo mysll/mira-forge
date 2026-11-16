@@ -1,0 +1,24 @@
+# Qwen Image 2.1 图生图（参考图只进条件，潜空间按 width/height 新开一张）
+output_node: "9"
+
+reference_image:
+  encoder_node: "5"
+  encoder_input: images.image_1
+  # 顺序即 images.image_1 / images.image_2 的顺序；多余槽位会被自动摘掉
+  loaders:
+    - { node: "20", input: image }
+    - { node: "21", input: image }
+
+bindings:
+  prompt: { node: "5", input: prompt }
+  negative_prompt: { node: "5", input: negative_prompt }
+  resolution: { node: "5", input: resolution }
+  width: { node: "6", input: width }
+  height: { node: "6", input: height }
+  seed: { node: "7", input: seed }
+  steps: { node: "7", input: steps }
+  cfg: { node: "7", input: cfg }
+  sampler: { node: "7", input: sampler_name }
+  scheduler: { node: "7", input: scheduler }
+  denoise: { node: "7", input: denoise }
+  filename_prefix: { node: "9", input: filename_prefix }

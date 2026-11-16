@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     # 任务
     max_generation_count: int = 8
+    # 图生图一次最多几张参考图（工作流里声明的 LoadImage 槽位要够）
+    max_reference_images: int = 2
     worker_concurrency: int = 1
     # 后台 worker 是否随应用启动（测试置 false，避免真的去碰 ComfyUI）
     worker_enabled: bool = True

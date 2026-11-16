@@ -1,0 +1,20 @@
+# Qwen Image 2.1 Turbo 图生图（参考图只进条件，SamplerCustomAdvanced 固定 8 步）
+output_node: "13"
+
+reference_image:
+  encoder_node: "5"
+  encoder_input: images.image_1
+  loaders:
+    - { node: "20", input: image }
+    - { node: "21", input: image }
+
+bindings:
+  prompt: { node: "5", input: prompt }
+  negative_prompt: { node: "5", input: negative_prompt }
+  resolution: { node: "5", input: resolution }
+  width: { node: "6", input: width }
+  height: { node: "6", input: height }
+  seed: { node: "7", input: noise_seed }
+  cfg: { node: "8", input: cfg }
+  sampler: { node: "9", input: sampler_name }
+  filename_prefix: { node: "13", input: filename_prefix }

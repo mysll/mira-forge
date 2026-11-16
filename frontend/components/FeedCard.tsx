@@ -331,6 +331,14 @@ export default function FeedCard(props: Props) {
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <span className="truncate text-[11px] text-muted">
           {image.width}×{image.height}
+          {generation.reference_images?.length ? (
+            <span
+              className="ml-1.5 rounded bg-accent/15 px-1 py-px text-[10px] text-accentSoft"
+              title={`使用了 ${generation.reference_images.length} 张参考图`}
+            >
+              参×{generation.reference_images.length}
+            </span>
+          ) : null}
         </span>
         <span className="shrink-0 text-[10px] text-muted/70">{formatTime(image.created_at)}</span>
       </div>

@@ -54,7 +54,7 @@ export type ModelInfo = {
   is_default: boolean;
 };
 
-export type GenerationType = "text_to_image" | "image_edit";
+export type GenerationType = "text_to_image" | "image_to_image" | "image_edit";
 
 export type TaskRead = {
   id: number;
@@ -92,6 +92,8 @@ export type GenerationRead = {
   status: string;
   progress: number;
   reference_image_path: string | null;
+  /** 本次生成用到的全部参考图（相对 STORAGE_DIR），图生图最多 2 张 */
+  reference_images: string[];
   steps: number | null;
   cfg: number | null;
   sampler: string | null;

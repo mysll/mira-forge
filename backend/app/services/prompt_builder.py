@@ -8,10 +8,14 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from app.services.workflow_config import WorkflowConfig, WorkflowConfigError, resolve_workflow_path
+
+# 编码器的 AUTOGROW 输入名以序号结尾（images.image_1 → images.image_2 …）
+_INDEX_SUFFIX = re.compile(r"^(?P<prefix>.*?)(?P<index>\d+)$")
 
 
 class PromptBuildError(ValueError):
@@ -38,11 +42,35 @@ def _node(graph: dict[str, Any], node_id: str, where: str) -> dict[str, Any]:
     return node
 
 
+def _indexed_key(base: str, offset: int) -> str:
+    """images.image_1 加 offset 得到 images.image_2；没有序号就不支持多图。"""
+    if offset == 0:
+        return base
+    match = _INDEX_SUFFIX.match(base)
+    if match is None:
+        raise WorkflowConfigError(
+            f"参考图输入名 {base} 没有序号，无法接入第 {offset + 1} 张参考图"
+        )
+    return f"{match.group('prefix')}{int(match.group('index')) + offset}"
+
+
+def _detach(graph: dict[str, Any], node_id: str) -> None:
+    """移除没用到的参考图节点，并断开别人对它的引用。"""
+    graph.pop(node_id, None)
+    for node in graph.values():
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for name, value in list(inputs.items()):
+            if isinstance(value, list) and len(value) == 2 and value[0] == node_id:
+                inputs.pop(name, None)
+
+
 def build_prompt(
     graph: dict[str, Any],
     config: WorkflowConfig,
     params: dict[str, Any],
-    reference_image: str | None = None,
+    reference_images: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """返回可直接 POST /prompt 的图（不改动传入的 graph）。"""
     prompt = copy.deepcopy(graph)
@@ -63,18 +91,45 @@ def build_prompt(
         inputs[binding.input] = value
 
     if config.reference_image is not None:
-        _node(prompt, config.output_node, "输出节点")
-        loader = _node(prompt, config.reference_image.loader_node, "参考图节点")
-        if reference_image is None:
-            raise PromptBuildError("该工作流需要参考图，但本次任务没有提供")
-        loader.setdefault("inputs", {})[config.reference_image.loader_input] = reference_image
-        encoder = _node(prompt, config.reference_image.encoder_node, "参考图编码节点")
-        encoder.setdefault("inputs", {})[config.reference_image.encoder_input] = [
-            config.reference_image.loader_node,
-            0,
-        ]
+        _attach_references(prompt, config, list(reference_images or []))
 
     return prompt
+
+
+def _attach_references(
+    prompt: dict[str, Any], config: WorkflowConfig, images: list[str]
+) -> None:
+    binding = config.reference_image
+    assert binding is not None
+    slots = binding.slots()
+    if not slots:
+        raise WorkflowConfigError("参考图配置没有声明 LoadImage 节点")
+
+    if not images:
+        raise PromptBuildError("该工作流需要参考图，但本次任务没有提供")
+    if len(images) > len(slots):
+        raise PromptBuildError(
+            f"该工作流最多支持 {len(slots)} 张参考图，收到 {len(images)} 张"
+        )
+
+    encoder = _node(prompt, binding.encoder_node, "参考图编码节点")
+    encoder_inputs = encoder.setdefault("inputs", {})
+
+    for offset, slot in enumerate(slots):
+        key = _indexed_key(binding.encoder_input, offset)
+        if offset >= len(images):
+            # 没有第 n 张图：键和节点都摘掉，免得 ComfyUI 去找不存在的文件
+            encoder_inputs.pop(key, None)
+            _detach(prompt, slot.node)
+            continue
+        if key not in encoder_inputs:
+            raise WorkflowConfigError(
+                f"参考图编码节点 {binding.encoder_node} 没有输入 {key}"
+                "（可用：" + ", ".join(sorted(encoder_inputs)) + "）"
+            )
+        loader = _node(prompt, slot.node, f"第 {offset + 1} 张参考图的节点")
+        loader.setdefault("inputs", {})[slot.input] = images[offset]
+        encoder_inputs[key] = [slot.node, 0]
 
 
 def output_node_id(config: WorkflowConfig) -> str:

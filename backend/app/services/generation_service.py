@@ -5,6 +5,7 @@ P1 只负责「校验 + 落库」：生成 N 条 pending 任务，不触碰 Comf
 
 from __future__ import annotations
 
+import json
 import secrets
 from collections.abc import Sequence
 
@@ -119,8 +120,30 @@ def reset_interrupted_tasks(db: Session) -> int:
     return len(stuck)
 
 
+def encode_reference_paths(paths: Sequence[str]) -> str | None:
+    """参考图路径统一存成 JSON 数组，空列表存 None。"""
+    cleaned = [path for path in paths if path]
+    return json.dumps(cleaned, ensure_ascii=False) if cleaned else None
+
+
+def decode_reference_paths(raw: str | None, fallback: str | None = None) -> list[str]:
+    """读回参考图路径；旧数据只有 reference_image_path 时用它兜底。"""
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, list):
+            return [str(path) for path in data if path]
+    return [fallback] if fallback else []
+
+
 def create_generation(
-    db: Session, payload: GenerationCreate, *, reference_image_path: str | None = None
+    db: Session,
+    payload: GenerationCreate,
+    *,
+    reference_image_path: str | None = None,
+    reference_image_paths: Sequence[str] | None = None,
 ) -> Generation:
     settings = get_settings()
     prompt = payload.prompt.strip()
@@ -142,10 +165,24 @@ def create_generation(
             f"模型 '{model.id}' 不支持任务类型 '{payload.generation_type}'"
         )
 
-    if payload.generation_type == GenerationType.IMAGE_EDIT and not reference_image_path:
-        raise GenerationValidationError("图片编辑必须提供 1 张参考图")
-    if payload.generation_type == GenerationType.TEXT_TO_IMAGE:
-        reference_image_path = None
+    paths = [path for path in (reference_image_paths or ()) if path]
+    if not paths and reference_image_path:
+        paths = [reference_image_path]
+
+    if payload.generation_type == GenerationType.IMAGE_EDIT:
+        if len(paths) != 1:
+            raise GenerationValidationError(
+                f"图片编辑必须提供 1 张参考图，收到 {len(paths)} 张"
+            )
+    elif payload.generation_type == GenerationType.IMAGE_TO_IMAGE:
+        if not paths:
+            raise GenerationValidationError("图生图必须提供 1 张参考图")
+        if len(paths) > settings.max_reference_images:
+            raise GenerationValidationError(
+                f"图生图最多 {settings.max_reference_images} 张参考图，收到 {len(paths)} 张"
+            )
+    else:
+        paths = []
 
     # 编辑的输出比例跟随参考图，width/height 只决定像素量级（映射到节点的 resolution）
     width = payload.width or model.defaults.get("width")
@@ -164,7 +201,8 @@ def create_generation(
         height=height,
         requested_count=payload.count,
         status="pending",
-        reference_image_path=reference_image_path,
+        reference_image_path=paths[0] if paths else None,
+        reference_image_paths=encode_reference_paths(paths),
         negative_prompt=(payload.negative_prompt or "").strip() or None,
         steps=payload.steps,
         cfg=payload.cfg,

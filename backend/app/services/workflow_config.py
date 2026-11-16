@@ -25,13 +25,32 @@ class ParamBinding(BaseModel):
     input: str
 
 
-class ReferenceImageBinding(BaseModel):
-    """参考图：先填 LoadImage.image，再把该 LoadImage 接到编码器的 AUTOGROW 输入。"""
+class LoaderBinding(BaseModel):
+    """一张参考图的入口节点。"""
 
-    loader_node: str
-    loader_input: str = "image"
+    node: str
+    input: str = "image"
+
+
+class ReferenceImageBinding(BaseModel):
+    """参考图：先填 LoadImage.image，再把该 LoadImage 接到编码器的 AUTOGROW 输入。
+
+    键名本身带序号（`images.image_1`），第 n 张按序号顺延，所以 loaders 的顺序
+    就是图里输入的先后顺序。单图工作流可以只写 loader_node，与旧配置兼容。
+    """
+
     encoder_node: str
     encoder_input: str
+    loaders: list[LoaderBinding] = Field(default_factory=list)
+    loader_node: str | None = None
+    loader_input: str = "image"
+
+    def slots(self) -> list[LoaderBinding]:
+        if self.loaders:
+            return list(self.loaders)
+        if self.loader_node:
+            return [LoaderBinding(node=self.loader_node, input=self.loader_input)]
+        return []
 
 
 class WorkflowConfig(BaseModel):

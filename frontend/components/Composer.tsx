@@ -4,9 +4,15 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import Popover from "@/components/Popover";
-import { createEditGeneration, createGeneration, imageAsFile } from "@/lib/api";
+import {
+  createEditGeneration,
+  createGeneration,
+  createImageToImageGeneration,
+  imageAsFile,
+} from "@/lib/api";
 import { LONG_EDGES, RATIOS, megapixels, sizeFor } from "@/lib/size";
 import { useComposerStore } from "@/stores/composer";
+import { MAX_GENERATION_REFS, useGenerationRefStore } from "@/stores/generationRefs";
 import { useReferenceStore } from "@/stores/reference";
 import type { GenerationCreatePayload, ModelInfo } from "@/types/api";
 
@@ -25,6 +31,7 @@ export default function Composer({ models, onToast }: Props) {
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const genFileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
   const mode = useComposerStore((state) => state.mode);
@@ -57,6 +64,7 @@ export default function Composer({ models, onToast }: Props) {
   const setAdvancedOpen = useComposerStore((state) => state.setAdvancedOpen);
 
   const reference = useReferenceStore();
+  const genRefs = useGenerationRefStore();
   const prompt = prompts[mode];
 
   const activeModel = useMemo(() => {
@@ -122,8 +130,30 @@ export default function Composer({ models, onToast }: Props) {
         base.seed = Number(seed);
       }
 
+      // 三个类型共用的表单字段；参考图由各分支自己 append
+      const buildForm = () => {
+        const form = new FormData();
+        form.set("prompt", base.prompt);
+        form.set("model", base.model);
+        form.set("count", String(count));
+        form.set("width", String(width));
+        form.set("height", String(height));
+        if (base.steps !== undefined) form.set("steps", String(base.steps));
+        if (base.cfg !== undefined) form.set("cfg", String(base.cfg));
+        if (base.sampler) form.set("sampler", base.sampler);
+        if (base.negative_prompt) form.set("negative_prompt", base.negative_prompt);
+        if (base.seed !== undefined && base.seed !== null) form.set("seed", String(base.seed));
+        return form;
+      };
+
       if (mode === "text_to_image") {
-        return createGeneration(base);
+        // 没放参考图就是纯文生图；放了就变成图生图（参考图只影响构图，尺寸照样生效）
+        if (genRefs.items.length === 0) {
+          return createGeneration(base);
+        }
+        const form = buildForm();
+        genRefs.items.forEach((item) => form.append("images", item.file));
+        return createImageToImageGeneration(form);
       }
 
       const source = reference.source;
@@ -131,22 +161,15 @@ export default function Composer({ models, onToast }: Props) {
         throw new Error("图片编辑需要 1 张参考图");
       }
       const file = source.kind === "file" ? source.file : await imageAsFile(source.id);
-      const form = new FormData();
-      form.set("prompt", base.prompt);
-      form.set("model", base.model);
-      form.set("count", String(count));
-      form.set("width", String(width));
-      form.set("height", String(height));
-      if (base.steps !== undefined) form.set("steps", String(base.steps));
-      if (base.cfg !== undefined) form.set("cfg", String(base.cfg));
-      if (base.sampler) form.set("sampler", base.sampler);
-      if (base.negative_prompt) form.set("negative_prompt", base.negative_prompt);
-      if (base.seed !== undefined && base.seed !== null) form.set("seed", String(base.seed));
+      const form = buildForm();
       form.set("images", file);
       return createEditGeneration(form);
     },
-    onSuccess: () => {
-      onToast("已提交，正在排队生成");
+    onSuccess: (created) => {
+      onToast(created.generation_type === "image_to_image" ? "已提交，参考图已生效" : "已提交，正在排队生成");
+      if (created.generation_type === "image_to_image") {
+        genRefs.clear();
+      }
       invalidate();
     },
     onError: (error: Error) => {
@@ -163,21 +186,29 @@ export default function Composer({ models, onToast }: Props) {
     (mode === "text_to_image" || !!reference.source) &&
     !submit.isPending;
 
-  const handleFile = (file: File | undefined | null) => {
-    if (!file) {
+  const handleFiles = (files: FileList | File[] | null | undefined) => {
+    const accepted = Array.from(files ?? []).filter((file) => {
+      if (!file.type.startsWith("image/")) {
+        onToast("只能选 PNG / JPEG / WEBP 图片");
+        return false;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        onToast("单张参考图不能超过 20 MB");
+        return false;
+      }
+      return true;
+    });
+    if (accepted.length === 0) {
       return;
     }
-    if (!file.type.startsWith("image/")) {
-      onToast("只能选 PNG / JPEG / WEBP 图片");
+    if (mode === "image_edit") {
+      reference.setFile(accepted[0]);
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      onToast("参考图不能超过 20 MB");
-      return;
-    }
-    reference.setFile(file);
-    if (mode !== "image_edit") {
-      setMode("image_edit");
+    // 图片生成模式下参考图是可选的：有图走参考引导，无图就是普通文生图
+    const added = genRefs.addFiles(accepted);
+    if (added < accepted.length) {
+      onToast(`最多 ${MAX_GENERATION_REFS} 张参考图，多出的没有加入`);
     }
   };
 
@@ -201,7 +232,7 @@ export default function Composer({ models, onToast }: Props) {
         onDrop={(event) => {
           event.preventDefault();
           setDragOver(false);
-          handleFile(event.dataTransfer.files?.[0]);
+          handleFiles(event.dataTransfer.files);
         }}
       >
         {/* 模式切换 */}
@@ -267,7 +298,43 @@ export default function Composer({ models, onToast }: Props) {
                 </button>
               )}
             </div>
-          ) : null}
+          ) : (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {genRefs.items.map((item) => (
+                <div
+                  key={item.key}
+                  className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge"
+                  title={item.name}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.previewUrl} alt={item.name} className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => genRefs.remove(item.key)}
+                    title="移除这张参考图"
+                    className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+                      <path d="m6 6 12 12M18 6 6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {genRefs.items.length < MAX_GENERATION_REFS ? (
+                <button
+                  type="button"
+                  onClick={() => genFileRef.current?.click()}
+                  title="可选：加 1–2 张参考图，只参考构图，出图尺寸仍按右下角设置"
+                  className="flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-edge text-muted transition hover:border-accent/50 hover:text-accentSoft"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  <span className="text-[10px]">参考图?</span>
+                </button>
+              ) : null}
+            </div>
+          )}
 
           <textarea
             ref={textareaRef}
@@ -282,7 +349,9 @@ export default function Composer({ models, onToast }: Props) {
             placeholder={
               mode === "image_edit"
                 ? "描述要改成什么样，例如 same scene but at night, moonlight"
-                : "输入你想要的画面，中文描述也可以，英文通常更稳"
+                : genRefs.items.length > 0
+                  ? "描述想让它变成什么样，例如 same teapot, now on a stone table in an autumn garden"
+                  : "输入你想要的画面，中文描述也可以，英文通常更稳"
             }
             className="scroll-thin min-h-[52px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted/60"
           />
@@ -554,7 +623,11 @@ export default function Composer({ models, onToast }: Props) {
           </button>
 
           <span className="ml-auto text-[11px] text-muted/60">
-            {mode === "image_edit" ? "输出比例跟随参考图" : `${width}×${height}`}
+            {mode === "image_edit"
+              ? "输出比例跟随参考图"
+              : genRefs.items.length > 0
+                ? `参考图 ${genRefs.items.length} 张 · ${width}×${height}`
+                : `${width}×${height}`}
           </span>
 
           <button
@@ -585,7 +658,18 @@ export default function Composer({ models, onToast }: Props) {
           accept="image/png,image/jpeg,image/webp"
           className="hidden"
           onChange={(event) => {
-            handleFile(event.target.files?.[0]);
+            handleFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+        <input
+          ref={genFileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            handleFiles(event.target.files);
             event.target.value = "";
           }}
         />

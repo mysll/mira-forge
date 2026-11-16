@@ -47,7 +47,8 @@
 | `lib/size.ts` | 7 种比例 × 4 档长边 → 宽高（对齐 16） |
 | `lib/date.ts` | 日期分组（今天/昨天/更早）、筛选区间、时间与体积格式化 |
 | `stores/composer.ts` | 创作框状态（按模式分别保存提示词） |
-| `stores/reference.ts` | 参考图来源（本地文件 / 已生成图片）与预览 |
+| `stores/reference.ts` | 图片编辑的参考图来源（本地文件 / 已生成图片）与预览 |
+| `stores/generationRefs.ts` | 图片生成模式下可选的 1–2 张参考图（`addFiles / remove / clear`，`MAX_GENERATION_REFS = 2`） |
 
 ## 状态放在哪里
 
@@ -66,7 +67,7 @@
    - **占位卡**：`pending / queued` 显示「排队中」，`running` 显示 spinner 与百分比，底部有一条 0.5px 进度条；`failed` 显示失败原因，`cancelled` 显示已取消；卡片底栏固定是「第 N / M 张」与状态；
    - **详情弹窗**：单张图的全量元数据与操作（只对已有产物的卡可打开）。
 4. 刷新：`useTaskEvents()` 订阅 `/api/v1/ws/tasks`，收到 `task.updated` 后 600ms 合并一次 `invalidateQueries`；同时只要列表里还有活动批次就 `refetchInterval: 1500`。两条路并行，WS 断了也不会卡在旧状态。
-5. 提交：`POST /generations`（JSON）或 `POST /generations/edit`（multipart）。提交后立即返回，不等待推理；`onSettled` 里 1.2s 后再 invalidate 一次，接住「刚排上队」的那一瞬间。
+5. 提交：三选一，看模式和有没有参考图——`text_to_image` 且没有参考图 → `POST /generations`（JSON）；`text_to_image` 且有参考图 → `POST /generations/image-to-image`（multipart）；`image_edit` → `POST /generations/edit`（multipart，必须 1 张）。提交后立即返回，不等待推理；`onSettled` 里 1.2s 后再 invalidate 一次，接住「刚排上队」的那一瞬间。
 6. 时间一律走 `lib/date.ts` 的 `parseIso()`：后端时间戳常常不带时区后缀，直接 `new Date()` 会被当成本地时间，导致时间早 8 小时、零点后的批次被分到「昨天」。
 
 ## 创作框的取舍
@@ -76,6 +77,8 @@
 - **高级设置按能力显隐**：`capabilities.exposes_steps / exposes_cfg / exposes_sampler / exposes_negative_prompt` 来自 `registry.yaml`。Turbo 的步数由固定 sigma 表决定，界面干脆不显示步数输入框，而不是让用户改了没效果。
 - **Seed 两种模式**：随机（默认）或固定；固定值存在时，N 张按 `seed, seed+1, …` 递增，便于复现一批中的某一张。
 - **参考图**：点击或拖入，编辑模式下显示缩略图与移除按钮；提交成功后**保留**参考图，因为同一张图连着改几版是常见操作。
+- **图片生成里可选参考图**：同一个模式里，"参考图?"按钮是可选的输入，不是第三种模式——加了图就走图生图，没加就是纯文生图。最多 2 张（`MAX_GENERATION_REFS`），第 3 张会被前端拦下并提示。参考图**不改变输出比例**，所以尺寸 pill 仍按用户设置生效；输入框右下角会显示「参考图 N 张 · 1024×1024」。提交成功后参考图会被清空（已存到后端，重复提交时应重新选）。
+- **模式切换不共用参考图**：编辑模式的参考图在 `stores/reference.ts`，生成模式的可选参考图在 `stores/generationRefs.ts`；从作品流点「继续编辑」只影响前者。
 - **防重复提交**：`isPending` 期间按钮显示 spinner 并禁用；提示词为空、或编辑模式没有参考图时按钮禁用；`⌘/Ctrl + Enter` 快捷提交。
 
 ## 作品流与详情

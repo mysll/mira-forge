@@ -36,14 +36,14 @@
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest        # 54 项，约 3 秒
+.\.venv\Scripts\python.exe -m pytest        # 63 项，约 3.4 秒
 ```
 
 测试使用独立的临时库 `backend/.pytest-tmp/test.db`（在 `conftest.py` 里于 import app 之前设定 `DATABASE_URL`），**不会污染** `data/app.db`。
 
 `conftest.py` 还强制 `WORKER_ENABLED=false`：否则 TestClient 会触发 lifespan，把测试任务真的提交给本机 ComfyUI（第一版就踩到了，ComfyUI 队列里出现了一条测试 prompt）。
 
-测试文件分工：`test_health.py`（健康检查与模型目录）、`test_generations.py`（创建/校验/列表/WS）、`test_workflows_build.py`（参数注入与状态聚合）、`test_edits.py`（参考图上传）、`test_gallery.py`（缩略图/删除/分页）、`test_stability.py`（取消/重试/启动复位）、`test_workspace_api.py`（生成参数落库、搜索/模型/收藏/日期筛选）。
+测试文件分工：`test_health.py`（健康检查与模型目录）、`test_generations.py`（创建/校验/列表/WS）、`test_workflows_build.py`（参数注入、参考图槽位摘除与状态聚合）、`test_edits.py`（参考图上传）、`test_image_to_image.py`（图生图 1–2 张、超限 422、按 index 回显参考图）、`test_gallery.py`（缩略图/删除/分页）、`test_stability.py`（取消/重试/启动复位）、`test_workspace_api.py`（生成参数落库、搜索/模型/收藏/日期筛选）。
 
 注意测试库是 session 级共享的，写「脏状态」的用例要考虑别的用例的残留（`reset_interrupted_tasks` 就因此断言 `>= 2` 而不是 `== 2`）。
 

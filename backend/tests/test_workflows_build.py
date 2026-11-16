@@ -83,7 +83,7 @@ def test_edit_wires_reference_image_into_encoder() -> None:
     graph = load_graph(target.json_path)
     config = load_workflow_config(target.config_path)
 
-    prompt = build_prompt(graph, config, {"prompt": "make it night"}, reference_image="ref.png")
+    prompt = build_prompt(graph, config, {"prompt": "make it night"}, reference_images=["ref.png"])
 
     assert prompt["1"]["inputs"]["image"] == "ref.png"
     assert prompt["6"]["inputs"]["images.image_1"] == ["1", 0]
@@ -130,3 +130,47 @@ def test_build_prompt_does_not_mutate_source_graph() -> None:
 )
 def test_aggregate_generation_status(statuses: list[str], expected: str) -> None:
     assert aggregate_generation_status(statuses) == expected
+
+def test_i2i_keeps_its_own_latent_and_binds_size() -> None:
+    _model, target = _target("qwen_image_21", "image_to_image")
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+
+    prompt = build_prompt(
+        graph,
+        config,
+        {"prompt": "x", "width": 1328, "height": 752, "filename_prefix": "p"},
+        reference_images=["a.png", "b.png"],
+    )
+
+    assert prompt["20"]["inputs"]["image"] == "a.png"
+    assert prompt["21"]["inputs"]["image"] == "b.png"
+    assert prompt["5"]["inputs"]["images.image_1"] == ["20", 0]
+    assert prompt["5"]["inputs"]["images.image_2"] == ["21", 0]
+    # 图生图的潜空间是新开的一张空 latent，不是参考图编码结果
+    assert prompt["7"]["inputs"]["latent_image"] == ["6", 0]
+    assert prompt["6"]["inputs"]["width"] == 1328
+    assert prompt["6"]["inputs"]["height"] == 752
+
+
+def test_i2i_drops_the_unused_second_slot() -> None:
+    _model, target = _target("qwen_image_21_turbo", "image_to_image")
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+
+    prompt = build_prompt(graph, config, {"prompt": "x"}, reference_images=["only.png"])
+
+    assert prompt["20"]["inputs"]["image"] == "only.png"
+    assert "images.image_2" not in prompt["5"]["inputs"]
+    # 没用到的第二张 LoadImage 节点要整块摘掉，否则 ComfyUI 会去找 placeholder.png
+    assert "21" not in prompt
+    assert prompt["11"]["inputs"]["latent_image"] == ["6", 0]
+
+
+def test_i2i_rejects_more_references_than_declared() -> None:
+    _model, target = _target("qwen_image_21", "image_to_image")
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+
+    with pytest.raises(PromptBuildError, match="最多支持 2 张"):
+        build_prompt(graph, config, {"prompt": "x"}, reference_images=["a", "b", "c"])
