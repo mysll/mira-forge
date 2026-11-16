@@ -63,9 +63,6 @@ export default function SettingsPage() {
         <header className="flex items-center justify-between">
           <div>
             <h1 className="text-base text-ink">设置</h1>
-            <p className="mt-1 text-xs text-muted">
-              系统状态只在设置里展示，首页保持干净的创作视图。
-            </p>
           </div>
           <span className="flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-2.5 py-1 text-[11px] text-muted">
             <StatusDot status={data?.status ?? "unknown"} />

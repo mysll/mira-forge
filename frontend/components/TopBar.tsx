@@ -62,9 +62,9 @@ export default function TopBar({
         </svg>
       </div>
 
-      <div className="flex items-baseline gap-2">
+      <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
         <h1 className="text-sm font-medium text-ink">作品库</h1>
-        <span className="text-xs text-muted">{total} 个批次</span>
+        <span className="hidden text-xs text-muted sm:inline">{total} 个批次</span>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
