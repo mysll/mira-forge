@@ -58,7 +58,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `app/layout.tsx` | 两栏外壳 + Providers |
-| `app/page.tsx` | 首页：两个创作入口、本机状态（设备 / 显存 / 项目）、最近作品、模型卡与灵感提示词；点提示词会写进创作框再跳 `/compose` |
+| `app/page.tsx` | 首页：两个创作入口、本机状态（设备 / 显存 / 项目）、最近作品、模型卡与灵感提示词；点提示词会写进创作框再跳 `/compose`。「显存占用」卡片右上角有个圆形按钮，调 `POST /comfyui/unload` 让 ComfyUI 卸掉模型腾显存——**只要有 pending/queued/running 的任务就禁用**（卸模型会把生成中的任务连锅端），显存占用 > 85% 时按钮转成琥珀色 |
 | `app/compose/page.tsx` | 创作页：筛选状态、数据拉取、批次扁平化、Toast，把五个图片操作交给 `hooks/useImageActions` |
 | `app/video/page.tsx` | 视频工作台：与创作页同构，但模型只取 `capabilities.media === "video"`、查询固定 `media=video`、卡片宽度 340、单位用「条」 |
 | `app/gallery/page.tsx` | 资产页：把 `/generations` 里的 `images` 摊平成一个图片流，按 `image.created_at` 倒序、按日期分节、响应式网格 |

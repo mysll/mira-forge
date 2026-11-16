@@ -1,12 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import ProjectSwitcher from "@/components/ProjectSwitcher";
-import { fetchGenerations, fetchHealth, fetchModels, imageThumbnailUrl } from "@/lib/api";
+import ToastStack, { type ToastItem } from "@/components/ToastStack";
+import { fetchGenerations, fetchHealth, fetchModels, imageThumbnailUrl, unloadComfyModels } from "@/lib/api";
 import { formatBytes } from "@/lib/date";
 import { useComposerStore } from "@/stores/composer";
 import type { GenerationRead, ImageBrief, ModelInfo } from "@/types/api";
@@ -17,6 +18,8 @@ import type { GenerationRead, ImageBrief, ModelInfo } from "@/types/api";
  * 不在这里塞创作框——创作界面有自己的两个页面（图片 / 视频），
  * 首页只负责两件事：把人送到该去的地方，以及让本机的状态一目了然。
  */
+
+const ACTIVE_STATUS = new Set(["pending", "queued", "running"]);
 
 const IDEAS = [
   { label: "雨夜霓虹", prompt: "a ceramic fox in a rain-soaked neon alley, cinematic, 35mm film" },
@@ -29,8 +32,19 @@ const IDEAS = [
 
 export default function HomePage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const setMode = useComposerStore((state) => state.setMode);
   const setPrompt = useComposerStore((state) => state.setPrompt);
+
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  const toast = useCallback((text: string) => {
+    setToasts((current) => [...current, { id: Date.now() + Math.random(), text }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((item) => item.id !== id));
+  }, []);
 
   const healthQuery = useQuery({ queryKey: ["health"], queryFn: fetchHealth, refetchInterval: 10_000 });
   const modelsQuery = useQuery({ queryKey: ["models"], queryFn: fetchModels, staleTime: 60_000 });
@@ -39,6 +53,13 @@ export default function HomePage() {
     queryKey: ["generations", "home-recent"],
     queryFn: () => fetchGenerations({ limit: 8 }),
     staleTime: 5_000,
+  });
+
+  // 有没有任务正在跑：跑着的时候不能卸模型，否则会把生成中的任务连锅端
+  const activeQuery = useQuery({
+    queryKey: ["generations", "home-active"],
+    queryFn: () => fetchGenerations({ limit: 50 }),
+    refetchInterval: 4_000,
   });
   const imageCount = useQuery({
     queryKey: ["generations", "home-count-image"],
@@ -68,6 +89,35 @@ export default function HomePage() {
 
   const vramTotal = comfy?.vram_total ?? null;
   const vramFree = comfy?.vram_free ?? null;
+
+  // 只要还有 pending / queued / running 的任务，就不允许卸模型
+  const busy = useMemo(
+    () =>
+      (activeQuery.data?.items ?? []).some(
+        (row) => ACTIVE_STATUS.has(row.status) || row.tasks.some((task) => ACTIVE_STATUS.has(task.status)),
+      ),
+    [activeQuery.data],
+  );
+
+  // 显存卡片右上角的那个圆钮：调 ComfyUI 的 /free，把已加载的模型从显存里卸掉
+  const unload = useMutation({
+    mutationFn: unloadComfyModels,
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["health"] });
+      if (!result.ok) {
+        toast(`释放显存失败：${result.detail ?? "ComfyUI 没有响应"}`);
+        return;
+      }
+      if (result.freed && result.freed > 64 * 1024 * 1024) {
+        toast(`已释放 ${formatBytes(result.freed)} 显存`);
+        return;
+      }
+      toast("显存已经是最空的状态");
+    },
+    onError: (error) => {
+      toast(`释放显存失败：${error instanceof Error ? error.message : "未知错误"}`);
+    },
+  });
   const vramUsedPct =
     vramTotal && vramFree !== null && vramFree !== undefined
       ? Math.max(0, Math.min(100, Math.round(((vramTotal - vramFree) / vramTotal) * 100)))
@@ -182,6 +232,48 @@ export default function HomePage() {
                 : "ComfyUI 未连接"
             }
             accent={vramUsedPct !== null && vramUsedPct > 85}
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  if (busy) {
+                    toast("还有任务在生成，等它跑完再释放显存");
+                    return;
+                  }
+                  unload.mutate();
+                }}
+                disabled={unload.isPending || !comfy?.reachable || busy}
+                title={
+                  !comfy?.reachable
+                    ? "ComfyUI 未连接"
+                    : busy
+                      ? "有任务在排队或生成，先等它跑完"
+                      : "释放显存：让 ComfyUI 卸载已加载的模型（下次生成会重新加载）"
+                }
+                aria-label="释放显存"
+                className={[
+                  "flex h-6 w-6 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-40",
+                  vramUsedPct !== null && vramUsedPct > 85
+                    ? "border-warn/50 text-warn hover:border-warn hover:bg-warn/10"
+                    : "border-edge text-muted/80 hover:border-accent/50 hover:text-accentSoft",
+                ].join(" ")}
+              >
+                {unload.isPending ? (
+                  <span className="h-3 w-3 animate-spin rounded-full border border-muted/40 border-t-accentSoft" />
+                ) : (
+                  // 卸载用「弹出」这个符号：三角形 + 底线，14px 下也认得出
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                    <path
+                      d="M12 4.5 18.5 12h-13L12 4.5Z"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinejoin="round"
+                    />
+                    <path d="M6 16.5h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                )}
+              </button>
+            }
           />
         </section>
 
@@ -272,6 +364,8 @@ export default function HomePage() {
           </div>
         </section>
       </main>
+
+      <ToastStack items={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
@@ -293,21 +387,24 @@ function Stat({
   unit,
   hint,
   accent,
+  action,
 }: {
   label: string;
   value: string;
   unit: string;
   hint: string;
   accent?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl2 border border-edge/70 bg-surface/50 p-4">
+    <div className="relative rounded-xl2 border border-edge/70 bg-surface/50 p-4">
       <p className="text-[11px] text-muted/70">{label}</p>
       <p className="mt-1.5 flex items-baseline gap-1">
         <span className={["text-xl font-semibold", accent ? "text-warn" : "text-ink"].join(" ")}>{value}</span>
         <span className="text-[11px] text-muted">{unit}</span>
       </p>
       <p className="mt-1 truncate text-[11px] text-muted/60">{hint}</p>
+      {action ? <div className="absolute right-3 top-3">{action}</div> : null}
     </div>
   );
 }

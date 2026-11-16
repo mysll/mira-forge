@@ -129,7 +129,16 @@ const text = await evaluate(`(() => {
   return node.innerText;
 })()`);
 
-console.log(JSON.stringify({ url: finalUrl, selector, text }, null, 2));
+const attr = get("attr");
+const attrValue = attr
+  ? await evaluate(`(() => {
+      const node = document.querySelector(${JSON.stringify(selector)});
+      if (!node) return "selector-missing";
+      return node.getAttribute(${JSON.stringify(attr)});
+    })()`)
+  : undefined;
+
+console.log(JSON.stringify({ url: finalUrl, selector, text, attr: attrValue }, null, 2));
 ws.close();
 edge.kill();
 process.exit(0);
