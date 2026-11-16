@@ -601,21 +601,27 @@ export default function Composer({ models, onToast }: Props) {
                 </div>
 
                 {ratioKey === "custom" ? (
-                  <div className="flex items-center gap-1">
-                    <input
-                      value={width}
-                      onChange={(event) => setCustomSize(Number(event.target.value) || 0, height)}
-                      inputMode="numeric"
-                      className="field h-7 px-2 py-0 text-[11px]"
-                    />
-                    <span className="text-muted">×</span>
-                    <input
-                      value={height}
-                      onChange={(event) => setCustomSize(width, Number(event.target.value) || 0)}
-                      inputMode="numeric"
-                      className="field h-7 px-2 py-0 text-[11px]"
-                    />
-                    <span className="ml-auto text-[10px] text-muted/70">16 的倍数</span>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <input
+                        value={width}
+                        onChange={(event) => setCustomSize(Number(event.target.value) || 0, height)}
+                        inputMode="numeric"
+                        aria-label="宽度"
+                        className="field h-7 flex-1 px-2 py-0 text-[11px]"
+                      />
+                      <span className="text-muted">×</span>
+                      <input
+                        value={height}
+                        onChange={(event) => setCustomSize(width, Number(event.target.value) || 0)}
+                        inputMode="numeric"
+                        aria-label="高度"
+                        className="field h-7 flex-1 px-2 py-0 text-[11px]"
+                      />
+                    </div>
+                    <p className="text-[10px] leading-tight text-muted/70">
+                      宽高会自动对齐到 16 的倍数，长边上限 2560
+                    </p>
                   </div>
                 ) : null}
               </div>
