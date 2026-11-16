@@ -1,6 +1,6 @@
 """导出全部 ORM 模型，确保 Base.metadata 完整（Alembic 与建表依赖此文件）。"""
 
-from app.models.database import Base, SessionLocal, engine, get_db
+from app.models.database import Base, SessionLocal, get_db
 from app.models.generation import Generation, GenerationStatus, GenerationType
 from app.models.image import Image
 from app.models.task import GenerationTask, TaskStatus
@@ -9,7 +9,6 @@ from app.models.workflow import Workflow
 __all__ = [
     "Base",
     "SessionLocal",
-    "engine",
     "get_db",
     "Generation",
     "GenerationStatus",

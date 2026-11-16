@@ -133,6 +133,7 @@ export default function WorkspacePage() {
   return (
     <>
       <TopBar
+        onToast={toast}
         title="创作"
         query={query}
         onQuery={(value) => {

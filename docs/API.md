@@ -9,6 +9,54 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 - 错误统一为 `{"detail": "中文可读原因"}`。
 - 状态码：`200` 查询成功 · `201` 创建成功 · `404` 资源不存在 · `422` 参数校验失败。
 - 时间字段为 ISO 8601 UTC（`2026-11-14T07:51:03Z`）。
+- **所有生成、任务、图片接口都作用于「当前激活项目」**：一个项目一套库与图片目录，切换项目后同一个 `GET /generations` 看到的是另一批数据。
+
+## 项目
+
+一个项目 = `data/projects/<id>/` 一个文件夹（`app.db` + `storage/images|thumbnails|uploads`），项目清单在 `data/projects/catalog.json`。
+
+### `GET /projects`
+
+```json
+{
+  "active": "default",
+  "items": [
+    {
+      "id": "default",
+      "name": "默认项目",
+      "created_at": "2026-11-16T08:00:12",
+      "is_active": true,
+      "path": "D:/AI/MiraForge/data/projects/default",
+      "database_path": "D:/AI/MiraForge/data/projects/default/app.db",
+      "storage_path": "D:/AI/MiraForge/data/projects/default/storage"
+    }
+  ]
+}
+```
+
+### `POST /projects`
+
+```json
+{ "name": "角色设定", "activate": true }
+```
+
+`201`，返回新建项目的 `ProjectRead`。创建时就会建目录、跑迁移、把工作流同步进这个新库（所以新项目一建好就有 6 个工作流、0 张图）。名称：去空后 1–40 字、大小写不敏感查重（重名 `422 已经有叫「x」的项目了`）。`activate` 默认 `true`，即建完立刻切过去。
+
+### `PATCH /projects/{id}`
+
+`{ "name": "新名字" }` → 改名（只改清单，不动文件夹，id 不变）。
+
+### `POST /projects/{id}/activate`
+
+切到某个项目。之后所有接口都读写这个项目的库与图片目录。
+
+### `DELETE /projects/{id}`
+
+返回删除后的 `ProjectListResponse`。
+
+- `422`：`至少要保留一个项目`（默认项目也不例外）。
+- `409`：`项目「x」还有 N 个任务在排队或生成，请先等完成或取消`。
+- 成功时先释放 SQLite 连接再删文件夹（Windows 上不释放会删不掉 `app.db`）；删掉的是激活项目时会自动切到剩下的第一个。
 
 ## 健康检查
 
@@ -21,7 +69,10 @@ Base URL：`http://127.0.0.1:8000/api/v1`
   "status": "ok",
   "app": "MiraForge",
   "version": "0.1.0",
-  "database": { "status": "ok", "detail": null, "path": "D:/AI/MiraForge/data/app.db" },
+  "project_id": "default",
+  "project_name": "默认项目",
+  "project_path": "D:/AI/MiraForge/data/projects/default",
+  "database": { "status": "ok", "detail": null, "path": "D:/AI/MiraForge/data/projects/default/app.db" },
   "comfyui": {
     "status": "ok",
     "detail": null,
@@ -31,14 +82,15 @@ Base URL：`http://127.0.0.1:8000/api/v1`
     "device": "cuda:0 NVIDIA GeForce RTX 5070 Ti : cudaMallocAsync",
     "error": null
   },
-  "storage": { "status": "ok", "detail": "D:/AI/MiraForge/storage" },
-  "storage_path": "D:/AI/MiraForge/storage",
+  "storage": { "status": "ok", "detail": "D:/AI/MiraForge/data/projects/default/storage" },
+  "storage_path": "D:/AI/MiraForge/data/projects/default/storage",
   "max_generation_count": 8
 }
 ```
 
 `status` 取值：`ok`（全部正常）· `degraded`（DB 正常但 ComfyUI 或存储异常）· `error`（DB 不可用）。
 `storage_path` 与 `max_generation_count` 供前端「设置 → 系统状态」页展示，不用再读环境变量。
+`project_id / project_name / project_path` 说明当前激活的是哪个项目——多项目下，`/health` 报的 DB 与存储路径都是激活项目自己的。
 
 ## 模型目录
 

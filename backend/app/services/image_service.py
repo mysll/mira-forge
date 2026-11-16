@@ -10,7 +10,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.projects import active_project
 from app.models.image import Image
 
 
@@ -19,6 +19,11 @@ class ImageStoreError(RuntimeError):
 
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+def storage_root_for(storage_root: Path | None = None) -> Path:
+    """产物根目录：默认取当前激活项目的 storage；worker 会显式传目标任务所属的项目。"""
+    return Path(storage_root) if storage_root is not None else active_project().storage_path
 
 _SIGNATURES = (
     (b"\x89PNG\r\n\x1a\n", "png"),
@@ -38,10 +43,12 @@ def detect_image_extension(content: bytes) -> str | None:
     return None
 
 
-def store_upload(content: bytes, *, extension: str) -> str:
-    """把参考图写到 storage/uploads/，返回相对 STORAGE_DIR 的路径。"""
+def store_upload(
+    content: bytes, *, extension: str, storage_root: Path | None = None
+) -> str:
+    """把参考图写到 storage/uploads/，返回相对项目的 storage 的路径。"""
     relative = Path("uploads") / f"{uuid.uuid4().hex}.{extension}"
-    absolute = get_settings().storage_path / relative
+    absolute = storage_root_for(storage_root) / relative
     try:
         absolute.parent.mkdir(parents=True, exist_ok=True)
         absolute.write_bytes(content)
@@ -50,12 +57,12 @@ def store_upload(content: bytes, *, extension: str) -> str:
     return relative.as_posix()
 
 
-def read_storage_file(relative: str) -> bytes:
+def read_storage_file(relative: str, storage_root: Path | None = None) -> bytes:
     """读取 storage 下的文件（相对路径来自数据库，不接受绝对路径）。"""
     path = Path(relative)
     if path.is_absolute() or ".." in path.parts:
         raise ImageStoreError(f"非法的存储路径：{relative}")
-    absolute = get_settings().storage_path / path
+    absolute = storage_root_for(storage_root) / path
     try:
         return absolute.read_bytes()
     except OSError as exc:
@@ -80,11 +87,12 @@ def store_image(
     width: int | None = None,
     height: int | None = None,
     extension: str = "png",
+    storage_root: Path | None = None,
 ) -> Image:
     """写入 storage/images/{generation_id}/{task_id}_{index}.png 并登记 images 行。"""
-    storage_root = get_settings().storage_path
+    root = storage_root_for(storage_root)
     relative = Path("images") / str(generation_id) / f"{task_id}_{index}.{extension}"
-    absolute = storage_root / relative
+    absolute = root / relative
     try:
         absolute.parent.mkdir(parents=True, exist_ok=True)
         absolute.write_bytes(content)
@@ -112,9 +120,9 @@ def store_image(
     return image
 
 
-def absolute_path(image: Image) -> Path:
+def absolute_path(image: Image, storage_root: Path | None = None) -> Path:
     """把库里的相对路径还原成磁盘绝对路径。"""
-    return get_settings().storage_path / image.file_path
+    return storage_root_for(storage_root) / image.file_path
 
 
 THUMBNAIL_SIZE = 480
@@ -126,24 +134,24 @@ def thumbnail_relative(image: Image) -> Path:
     return Path("thumbnails") / str(folder) / f"{image.id}.jpg"
 
 
-def ensure_thumbnail(db: Session, image: Image) -> Path:
+def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None) -> Path:
     """按需生成缩略图并落盘，返回绝对路径。
 
     首次请求时生成并写回 thumbnail_path；之后直接复用磁盘文件。
     原图缺失或解码失败都抛 ImageStoreError，让接口返回 404 而不是 500。
     """
-    storage_root = get_settings().storage_path
+    root = storage_root_for(storage_root)
     if image.thumbnail_path:
-        cached = storage_root / image.thumbnail_path
+        cached = root / image.thumbnail_path
         if cached.is_file():
             return cached
 
-    source = absolute_path(image)
+    source = absolute_path(image, storage_root)
     if not source.is_file():
         raise ImageStoreError(f"图片文件缺失：{image.file_path}")
 
     relative = thumbnail_relative(image)
-    target = storage_root / relative
+    target = root / relative
     try:
         from PIL import Image as PillowImage
 
@@ -160,12 +168,12 @@ def ensure_thumbnail(db: Session, image: Image) -> Path:
     return target
 
 
-def remove_files(image: Image) -> None:
+def remove_files(image: Image, storage_root: Path | None = None) -> None:
     """删掉原图与缩略图；文件缺失或删不掉都不算错误。"""
-    storage_root = get_settings().storage_path
-    paths = [storage_root / image.file_path]
+    root = storage_root_for(storage_root)
+    paths = [root / image.file_path]
     if image.thumbnail_path:
-        paths.append(storage_root / image.thumbnail_path)
+        paths.append(root / image.thumbnail_path)
 
     for path in paths:
         try:
@@ -175,14 +183,16 @@ def remove_files(image: Image) -> None:
             pass
 
 
-def delete_image(db: Session, image: Image) -> None:
+def delete_image(db: Session, image: Image, storage_root: Path | None = None) -> None:
     """删库 + 删盘（原图与缩略图都清掉），文件缺失不认为是错误。"""
-    remove_files(image)
+    remove_files(image, storage_root)
     db.delete(image)
     db.commit()
 
 
-def delete_images(db: Session, image_ids: Sequence[int]) -> tuple[list[int], list[int]]:
+def delete_images(
+    db: Session, image_ids: Sequence[int], storage_root: Path | None = None
+) -> tuple[list[int], list[int]]:
     """批量删除。返回 (真正删掉的 id, 本来就不存在的 id)。
 
     一次事务、一次 commit：中途某个文件删不掉不影响其余记录，也不回滚。
@@ -194,7 +204,7 @@ def delete_images(db: Session, image_ids: Sequence[int]) -> tuple[list[int], lis
     rows = list(db.scalars(select(Image).where(Image.id.in_(wanted))).all())
     found = {row.id for row in rows}
     for row in rows:
-        remove_files(row)
+        remove_files(row, storage_root)
         db.delete(row)
 
     db.commit()

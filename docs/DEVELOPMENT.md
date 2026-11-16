@@ -72,8 +72,10 @@ npx tsc --noEmit
 | --- | --- | --- |
 | `COMFYUI_URL` | `http://127.0.0.1:8188` | 只有 Worker 用 |
 | `COMFYUI_TIMEOUT_SECONDS` | `2.0` | 健康检查超时（不影响真实生成） |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | 相对路径以项目根解析 |
-| `STORAGE_DIR` | `./storage` | 同上 |
+| `PROJECTS_DIR` | `./data/projects` | 项目根目录；每个项目一个子文件夹（`app.db` + `storage/`） |
+| `MAX_REFERENCE_IMAGES` | `2` | 图生图最多几张参考图 |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | **仅作为旧布局的迁移来源**，多项目后不再直接使用 |
+| `STORAGE_DIR` | `./storage` | 同上，首次启动时会被搬进 `data/projects/default/storage` |
 | `MAX_GENERATION_COUNT` | `8` | 单次请求上限 |
 | `WORKER_CONCURRENCY` | `1` | 保持 1，单卡串行 |
 | `WORKER_ENABLED` | `true` | 是否随应用启动生成 Worker（测试/调试置 `false`） |
@@ -146,6 +148,22 @@ node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui-detail.png -
 
 参数：`--click <文字>` 点第一个文本匹配的按钮 · `--prompt <文字>` 写进文本框 · `--file <路径>` 塞给 `input[type=file]` · `--submit <文字>` 点提交 · `--wait <毫秒>`。
 坑：同一个 `--user-data-dir` 第二次调用 `msedge --headless=new` 会静默失败，脚本每次用新的临时目录规避。
+
+## 多项目
+
+- 清单：`data/projects/catalog.json`（`id / name / created_at / active`），写入用临时文件 + `os.replace`。
+- 每个项目：`data/projects/<id>/app.db` + `storage/{images,thumbnails,uploads}`。
+- 接口：`GET /projects`、`POST /projects`、`PATCH /projects/{id}`、`POST /projects/{id}/activate`、`DELETE /projects/{id}`。
+- 测试隔离：`tests/conftest.py` 把 `PROJECTS_DIR` 指到 pytest 临时目录，并让 `DATABASE_URL` / `STORAGE_DIR` 指向不存在的路径，避免把真实项目搬进临时目录。
+- 手工验证项目隔离：
+
+```powershell
+$Api = "http://127.0.0.1:8000/api/v1"
+Invoke-RestMethod "$Api/projects" -Method Post -ContentType application/json -Body '{"name":"临时项目"}'
+Invoke-RestMethod "$Api/generations?limit=1"   # 新项目：total = 0
+Invoke-RestMethod "$Api/projects/default/activate" -Method Post
+Invoke-RestMethod "$Api/generations?limit=1"   # 默认项目：回到原来的数字
+```
 
 ## 数据库迁移
 

@@ -23,6 +23,9 @@ export type HealthResponse = {
   comfyui: ComfyUIStatus;
   storage: ComponentStatus;
   storage_path: string | null;
+  project_id: string;
+  project_name: string;
+  project_path: string;
   max_generation_count: number;
 };
 
@@ -175,4 +178,20 @@ export type FeedItem = {
   image: ImageBrief;
   generation: GenerationRead;
   seed: number | null;
+};
+
+/** 一个项目 = data/projects/<id> 下一个独立文件夹（库 + 图片）。 */
+export type ProjectRead = {
+  id: string;
+  name: string;
+  created_at: string;
+  is_active: boolean;
+  path: string;
+  database_path: string;
+  storage_path: string;
+};
+
+export type ProjectListResponse = {
+  items: ProjectRead[];
+  active: string;
 };

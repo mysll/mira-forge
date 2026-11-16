@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.services.image_service import storage_root_for
 from app.models.database import get_db
 from app.repositories.generation_repo import GenerationRepository
 from app.schemas.generation import (
@@ -218,7 +219,7 @@ def get_reference(
             status_code=404,
             detail=f"generation {generation_id} 只有 {len(paths)} 张参考图，没有第 {index + 1} 张",
         )
-    path = get_settings().storage_path / paths[index]
+    path = storage_root_for() / paths[index]
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"参考图文件缺失：{path}")
     return FileResponse(path)

@@ -7,6 +7,8 @@ import type {
   ImageListResponse,
   ImageRead,
   ModelInfo,
+  ProjectListResponse,
+  ProjectRead,
   TaskRead,
   WorkspaceClearResponse,
 } from "@/types/api";
@@ -227,3 +229,29 @@ export function retryTask(taskId: number): Promise<TaskRead> {
 export const TASK_EVENTS_URL = `${(
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"
 ).replace(/^http/, "ws")}/ws/tasks`;
+
+export function fetchProjects(): Promise<ProjectListResponse> {
+  return request<ProjectListResponse>("/projects");
+}
+
+export function createProject(name: string): Promise<ProjectRead> {
+  return request<ProjectRead>("/projects", {
+    method: "POST",
+    body: JSON.stringify({ name, activate: true }),
+  });
+}
+
+export function renameProject(id: string, name: string): Promise<ProjectRead> {
+  return request<ProjectRead>(`/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function activateProject(id: string): Promise<ProjectRead> {
+  return request<ProjectRead>(`/projects/${encodeURIComponent(id)}/activate`, { method: "POST" });
+}
+
+export function deleteProject(id: string): Promise<ProjectListResponse> {
+  return request<ProjectListResponse>(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+}

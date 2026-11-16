@@ -195,6 +195,7 @@ export default function GalleryPage() {
   return (
     <>
       <TopBar
+        onToast={toast}
         title="资产"
         viewToggle={false}
         countText={`${assets.length} 张`}

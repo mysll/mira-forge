@@ -13,11 +13,10 @@ import shutil
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.generation import Generation
 from app.models.image import Image
 from app.models.task import GenerationTask, TaskStatus
-from app.services.image_service import remove_files
+from app.services.image_service import remove_files, storage_root_for
 
 _ACTIVE = (TaskStatus.QUEUED, TaskStatus.RUNNING)
 _CLEARED_DIRS = ("images", "thumbnails", "uploads")
@@ -56,7 +55,7 @@ def clear_workspace(db: Session) -> dict[str, int]:
     db.execute(delete(Generation))
     db.commit()
 
-    storage_root = get_settings().storage_path
+    storage_root = storage_root_for()
     for name in _CLEARED_DIRS:
         shutil.rmtree(storage_root / name, ignore_errors=True)
         (storage_root / name).mkdir(parents=True, exist_ok=True)

@@ -31,3 +31,7 @@ class HealthResponse(BaseModel):
     storage: ComponentStatus
     storage_path: str | None = None
     max_generation_count: int = 8
+    # 当前激活项目（多项目工作区）
+    project_id: str | None = None
+    project_name: str | None = None
+    project_path: str | None = None

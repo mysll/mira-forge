@@ -34,7 +34,9 @@ class Settings(BaseSettings):
     comfyui_url: str = "http://127.0.0.1:8188"
     comfyui_timeout_seconds: float = 2.0
 
-    # 存储
+    # 存储：多项目之后，每个项目一个文件夹（数据库 + 产物都在里面），
+    # 下面两项只在「把老的单项目数据搬进 projects/」时作为来源路径使用。
+    projects_dir: str = "./data/projects"
     database_url: str = "sqlite:///./data/app.db"
     storage_dir: str = "./storage"
 
@@ -50,7 +52,13 @@ class Settings(BaseSettings):
     auto_migrate: bool = True
 
     @property
+    def projects_path(self) -> Path:
+        """所有项目文件夹的父目录。"""
+        return self.resolve_path(self.projects_dir)
+
+    @property
     def storage_path(self) -> Path:
+        """老布局的 storage 目录（仅用于迁移与兼容）。"""
         return self.resolve_path(self.storage_dir)
 
     @property
@@ -82,12 +90,7 @@ class Settings(BaseSettings):
         return (PROJECT_DIR / path).resolve()
 
     def ensure_directories(self) -> None:
-        self.storage_path.mkdir(parents=True, exist_ok=True)
-        for name in ("images", "thumbnails", "uploads"):
-            (self.storage_path / name).mkdir(parents=True, exist_ok=True)
-        database_path = self.database_path
-        if database_path is not None:
-            database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.projects_path.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

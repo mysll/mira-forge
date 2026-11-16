@@ -10,19 +10,19 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.projects import Project, active_project
 from app.models.database import get_db
 from app.schemas.health import ComfyUIStatus, DatabaseStatus, HealthResponse
 
 router = APIRouter(tags=["health"])
 
 
-def _check_database(db: Session, settings: Settings) -> DatabaseStatus:
+def _check_database(db: Session, project: Project) -> DatabaseStatus:
     try:
         db.execute(text("SELECT 1"))
     except Exception as exc:  # noqa: BLE001 - 健康检查必须吞掉一切异常
         return DatabaseStatus(status="error", detail=str(exc)[:300])
-    path = settings.database_path
-    return DatabaseStatus(status="ok", path=path.as_posix() if path else None)
+    return DatabaseStatus(status="ok", path=project.db_path.as_posix())
 
 
 def _check_comfyui(settings: Settings) -> ComfyUIStatus:
@@ -53,22 +53,24 @@ def _check_comfyui(settings: Settings) -> ComfyUIStatus:
     )
 
 
-def _check_storage(settings: Settings) -> tuple[str, str | None]:
-    probe = Path(settings.storage_path) / ".write_probe"
+def _check_storage(project: Project) -> tuple[str, str | None]:
+    probe = Path(project.storage_path) / ".write_probe"
     try:
+        probe.parent.mkdir(parents=True, exist_ok=True)
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
     except Exception as exc:  # noqa: BLE001
         return "error", str(exc)[:300]
-    return "ok", settings.storage_path.as_posix()
+    return "ok", project.storage_path.as_posix()
 
 
 @router.get("/health", response_model=HealthResponse)
 def health(db: Session = Depends(get_db)) -> HealthResponse:
     settings = get_settings()
-    database = _check_database(db, settings)
+    project = active_project()
+    database = _check_database(db, project)
     comfyui = _check_comfyui(settings)
-    storage_status, storage_detail = _check_storage(settings)
+    storage_status, storage_detail = _check_storage(project)
 
     if database.status != "ok" or storage_status != "ok":
         overall = "error"
@@ -84,6 +86,9 @@ def health(db: Session = Depends(get_db)) -> HealthResponse:
         database=database,
         comfyui=comfyui,
         storage={"status": storage_status, "detail": storage_detail},
-        storage_path=settings.storage_path.as_posix(),
+        storage_path=project.storage_path.as_posix(),
         max_generation_count=settings.max_generation_count,
+        project_id=project.id,
+        project_name=project.name,
+        project_path=project.path.as_posix(),
     )

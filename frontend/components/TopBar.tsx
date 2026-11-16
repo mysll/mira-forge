@@ -1,5 +1,6 @@
 "use client";
 
+import ProjectSwitcher from "@/components/ProjectSwitcher";
 import type { ModelInfo } from "@/types/api";
 import type { DateFilter } from "@/lib/date";
 
@@ -20,8 +21,10 @@ type Props = {
   viewToggle?: boolean;
   /** 右上角的计数说明，缺省按批次数显示 */
   countText?: string;
-  /** 插在搜索框左侧的额外操作（如资产页的「管理」） */
+  /** 插在最右侧的额外操作（如资产页的「管理」） */
   actions?: React.ReactNode;
+  /** 项目级操作的结果提示 */
+  onToast?: (message: string) => void;
 };
 
 const DATE_LABELS: Record<DateFilter, string> = {
@@ -51,26 +54,11 @@ export default function TopBar({
   viewToggle = true,
   countText,
   actions,
+  onToast,
 }: Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-edge/70 px-5">
-      <div
-        className="flex h-9 items-center gap-1.5 rounded-lg border border-edge bg-surface2 px-2.5 text-xs text-ink/90"
-        title="多项目切换在二期开放，目前所有作品都在默认项目里"
-      >
-        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted" fill="none" aria-hidden>
-          <path
-            d="M4 8.5A2.5 2.5 0 0 1 6.5 6h3l1.6 1.8h6.4A2.5 2.5 0 0 1 20 10.3v6.2a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
-        默认项目
-        <svg viewBox="0 0 24 24" className="h-3 w-3 text-muted/50" fill="none" aria-hidden>
-          <path d="m8 10 4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
+      <ProjectSwitcher onToast={onToast} />
 
       <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
         <h1 className="text-sm font-medium text-ink">{title}</h1>

@@ -11,7 +11,10 @@ def test_health_reports_db_and_comfyui(client: TestClient) -> None:
     body = response.json()
     assert body["app"] == "MiraForge"
     assert body["database"]["status"] == "ok"
-    assert body["database"]["path"].endswith("test.db")
+    # 多项目之后，数据库在 <projects>/<项目>/app.db
+    assert body["database"]["path"].replace("\\", "/").endswith("/default/app.db")
+    assert body["project_name"] == "默认项目"
+    assert body["project_path"].replace("\\", "/").endswith("/projects/default")
     assert body["storage"]["status"] == "ok"
     # ComfyUI 可能没开：只要求字段存在且不 5xx
     assert isinstance(body["comfyui"]["reachable"], bool)

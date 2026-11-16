@@ -83,6 +83,17 @@ export default function SettingsPage() {
         ) : null}
 
         <Card
+          title="当前项目"
+          hint="每个项目一个独立文件夹"
+          rows={[
+            { label: "名称", value: data?.project_name ?? "—" },
+            { label: "标识", value: data?.project_id ?? "—" },
+            { label: "目录", value: data?.project_path ?? "—" },
+            { label: "结构", value: "app.db · storage/images · storage/thumbnails · storage/uploads" },
+          ]}
+        />
+
+        <Card
           title="后端服务"
           hint={data ? `v${data.version}` : undefined}
           rows={[

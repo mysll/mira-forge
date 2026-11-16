@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.config import get_settings  # noqa: E402
+from app.core.projects import active_project, ensure_catalog  # noqa: E402
 from app.models.database import Base  # noqa: E402
 import app.models  # noqa: E402,F401  确保所有表注册进 metadata
 
@@ -22,7 +22,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().database_url_absolute)
+# 程序内迁移（app.core.migrations）会先把 sqlalchemy.url 设成目标项目；
+# 只有从命令行直接跑 alembic 时才需要自己解析当前激活项目。
+_configured_url = config.get_main_option("sqlalchemy.url") or ""
+if not _configured_url or _configured_url.startswith("driver://"):
+    ensure_catalog()
+    config.set_main_option("sqlalchemy.url", active_project().database_url)
+
 target_metadata = Base.metadata
 
 

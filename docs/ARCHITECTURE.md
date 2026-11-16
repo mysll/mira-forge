@@ -19,7 +19,7 @@ FastAPI (8000)
 ComfyUI (8188)  ── 只有 Worker 访问
   │
   ▼
-storage/images + data/app.db
+data/projects/default/{storage/images, app.db}
 ```
 
 三条不可动摇的边界：
@@ -41,9 +41,32 @@ storage/images + data/app.db
 
 依赖方向单向：`api → services → models`；`workers → services/models`。`core` 可被任何层引用。
 
+## 多项目：一个项目一个文件夹
+
+```
+data/projects/
+  catalog.json                  项目清单（id / 名称 / 创建时间 / 激活项），原子写
+  default/
+    app.db                      这个项目自己的 SQLite（WAL）
+    storage/{images,thumbnails,uploads}/
+  p-20261116-160248-cce4/       新建的项目同样一套
+```
+
+为什么是「一项目一文件夹」而不是「一个库加 `project_id` 列」：
+
+| | 一项目一文件夹 | 单库加 project_id |
+| --- | --- | --- |
+| 隔离 | 物理隔离，删项目 = 删目录 | 每个查询都得带 `where project_id`，漏一处就串数据 |
+| 备份/搬走 | 复制目录即可 | 要导数据 |
+| 代价 | 连接与存储路径要按项目取 | 只有一处连接 |
+
+代价部分的落法：`models/database.py` 提供 `engine_for(db_path)` / `session_for(project)`，按 db 路径缓存引擎与 session factory；`services/image_service.py` 的每个函数都接受 `storage_root`，Worker 处理哪个项目就传哪个项目的 storage。Worker 主循环按 `list_projects()` 轮转（`self._cursor`），每轮只处理一个任务，保证串行且切项目不影响其它项目的排队任务。
+
+迁移只发生一次：首次启动时 `ensure_catalog()` 建清单，若发现旧的 `data/app.db` 与 `storage/` 存在，就把它们搬进 `data/projects/default/`。之后 `DATABASE_URL` / `STORAGE_DIR` 两个环境变量只作为「迁移来源」保留。
+
 ## 数据模型
 
-四张表，字段与 `doc/PROJECT.md` 一致：
+四张表，字段与 `doc/PROJECT.md` 一致（**每个项目各一套**）：
 
 ```
 workflows 1 ──< generations 1 ──< generation_tasks 1 ──< images
@@ -62,7 +85,7 @@ workflows 1 ──< generations 1 ──< generation_tasks 1 ──< images
 - **image_edit 的宽高只决定像素量级**：Qwen Image 2.1 编辑链路的潜空间由参考图编码器输出决定（`TextEncodeQwenImage21` 的第 3 个输出），宽高仅在切换到空 latent 时才生效。因此编辑时 `width/height` 不会写进 `EmptyLatentImage`，而是换算成 `resolution = round(sqrt(w×h)/32)×32` 交给编码器——输出比例跟随参考图，像素量级由用户选的尺寸决定。前端据此显示"输出比例跟随这张图"。
 - **image_to_image 复用同一条编码链路，只换潜空间**：参考图仍然接到 `TextEncodeQwenImage21.images`（1–2 个槽位），但 `latent_image` 来自 `EmptyLatentImage`，所以宽高生效、输出比例由用户决定，参考图只影响条件。三种生成类型因此共用同一套节点与绑定 YAML，区别只在 latent 的来源（编辑 = `["6",2]`，图生图/文生图 = `["6",0]`）。
 - **参考图的槽位是配置驱动的**：`workflow_configs/*.yaml` 里 `reference_image.loaders` 列出 `[20, 21]` 两个 `LoadImage`，`prompt_builder` 按张数保留/摘除节点——给 1 张时节点 `21` 与被它引用的 `images.image_2` 一起消失，避免 ComfyUI 去找模版占位文件 `placeholder.png`。
-- **相对路径一律以项目根为基准**：`DATABASE_URL=sqlite:///./data/app.db` 与 `STORAGE_DIR=./storage` 在 `config.py` 中被解析成绝对路径，因此从任何目录启动 uvicorn 都指向同一个库。
+- **相对路径一律以项目根为基准**：`PROJECTS_DIR=./data/projects` 由 `config.py` 解析成绝对路径，因此从任何目录启动 uvicorn 都指向同一批项目；每个项目的库与 storage 再由项目目录推导，不靠环境变量。
 
 ## 状态机
 
@@ -95,7 +118,7 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 - **`build_prompt` 落点校验**：参数落点不存在直接判失败，不提交一个参数没生效的图。
 - **编辑先上传参考图**：`_execute()` 用 `POST /upload/image` 把参考图送进 ComfyUI 的 `input/`，拿回 `name` 再写进 `LoadImage.image`。这样 ComfyUI 与 MiraForge 的存储互不依赖路径，重启后也能重跑。
 
-产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `storage/images/{generation_id}/{task_id}_{i}.png` → 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
+产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `<项目>/storage/images/{generation_id}/{task_id}_{i}.png` → 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
 
 缩略图是**首次请求时生成**的：`GET /images/{id}/thumbnail` 若 `thumbnail_path` 为空就用 Pillow 转 480px JPEG 写盘并回填数据库，之后一直走磁盘缓存（响应带 immutable 的 `Cache-Control`）。删除图片时原图与缩略图一起删。
 

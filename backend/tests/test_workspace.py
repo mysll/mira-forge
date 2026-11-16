@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
+from app.core.projects import active_project
 from app.models.database import SessionLocal
 from app.models.task import GenerationTask, TaskStatus
 from app.services.image_service import store_image
@@ -71,7 +71,7 @@ def test_batch_delete_removes_rows_and_files(client: TestClient) -> None:
     first = _register_image(generation_id, 0)
     second = _register_image(generation_id, 1)
 
-    storage = get_settings().storage_path
+    storage = active_project().storage_path
     files = sorted(storage.glob("images/**/*.png"))
     assert len(files) == 2
 
@@ -96,7 +96,7 @@ def test_clear_workspace_wipes_images_and_generations(client: TestClient) -> Non
     generation_id = _create(client, count=2)
     _register_image(generation_id, 0)
 
-    storage = get_settings().storage_path
+    storage = active_project().storage_path
     (storage / "uploads").mkdir(parents=True, exist_ok=True)
     (storage / "uploads" / "leftover.png").write_bytes(PNG)
 
