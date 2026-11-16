@@ -84,4 +84,6 @@ def health(db: Session = Depends(get_db)) -> HealthResponse:
         database=database,
         comfyui=comfyui,
         storage={"status": storage_status, "detail": storage_detail},
+        storage_path=settings.storage_path.as_posix(),
+        max_generation_count=settings.max_generation_count,
     )

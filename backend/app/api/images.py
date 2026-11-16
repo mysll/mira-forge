@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from app.services.image_service import (
     delete_image,
     ensure_thumbnail,
     list_images,
+    set_favorite,
 )
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -25,9 +26,16 @@ def list_all(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     generation_id: int | None = Query(default=None, ge=1),
+    favorite: bool = Query(default=False, description="只看收藏"),
     db: Session = Depends(get_db),
 ) -> ImageListResponse:
-    rows, total = list_images(db, limit=limit, offset=offset, generation_id=generation_id)
+    rows, total = list_images(
+        db,
+        limit=limit,
+        offset=offset,
+        generation_id=generation_id,
+        favorites_only=favorite,
+    )
     return ImageListResponse(
         items=[ImageRead.model_validate(row) for row in rows],
         total=total,
@@ -79,6 +87,21 @@ def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)) -> FileRes
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+@router.post("/{image_id}/favorite", response_model=ImageRead)
+def set_image_favorite(
+    image_id: int,
+    favorite: bool = Body(..., embed=True, description="true 收藏 / false 取消"),
+    db: Session = Depends(get_db),
+) -> ImageRead:
+    """收藏或取消收藏。作品流「仅收藏」筛选依赖这个标记。"""
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
+        )
+    return ImageRead.model_validate(set_favorite(db, image, favorite))
 
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)

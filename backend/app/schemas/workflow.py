@@ -28,6 +28,8 @@ class ModelCapabilities(BaseModel):
     exposes_steps: bool = True
     exposes_cfg: bool = True
     exposes_sampler: bool = True
+    exposes_negative_prompt: bool = True
+    sampler_options: list[str] = Field(default_factory=list)
 
 
 class WorkflowTarget(BaseModel):

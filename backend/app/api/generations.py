@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -13,7 +15,6 @@ from app.schemas.generation import (
     GenerationCreate,
     GenerationListResponse,
     GenerationRead,
-    GenerationSummary,
 )
 from app.services.generation_service import GenerationValidationError, create_generation
 from app.services.image_service import (
@@ -26,6 +27,28 @@ from app.services.image_service import (
 router = APIRouter(prefix="/generations", tags=["generations"])
 
 
+def _overall_progress(tasks) -> int:
+    """整体进度按任务数平均，避免 8 张里前 7 张完成却显示 99%。"""
+    if not tasks:
+        return 0
+    return round(sum(task.progress for task in tasks) / len(tasks))
+
+
+def _to_read(generation) -> GenerationRead:
+    payload = GenerationRead.model_validate(generation)
+    payload.progress = _overall_progress(generation.tasks)
+    return payload
+
+
+def _parse_datetime(value: str | None, field: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{field} 需要 ISO 时间，收到 {value!r}") from exc
+
+
 @router.post("", response_model=GenerationRead, status_code=status.HTTP_201_CREATED)
 def create(
     payload: GenerationCreate, db: Session = Depends(get_db)
@@ -35,7 +58,7 @@ def create(
         generation = create_generation(db, payload)
     except GenerationValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return GenerationRead.model_validate(generation)
+    return _to_read(generation)
 
 
 @router.post("/edit", response_model=GenerationRead, status_code=status.HTTP_201_CREATED)
@@ -45,6 +68,11 @@ async def create_edit(
     count: int = Form(1, ge=1),
     width: int | None = Form(None, ge=64, le=4096),
     height: int | None = Form(None, ge=64, le=4096),
+    negative_prompt: str | None = Form(None, max_length=8000),
+    seed: int | None = Form(None, ge=0, le=2**31 - 1),
+    steps: int | None = Form(None, ge=1, le=100),
+    cfg: float | None = Form(None, ge=0, le=30),
+    sampler: str | None = Form(None, max_length=64),
     images: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ) -> GenerationRead:
@@ -80,12 +108,17 @@ async def create_edit(
         width=width,
         height=height,
         count=count,
+        negative_prompt=negative_prompt,
+        seed=seed,
+        steps=steps,
+        cfg=cfg,
+        sampler=sampler,
     )
     try:
         generation = create_generation(db, payload, reference_image_path=relative)
     except GenerationValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return GenerationRead.model_validate(generation)
+    return _to_read(generation)
 
 
 @router.get("/{generation_id}/reference")
@@ -106,34 +139,29 @@ def get_reference(generation_id: int, db: Session = Depends(get_db)) -> FileResp
 def list_generations(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    q: str | None = Query(default=None, max_length=200),
+    model: str | None = Query(default=None, description="模型 id，多个用逗号分隔"),
+    favorite: bool = Query(default=False, description="只看含收藏图片的批次"),
+    date_from: str | None = Query(default=None, description="ISO 时间，含"),
+    date_to: str | None = Query(default=None, description="ISO 时间，含"),
     db: Session = Depends(get_db),
 ) -> GenerationListResponse:
-    rows, total = GenerationRepository(db).list(limit=limit, offset=offset)
-    items = [
-        GenerationSummary(
-            id=row.id,
-            prompt=row.prompt,
-            generation_type=row.generation_type,
-            model_name=row.model_name,
-            width=row.width,
-            height=row.height,
-            requested_count=row.requested_count,
-            status=row.status,
-            progress=_overall_progress(row.tasks),
-            created_at=row.created_at,
-            completed_at=row.completed_at,
-            task_count=len(row.tasks),
-        )
-        for row in rows
-    ]
-    return GenerationListResponse(items=items, total=total, limit=limit, offset=offset)
-
-
-def _overall_progress(tasks) -> int:
-    """整体进度按任务数平均，避免 8 张里前 7 张完成却显示 99%。"""
-    if not tasks:
-        return 0
-    return round(sum(task.progress for task in tasks) / len(tasks))
+    models = [item.strip() for item in model.split(",") if item.strip()] if model else None
+    rows, total = GenerationRepository(db).list(
+        limit=limit,
+        offset=offset,
+        q=q,
+        models=models,
+        favorites_only=favorite,
+        date_from=_parse_datetime(date_from, "date_from"),
+        date_to=_parse_datetime(date_to, "date_to"),
+    )
+    return GenerationListResponse(
+        items=[_to_read(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/{generation_id}", response_model=GenerationRead)
@@ -143,4 +171,4 @@ def get_generation(generation_id: int, db: Session = Depends(get_db)) -> Generat
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"generation {generation_id} 不存在"
         )
-    return GenerationRead.model_validate(generation)
+    return _to_read(generation)

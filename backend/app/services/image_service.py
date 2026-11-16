@@ -178,13 +178,20 @@ def delete_image(db: Session, image: Image) -> None:
 
 
 def list_images(
-    db: Session, *, limit: int = 20, offset: int = 0, generation_id: int | None = None
+    db: Session,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    generation_id: int | None = None,
+    favorites_only: bool = False,
 ) -> tuple[list[Image], int]:
     from sqlalchemy import func
 
     conditions = []
     if generation_id is not None:
         conditions.append(Image.generation_id == generation_id)
+    if favorites_only:
+        conditions.append(Image.is_favorite.is_(True))
 
     count_stmt = select(func.count()).select_from(Image)
     stmt = select(Image)
@@ -197,3 +204,11 @@ def list_images(
         db.scalars(stmt.order_by(Image.id.desc()).limit(limit).offset(offset)).all()
     )
     return rows, total
+
+
+def set_favorite(db: Session, image: Image, favorite: bool) -> Image:
+    """收藏 / 取消收藏；只改一行，不动文件。"""
+    image.is_favorite = favorite
+    db.commit()
+    db.refresh(image)
+    return image

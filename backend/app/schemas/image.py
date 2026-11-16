@@ -19,6 +19,7 @@ class ImageRead(OrmModel):
     width: int
     height: int
     file_size: int
+    is_favorite: bool = False
     created_at: datetime
 
 

@@ -60,6 +60,11 @@ def _distinct_seeds(count: int) -> list[int]:
     return seeds
 
 
+def _fixed_seeds(base: int, count: int) -> list[int]:
+    """固定 seed 模式下，第 i 张用 base+i，保证同批可复现且互不重复。"""
+    return [(base + index) % MAX_SEED for index in range(count)]
+
+
 def new_seed(exclude: Sequence[int] = ()) -> int:
     """重试用的新 seed：保证和这一批里已有的不撞。"""
     taken = set(exclude)
@@ -160,8 +165,16 @@ def create_generation(
         requested_count=payload.count,
         status="pending",
         reference_image_path=reference_image_path,
+        negative_prompt=(payload.negative_prompt or "").strip() or None,
+        steps=payload.steps,
+        cfg=payload.cfg,
+        sampler=payload.sampler,
     )
-    for seed in _distinct_seeds(payload.count):
+    if payload.seed is not None:
+        seeds = _fixed_seeds(payload.seed, payload.count)
+    else:
+        seeds = _distinct_seeds(payload.count)
+    for seed in seeds:
         generation.tasks.append(
             GenerationTask(seed=seed, status=TaskStatus.PENDING, progress=0)
         )

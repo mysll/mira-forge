@@ -2,15 +2,19 @@
 
 本地 AI 图片生成与编辑平台。浏览器 → Next.js → FastAPI → 单 GPU Worker → ComfyUI，生成结果落本地磁盘，元数据落 SQLite。
 
-一期只做**图片生成与编辑**（视频为二期）。当前进度：**P1–P6 全部完成**——文生图、批量多图、参考图编辑、画廊、取消/重试/崩溃恢复都已真实跑通。
+一期只做**图片生成与编辑**（视频为二期）。当前进度：**P1–P7 全部完成**——文生图、批量多图、参考图编辑、取消/重试/崩溃恢复都已真实跑通，前端为「左窄导航 + 右创作工作区」的两栏工作台。
 
 ## 能做什么
 
+- **工作台**：左侧 72px 图标导航，右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部常驻创作框。没有第三栏、没有把参数平铺一屏。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），7 种比例 × 4 档长边，一次 1/2/4/6/8 张，每张独立 seed、串行执行。
-- **图片编辑**：上传一张参考图 + 一句修改指令（"改成夜晚"/"换成大理石雕像"），输出比例跟随参考图。
-- **画廊**：缩略图网格、分页、下载、删除、"用作参考图"一键回到编辑表单。
+- **图片编辑**：上传或拖入一张参考图 + 一句修改指令（"改成夜晚"/"换成大理石雕像"），输出比例跟随参考图；也能从作品流 hover「继续编辑」把整张图当参考图带回来。
+- **作品流**：缩略图网格 / 列表两种视图，按提示词搜索、按模型与日期筛选、仅看收藏；hover 出查看大图 / 收藏 / 继续编辑 / 下载 / 删除。
+- **大图详情**：图片 + 正面/负面提示词 + 模型 + Seed + 尺寸 + 生成时间 + 步数/CFG/采样器，可复制提示词与 Seed、下载、继续编辑、重新生成。
+- **高级设置**：默认折叠，按模型能力动态显隐（Seed 随机/固定、步数、CFG、采样器、负面提示词）。
 - **任务控制**：单任务取消（正在跑的那张会真的打断 ComfyUI）、失败/取消后重试（换新 seed）、后端重启后残留任务自动复位续跑。
-- **实时进度**：WebSocket 推送 + 列表轮询双保险，展开某条记录能看到每个 task 的 seed、进度与错误。
+- **实时进度**：WebSocket 推送 + 轮询双保险；进行中/失败的批次在作品流顶部单列一条，带进度与错误原因。
+- **系统状态**：从首页移到「设置」页（后端版本、SQLite 路径、ComfyUI 版本/连接/GPU、存储路径）。
 
 ## 技术栈
 
@@ -70,6 +74,10 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
+  app/              page.tsx（工作台）/ settings / gallery（重定向到工作台）
+  components/       Sidebar · TopBar · Feed · FeedCard · ImageDetail · Composer · Popover · ToastStack
+  stores/           composer（创作框状态）· reference（参考图）
+  lib/              api · size（比例与分辨率）· date（日期分组与筛选）
 storage/            images / thumbnails / uploads（产物）
 data/               app.db
 docs/               架构、API、工作流映射、开发说明
@@ -79,6 +87,7 @@ docs/               架构、API、工作流映射、开发说明
 
 - [环境检查报告](doc/ENVIRONMENT_REPORT.md)
 - [架构说明](docs/ARCHITECTURE.md)
+- [前端工作台](docs/FRONTEND.md)
 - [API 参考](docs/API.md)
 - [工作流映射](docs/WORKFLOW_MAPPING.md)
 - [开发说明](docs/DEVELOPMENT.md)
@@ -93,7 +102,8 @@ docs/               架构、API、工作流映射、开发说明
 | P4 | 图片编辑（上传参考图，Qwen Image 2.1 Edit 真实出图） | ✅ 完成 |
 | P5 | 前端画廊 / 历史 / 预览、缩略图、删除、用作参考图 | ✅ 完成 |
 | P6 | 取消、重试、崩溃恢复、WebSocket 实时刷新 | ✅ 完成 |
+| P7 | 前端重构为两栏创作工作台（作品流 / 创作框 / 详情弹窗 / 设置页），后端补生成参数落库、收藏与筛选 | ✅ 完成 |
 
 > 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）到此完成；二期是视频生成与编辑。
 > `POST /generations` 返回 `pending` 后由 Worker 接手，约 3–12 秒后图片出现在 `storage/images/`，可通过 `GET /api/v1/images/{id}/file` 访问。
-> 界面在 `http://127.0.0.1:3000`（生成页）与 `/gallery`（画廊页）。
+> 界面在 `http://127.0.0.1:3000`（工作台）与 `/settings`（系统状态）；旧的 `/gallery` 会重定向回工作台。

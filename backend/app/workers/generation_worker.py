@@ -274,7 +274,7 @@ class GenerationWorker:
 
             params: dict[str, Any] = {
                 "prompt": generation.prompt,
-                "negative_prompt": "",
+                "negative_prompt": generation.negative_prompt or "",
                 "seed": task.seed,
                 "width": generation.width,
                 "height": generation.height,
@@ -283,6 +283,13 @@ class GenerationWorker:
             for key in ("steps", "cfg", "sampler", "scheduler", "denoise"):
                 if key in model.defaults:
                     params[key] = model.defaults[key]
+
+            # 用户显式给的参数覆盖默认值；绑定表里没有的键会被 prompt_builder 跳过，
+            # 所以 turbo 这类不暴露 steps 的模型多传也不会出错。
+            for key in ("steps", "cfg", "sampler"):
+                value = getattr(generation, key, None)
+                if value is not None:
+                    params[key] = value
 
             reference_path: str | None = None
             if generation.generation_type == GenerationType.IMAGE_EDIT:

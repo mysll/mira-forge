@@ -2,21 +2,23 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
-import { SiteHeader } from "@/components/SiteHeader";
+import Sidebar from "@/components/Sidebar";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "MiraForge",
-  description: "本地 AI 图片生成与编辑平台",
+  title: "MiraForge 工作台",
+  description: "本地 AI 图片生成与编辑工作台",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className="min-h-screen text-slate-200 antialiased">
+      <body className="h-screen overflow-hidden text-ink antialiased">
         <Providers>
-          <SiteHeader />
-          {children}
+          <div className="flex h-screen w-full overflow-hidden">
+            <Sidebar />
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
+          </div>
         </Providers>
       </body>
     </html>

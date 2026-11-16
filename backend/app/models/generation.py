@@ -6,13 +6,14 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database import Base
 from app.models.workflow import utcnow
 
 if TYPE_CHECKING:
+    from app.models.image import Image
     from app.models.task import GenerationTask
 
 
@@ -44,6 +45,11 @@ class Generation(Base):
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     reference_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 用户显式给出的生成参数；为 None 时回落到 registry.yaml 里模型默认值
+    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cfg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sampler: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=GenerationStatus.PENDING, index=True
     )
@@ -56,5 +62,10 @@ class Generation(Base):
         back_populates="generation",
         cascade="all, delete-orphan",
         order_by="GenerationTask.id",
+        lazy="selectin",
+    )
+    images: Mapped[list["Image"]] = relationship(
+        back_populates="generation",
+        order_by="Image.id",
         lazy="selectin",
     )

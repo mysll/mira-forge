@@ -31,11 +31,14 @@ Base URL：`http://127.0.0.1:8000/api/v1`
     "device": "cuda:0 NVIDIA GeForce RTX 5070 Ti : cudaMallocAsync",
     "error": null
   },
-  "storage": { "status": "ok", "detail": "D:/AI/MiraForge/storage" }
+  "storage": { "status": "ok", "detail": "D:/AI/MiraForge/storage" },
+  "storage_path": "D:/AI/MiraForge/storage",
+  "max_generation_count": 8
 }
 ```
 
 `status` 取值：`ok`（全部正常）· `degraded`（DB 正常但 ComfyUI 或存储异常）· `error`（DB 不可用）。
+`storage_path` 与 `max_generation_count` 供前端「设置 → 系统状态」页展示，不用再读环境变量。
 
 ## 模型目录
 
@@ -106,6 +109,9 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | `generation_type` | 是 | `text_to_image` \| `image_edit` |
 | `width` / `height` | 否 | 64–4096；缺省回落到模型 defaults。**image_edit 时它只决定像素量级**（输出比例跟随参考图），见下文编辑接口 |
 | `count` | 否 | 1–`MAX_GENERATION_COUNT`（默认 8），每张独立 task + 独立 seed |
+| `seed` | 否 | 给定则固定 seed，N 张时按 `seed, seed+1, …` 递增；缺省随机且批内不重复 |
+| `steps` / `cfg` / `sampler` | 否 | 高级参数，落库并在 Worker 组装工作流时注入；工作流绑定表里没有对应落点的模型（如 Turbo）会被自动跳过 |
+| `negative_prompt` | 否 | 负面提示词；缺省空串 |
 
 响应（`GenerationRead`，含全部子任务；`model_name` 是模型 **id**，不是 label）：
 
@@ -154,10 +160,18 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 
 ### `GET /generations?limit=20&offset=0`
 
-分页摘要，按创建时间倒序。`items[]` 为 `GenerationSummary`（含 `task_count`，不含 `tasks`）。
+分页列表，按创建时间倒序。`items[]` 为完整的 `GenerationRead`（含 `tasks`、`images`、`progress`），作品流一次请求就能渲染出图墙，不需要再按批次逐条查图片。
+
+| 查询参数 | 说明 |
+| --- | --- |
+| `limit` / `offset` | 分页，`limit` 1–100 |
+| `q` | 提示词模糊匹配（`LIKE %q%`） |
+| `model` | 模型 id，多个用逗号分隔 |
+| `favorite` | `true` 时只返回「批次内至少有一张被收藏」的记录 |
+| `date_from` / `date_to` | ISO 时间，按 epoch 比较（避开 SQLite 时区字符差异）；非法值 422 |
 
 ```json
-{ "items": [ { "id": 2, "status": "running", "progress": 62, "task_count": 2, "model_name": "qwen_image_21_turbo", … } ], "total": 2, "limit": 20, "offset": 0 }
+{ "items": [ { "id": 15, "status": "completed", "progress": 100, "model_name": "qwen_image_21_turbo", "tasks": [ … ], "images": [ { "id": 32, "width": 1024, "height": 1024, "is_favorite": false, … } ] } ], "total": 15, "limit": 20, "offset": 0 }
 ```
 
 `progress` 是该记录下所有任务进度的平均值（8 张里前 7 张完成也不会显示 99%）。
@@ -228,9 +242,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
 
 ## 图片
 
-### `GET /images?limit=20&offset=0&generation_id=3`
+### `GET /images?limit=20&offset=0&generation_id=3&favorite=true`
 
-按 `id` 倒序返回产物。`generation_id` 可选，用于取某次生成的全部图片。
+按 `id` 倒序返回产物。`generation_id` 可选（取某次生成的全部图片），`favorite=true` 只看收藏。
 
 ```json
 {
@@ -262,6 +276,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
 ### `GET /images/{id}/thumbnail`
 
 480px 长边的 JPEG 缩略图（`image/jpeg`，`Cache-Control: public, max-age=31536000, immutable`）。第一次请求时用 Pillow 生成并写回 `thumbnail_path`，之后直接读磁盘缓存。列表页请用这个，别用原图。
+
+### `POST /images/{id}/favorite`
+
+收藏 / 取消收藏，body `{"favorite": true}`，返回更新后的 `ImageRead`。不存在 `404`。
 
 ### `DELETE /images/{id}`
 

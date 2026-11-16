@@ -29,3 +29,5 @@ class HealthResponse(BaseModel):
     database: DatabaseStatus
     comfyui: ComfyUIStatus
     storage: ComponentStatus
+    storage_path: str | None = None
+    max_generation_count: int = 8

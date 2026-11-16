@@ -22,12 +22,16 @@ export type HealthResponse = {
   database: DatabaseStatus;
   comfyui: ComfyUIStatus;
   storage: ComponentStatus;
+  storage_path: string | null;
+  max_generation_count: number;
 };
 
 export type ModelCapabilities = {
   exposes_steps: boolean;
   exposes_cfg: boolean;
   exposes_sampler: boolean;
+  exposes_negative_prompt: boolean;
+  sampler_options: string[];
 };
 
 export type WorkflowTarget = {
@@ -52,21 +56,6 @@ export type ModelInfo = {
 
 export type GenerationType = "text_to_image" | "image_edit";
 
-export type GenerationSummary = {
-  id: number;
-  prompt: string;
-  generation_type: string;
-  model_name: string;
-  width: number | null;
-  height: number | null;
-  requested_count: number;
-  status: string;
-  progress: number;
-  created_at: string;
-  completed_at: string | null;
-  task_count: number;
-};
-
 export type TaskRead = {
   id: number;
   generation_id: number;
@@ -79,9 +68,21 @@ export type TaskRead = {
   completed_at: string | null;
 };
 
+/** 作品流里每张图；seed 靠 task_id 从所属批次的 tasks 里取。 */
+export type ImageBrief = {
+  id: number;
+  task_id: number | null;
+  width: number;
+  height: number;
+  file_size: number;
+  is_favorite: boolean;
+  created_at: string;
+};
+
 export type GenerationRead = {
   id: number;
   prompt: string;
+  negative_prompt: string | null;
   workflow_id: number | null;
   generation_type: string;
   model_name: string;
@@ -89,14 +90,19 @@ export type GenerationRead = {
   height: number | null;
   requested_count: number;
   status: string;
+  progress: number;
+  reference_image_path: string | null;
+  steps: number | null;
+  cfg: number | null;
+  sampler: string | null;
   created_at: string;
   completed_at: string | null;
-  reference_image_path: string | null;
   tasks: TaskRead[];
+  images: ImageBrief[];
 };
 
 export type GenerationListResponse = {
-  items: GenerationSummary[];
+  items: GenerationRead[];
   total: number;
   limit: number;
   offset: number;
@@ -109,6 +115,11 @@ export type GenerationCreatePayload = {
   width?: number;
   height?: number;
   count: number;
+  negative_prompt?: string | null;
+  seed?: number | null;
+  steps?: number | null;
+  cfg?: number | null;
+  sampler?: string | null;
 };
 
 export type ImageRead = {
@@ -121,6 +132,7 @@ export type ImageRead = {
   width: number;
   height: number;
   file_size: number;
+  is_favorite: boolean;
   created_at: string;
 };
 
@@ -129,4 +141,12 @@ export type ImageListResponse = {
   total: number;
   limit: number;
   offset: number;
+};
+
+/** 作品流里的一条卡片数据：图片 + 它所属批次的全部上下文。 */
+export type FeedItem = {
+  key: string;
+  image: ImageBrief;
+  generation: GenerationRead;
+  seed: number | null;
 };

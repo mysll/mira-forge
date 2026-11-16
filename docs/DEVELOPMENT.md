@@ -36,14 +36,14 @@
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest        # 45 项，约 3 秒
+.\.venv\Scripts\python.exe -m pytest        # 54 项，约 3 秒
 ```
 
 测试使用独立的临时库 `backend/.pytest-tmp/test.db`（在 `conftest.py` 里于 import app 之前设定 `DATABASE_URL`），**不会污染** `data/app.db`。
 
 `conftest.py` 还强制 `WORKER_ENABLED=false`：否则 TestClient 会触发 lifespan，把测试任务真的提交给本机 ComfyUI（第一版就踩到了，ComfyUI 队列里出现了一条测试 prompt）。
 
-测试文件分工：`test_health.py`（健康检查与模型目录）、`test_generations.py`（创建/校验/列表/WS）、`test_workflows_build.py`（参数注入与状态聚合）、`test_edits.py`（参考图上传）、`test_gallery.py`（缩略图/删除/分页）、`test_stability.py`（取消/重试/启动复位）。
+测试文件分工：`test_health.py`（健康检查与模型目录）、`test_generations.py`（创建/校验/列表/WS）、`test_workflows_build.py`（参数注入与状态聚合）、`test_edits.py`（参考图上传）、`test_gallery.py`（缩略图/删除/分页）、`test_stability.py`（取消/重试/启动复位）、`test_workspace_api.py`（生成参数落库、搜索/模型/收藏/日期筛选）。
 
 注意测试库是 session 级共享的，写「脏状态」的用例要考虑别的用例的残留（`reset_interrupted_tasks` 就因此断言 `>= 2` 而不是 `== 2`）。
 
@@ -155,7 +155,7 @@ cd backend
 .\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
-`alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0002_reference_image`（给 `generations` 加了 `reference_image_path`）。
+`alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0003_workspace`（给 `generations` 加了 `negative_prompt/steps/cfg/sampler`，给 `images` 加了 `is_favorite`）。
 
 ## 代码约定
 

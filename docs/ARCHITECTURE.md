@@ -99,17 +99,23 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 
 ## 前端结构
 
+一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。详细设计见 [FRONTEND.md](FRONTEND.md)。
+
 | 位置 | 作用 |
 | --- | --- |
-| `app/page.tsx` | 生成页：左表单 + 生成记录，右健康状态与阶段进度 |
-| `app/gallery/page.tsx` | 画廊页：缩略图网格、分页、下载/删除/用作参考图 |
-| `components/GenerationForm.tsx` | 提示词、比例×长边面板、文生图/图片编辑切换、参考图卡片、数量 |
-| `components/GenerationList.tsx` | 记录列表 + 展开详情（每 task 的 seed/进度/取消/重试、产物图墙） |
-| `components/GalleryGrid.tsx` | 画廊网格与分页 |
-| `stores/reference.ts` | Zustand：当前参考图（文件或画廊图），以及"跳到编辑模式"的一次性标记 |
+| `app/layout.tsx` | 两栏外壳：72px `Sidebar` + `main`（顶栏 / 作品流 / 创作框三段式） |
+| `app/page.tsx` | 工作台：筛选状态、`GET /generations` 拉取、扁平化为 `FeedItem`、批次条、各类操作的 Toast |
+| `app/settings/page.tsx` | 系统状态（后端版本、SQLite、ComfyUI、GPU、存储路径） |
+| `app/gallery/page.tsx` | 旧链接兼容，重定向到 `/` |
+| `components/Composer.tsx` | 底部创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
+| `components/Feed.tsx` / `FeedCard.tsx` | 按日期分组的作品流与单张卡片 |
+| `components/ImageDetail.tsx` | 大图详情弹窗与五类操作 |
+| `components/TopBar.tsx` / `Sidebar.tsx` / `Popover.tsx` / `ToastStack.tsx` | 顶栏、导航、参数弹层、轻提示 |
+| `stores/composer.ts` | Zustand：创作框状态，模式各存一份提示词 |
+| `stores/reference.ts` | Zustand：参考图来源（本地文件 / 已生成图片）与 `autoEdit` 标记 |
 | `hooks/useTaskEvents.ts` | 订阅 `/ws/tasks`，收到事件后节流 invalidate React Query |
 
-跨页面的唯一共享状态是"用作参考图"：画廊里点按钮 → 写 store（`autoEdit=true`）→ 跳回 `/` → 表单消费标记并自动切到编辑模式。
+跨页面的共享状态有两处：创作框草稿（切到设置页再回来不丢）和参考图（作品流点「继续编辑」写入 store，创作框消费 `autoEdit` 自动切编辑模式）。界面状态走 Zustand 而不是 URL query，因为 `useSearchParams()` 在 layout 层会破坏静态生成，且未提交的提示词不该进浏览器历史。
 
 ## 模型注册表
 
@@ -151,5 +157,7 @@ P4：`POST /generations/edit`（multipart）、参考图上传到 ComfyUI、`GET
 P5：Pillow 缩略图与缓存、`DELETE /images/{id}`、画廊页与分页、Zustand 参考图 store、"用作参考图"跨页跳转。
 
 P6：任务取消（含 `POST /interrupt`）、任务重试（同记录下追加新 seed）、启动时残留任务复位、前端实时刷新（WS + 轮询）、`_set_task`/`_fail` 的取消竞态防护。
+
+P7：前端重构为两栏工作台（作品流 / 底部创作框 / 详情弹窗 / 设置页）；后端相应增补——`generations` 增加 `negative_prompt / steps / cfg / sampler`（迁移 `0003`）、`images` 增加 `is_favorite`、`GET /generations` 支持 `q / model / favorite / date_from / date_to` 且直接返回批次内图片、`POST /images/{id}/favorite`、`/health` 暴露 `storage_path` 与 `max_generation_count`。
 
 二期（视频）不在当前代码范围内。

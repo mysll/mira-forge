@@ -4,6 +4,7 @@ import type {
   GenerationRead,
   HealthResponse,
   ImageListResponse,
+  ImageRead,
   ModelInfo,
   TaskRead,
 } from "@/types/api";
@@ -59,8 +60,36 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return body.items;
 }
 
-export function fetchGenerations(limit = 20): Promise<GenerationListResponse> {
-  return request<GenerationListResponse>(`/generations?limit=${limit}`);
+export function fetchGenerations(params?: {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  model?: string | null;
+  favorite?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<GenerationListResponse> {
+  const search = new URLSearchParams();
+  search.set("limit", String(params?.limit ?? 40));
+  if (params?.offset) {
+    search.set("offset", String(params.offset));
+  }
+  if (params?.q?.trim()) {
+    search.set("q", params.q.trim());
+  }
+  if (params?.model) {
+    search.set("model", params.model);
+  }
+  if (params?.favorite) {
+    search.set("favorite", "true");
+  }
+  if (params?.dateFrom) {
+    search.set("date_from", params.dateFrom);
+  }
+  if (params?.dateTo) {
+    search.set("date_to", params.dateTo);
+  }
+  return request<GenerationListResponse>(`/generations?${search.toString()}`);
 }
 
 export function fetchGeneration(id: number): Promise<GenerationRead> {
@@ -140,6 +169,13 @@ export async function deleteImage(imageId: number): Promise<void> {
   if (!response.ok) {
     throw new ApiError(response.status, `删除失败（${response.status}）`);
   }
+}
+
+export function setImageFavorite(imageId: number, favorite: boolean): Promise<ImageRead> {
+  return request<ImageRead>(`/images/${imageId}/favorite`, {
+    method: "POST",
+    body: JSON.stringify({ favorite }),
+  });
 }
 
 export function cancelTask(taskId: number): Promise<TaskRead> {

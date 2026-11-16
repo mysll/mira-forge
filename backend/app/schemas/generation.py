@@ -11,7 +11,11 @@ from app.schemas.common import TimestampedModel
 
 
 class GenerationCreate(BaseModel):
-    """创建一次生成请求。model 为 /api/v1/models 返回的模型 id，不写死具体模型。"""
+    """创建一次生成请求。model 为 /api/v1/models 返回的模型 id，不写死具体模型。
+
+    可选参数（negative_prompt / seed / steps / cfg / sampler）为 None 时沿用
+    registry.yaml 里模型默认值；seed 为 None 表示每张随机。
+    """
 
     prompt: str = Field(min_length=1, max_length=8000)
     model: str = Field(min_length=1, max_length=64)
@@ -19,6 +23,11 @@ class GenerationCreate(BaseModel):
     width: int | None = Field(default=None, ge=64, le=4096)
     height: int | None = Field(default=None, ge=64, le=4096)
     count: int = Field(default=1, ge=1)
+    negative_prompt: str | None = Field(default=None, max_length=8000)
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    steps: int | None = Field(default=None, ge=1, le=100)
+    cfg: float | None = Field(default=None, ge=0, le=30)
+    sampler: str | None = Field(default=None, max_length=64)
 
 
 class TaskRead(TimestampedModel):
@@ -33,9 +42,24 @@ class TaskRead(TimestampedModel):
     completed_at: datetime | None = None
 
 
+class ImageBrief(BaseModel):
+    """作品流里每张图需要的字段；seed 由前端按 task_id 关联 tasks 得到。"""
+
+    model_config = {"from_attributes": True}
+
+    id: int
+    task_id: int | None = None
+    width: int
+    height: int
+    file_size: int
+    is_favorite: bool = False
+    created_at: datetime
+
+
 class GenerationRead(TimestampedModel):
     id: int
     prompt: str
+    negative_prompt: str | None = None
     workflow_id: int | None = None
     generation_type: str
     model_name: str
@@ -43,29 +67,19 @@ class GenerationRead(TimestampedModel):
     height: int | None = None
     requested_count: int
     status: str
+    progress: int = 0
     reference_image_path: str | None = None
+    steps: int | None = None
+    cfg: float | None = None
+    sampler: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
     tasks: list[TaskRead] = Field(default_factory=list)
-
-
-class GenerationSummary(TimestampedModel):
-    id: int
-    prompt: str
-    generation_type: str
-    model_name: str
-    width: int | None = None
-    height: int | None = None
-    requested_count: int
-    status: str
-    progress: int = 0
-    created_at: datetime
-    completed_at: datetime | None = None
-    task_count: int = 0
+    images: list[ImageBrief] = Field(default_factory=list)
 
 
 class GenerationListResponse(BaseModel):
-    items: list[GenerationSummary]
+    items: list[GenerationRead]
     total: int
     limit: int
     offset: int

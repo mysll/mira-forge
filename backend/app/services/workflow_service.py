@@ -57,6 +57,23 @@ def _resolve(relative: str) -> Path:
     return path if path.is_absolute() else (BACKEND_DIR / path).resolve()
 
 
+# KSampler / KSamplerSelect 里最常用的一批采样器（ComfyUI object_info 的 45 项里挑的）
+SAMPLER_OPTIONS = (
+    "euler",
+    "euler_ancestral",
+    "heun",
+    "dpm_2",
+    "dpm_2_ancestral",
+    "lms",
+    "dpmpp_2m",
+    "dpmpp_2m_sde",
+    "dpmpp_3m_sde",
+    "ddim",
+    "uni_pc",
+    "res_multistep",
+)
+
+
 def load_registry() -> _Registry:
     if not REGISTRY_PATH.is_file():
         raise RegistryError(f"找不到模型注册表: {REGISTRY_PATH}")
@@ -78,12 +95,19 @@ def _to_model_info(spec: _ModelSpec) -> ModelInfo:
                 available=json_path.is_file(),
             )
         )
+    capabilities = spec.capabilities.model_copy(
+        update={
+            "sampler_options": list(SAMPLER_OPTIONS)
+            if spec.capabilities.exposes_sampler
+            else []
+        }
+    )
     return ModelInfo(
         id=spec.id,
         label=spec.label,
         description=spec.description,
         defaults=spec.defaults,
-        capabilities=spec.capabilities,
+        capabilities=capabilities,
         workflows=targets,
         available=any(target.available for target in targets),
         is_default=spec.is_default,

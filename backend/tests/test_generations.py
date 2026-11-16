@@ -100,7 +100,7 @@ def test_list_returns_newest_first(client: TestClient) -> None:
     assert body["total"] >= 2
     ids = [item["id"] for item in body["items"]]
     assert ids.index(second["id"]) < ids.index(first["id"])
-    assert all(item["task_count"] >= 1 for item in body["items"])
+    assert all(len(item["tasks"]) >= 1 for item in body["items"])
 
 
 def test_websocket_handshake(client: TestClient) -> None:
