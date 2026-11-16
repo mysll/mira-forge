@@ -123,12 +123,13 @@ if (click) {
   }
 }
 
+const finalUrl = await evaluate("location.href");
 const text = await evaluate(`(() => {
   const node = document.querySelector(${JSON.stringify(selector)}) || document.body;
   return node.innerText;
 })()`);
 
-console.log(JSON.stringify({ url, selector, text }, null, 2));
+console.log(JSON.stringify({ url: finalUrl, selector, text }, null, 2));
 ws.close();
 edge.kill();
 process.exit(0);

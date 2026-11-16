@@ -30,8 +30,8 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
 
   /** 资产库里点「继续编辑 / 重新生成」时要回到创作页，否则参数填回了却没地方用 */
   const goCompose = useCallback(() => {
-    if (pathname !== "/") {
-      router.push("/");
+    if (pathname !== "/compose") {
+      router.push("/compose");
     }
   }, [pathname, router]);
 

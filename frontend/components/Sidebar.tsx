@@ -13,9 +13,23 @@ type NavItem = {
   mode?: "text_to_image" | "image_edit";
   disabled?: boolean;
   hint?: string;
+  /** 在这一项上方画一条细分隔线，用来分组 */
+  divider?: boolean;
 };
 
 const iconClass = "h-[18px] w-[18px]";
+
+const HomeIcon = (
+  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
+    <path
+      d="M4 10.6 12 4l8 6.6V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19v-8.4Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path d="M9.5 20.5v-6h5v6" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+  </svg>
+);
 
 const GalleryIcon = (
   <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
@@ -65,11 +79,12 @@ const SettingsIcon = (
 );
 
 const ITEMS: NavItem[] = [
+  { label: "首页", href: "/", icon: HomeIcon },
   { label: "资产", href: "/gallery", icon: GalleryIcon },
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
-  { label: "图片", href: "/", icon: ImageIcon, mode: "text_to_image" },
+  { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },
-  { label: "设置", href: "/settings", icon: SettingsIcon },
+  { label: "设置", href: "/settings", icon: SettingsIcon, divider: true },
 ];
 
 export default function Sidebar() {
@@ -81,22 +96,16 @@ export default function Sidebar() {
     if (item.disabled) {
       return false;
     }
-    if (item.href === "/gallery") {
-      return pathname.startsWith("/gallery");
+    if (item.href === "/") {
+      return pathname === "/";
     }
-    if (item.href === "/settings") {
-      return pathname.startsWith("/settings");
-    }
-    if (item.href === "/video") {
-      return pathname.startsWith("/video");
-    }
-    return pathname === "/";
+    return pathname === item.href || pathname.startsWith(`${item.href}/`);
   };
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center gap-1 border-r border-edge/70 bg-rail py-3">
       <Link
-        href="/gallery"
+        href="/"
         className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-accent/20"
         title="MiraForge"
       >
@@ -133,21 +142,23 @@ export default function Sidebar() {
           }
 
           return (
-            <button
-              key={item.label}
-              type="button"
-              className={className}
-              title={item.hint ?? item.label}
-              onClick={() => {
-                if (item.mode) {
-                  setMode(item.mode);
-                }
-                router.push(item.href);
-              }}
-            >
-              {item.icon}
-              <span className="leading-none">{item.label}</span>
-            </button>
+            <div key={item.label} className="flex w-full flex-col items-center">
+              {item.divider ? <span className="my-1.5 h-px w-6 bg-edge" aria-hidden /> : null}
+              <button
+                type="button"
+                className={className}
+                title={item.hint ?? item.label}
+                onClick={() => {
+                  if (item.mode) {
+                    setMode(item.mode);
+                  }
+                  router.push(item.href);
+                }}
+              >
+                {item.icon}
+                <span className="leading-none">{item.label}</span>
+              </button>
+            </div>
           );
         })}
       </nav>

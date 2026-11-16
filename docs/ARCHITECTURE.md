@@ -124,12 +124,13 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 
 ## 前端结构
 
-一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航四项：资产 `/gallery`、图片 `/`（默认文生图，框内可切图片编辑）、视频（二期，禁用）、设置。详细设计见 [FRONTEND.md](FRONTEND.md)。
+一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航五项：首页 `/`（落地页，两个创作入口）、资产 `/gallery`、图片 `/compose`（默认文生图，框内可切图片编辑）、视频 `/video`、设置 `/settings`。详细设计见 [FRONTEND.md](FRONTEND.md)。
 
 | 位置 | 作用 |
 | --- | --- |
 | `app/layout.tsx` | 两栏外壳：72px `Sidebar` + `main`（顶栏 / 内容 / 创作框三段式） |
-| `app/page.tsx` | 创作页：筛选状态、`GET /generations` 拉取、扁平化为 `FeedSlot`（每个任务一格，未出图为占位卡）、各类操作的 Toast |
+| `app/page.tsx` | 首页：创作入口、本机状态（设备 / 显存 / 项目）、最近作品、模型卡与灵感提示词 |
+| `app/compose/page.tsx` | 创作页：筛选状态、`GET /generations` 拉取、扁平化为 `FeedSlot`（每个任务一格，未出图为占位卡）、各类操作的 Toast |
 | `app/settings/page.tsx` | 系统状态（后端版本、SQLite、ComfyUI、GPU、存储路径） |
 | `app/gallery/page.tsx` | 资产页：图片级平铺网格，按日期分组、按 `image.created_at` 倒序，不带批次分组 |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用 |
