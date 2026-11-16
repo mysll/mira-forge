@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     # 服务监听
     app_host: str = "127.0.0.1"
     app_port: int = 8000
-    frontend_origin: str = "http://127.0.0.1:3000"
+    # 允许来源：浏览器里 127.0.0.1 与 localhost 是两个不同的 Origin，两个都要放行
+    frontend_origin: str = "http://127.0.0.1:3000,http://localhost:3000"
 
     # ComfyUI（只允许后端访问，前端绝不直连）
     comfyui_url: str = "http://127.0.0.1:8188"

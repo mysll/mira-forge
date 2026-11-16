@@ -10,11 +10,27 @@
 
 ## 日常启动
 
+一条命令（推荐）：
+
+```powershell
+.\start.ps1            # 检查 ComfyUI → 起后端 → 起前端 → 等就绪 → 开浏览器
+.\start.ps1 -StartComfyUI   # ComfyUI 没开时顺手拉起 run_nvidia_gpu.bat
+.\stop.ps1             # 停后端与前端；-IncludeComfyUI 连 ComfyUI 一起停
+```
+
+脚本用 `Start-Process pwsh -NoExit` 把后端/前端各放进一个新窗口，然后用 `Get-NetTCPConnection` 判断端口是否已占用：已经在跑的就跳过，不重复起。
+
+分开调试时：
+
 ```powershell
 .\start-backend.ps1          # http://127.0.0.1:8000/docs
 .\start-backend.ps1 -Reload  # 改代码自动重载
 .\start-frontend.ps1         # http://127.0.0.1:3000
 ```
+
+为什么是两个进程：前端是 Node/Next，后端是 Python/FastAPI，两个不同运行时；开发期各跑各的开发服务器，生产期由反向代理按路径分流。
+
+页面用 `http://localhost:3000` 或 `http://127.0.0.1:3000` 打开都可以——浏览器把它们当成**两个不同的 Origin**，所以 `FRONTEND_ORIGIN` 里两个都列了；`next.config.ts` 的 `allowedDevOrigins` 同理放行了两者，避免 dev 资源被当成跨域。
 
 ## 测试
 
@@ -62,7 +78,7 @@ npx tsc --noEmit
 | `WORKER_CONCURRENCY` | `1` | 保持 1，单卡串行 |
 | `WORKER_ENABLED` | `true` | 是否随应用启动生成 Worker（测试/调试置 `false`） |
 | `APP_HOST` / `APP_PORT` | `127.0.0.1` / `8000` | |
-| `FRONTEND_ORIGIN` | `http://127.0.0.1:3000` | CORS 白名单 |
+| `FRONTEND_ORIGIN` | `http://127.0.0.1:3000,http://localhost:3000` | CORS 白名单（逗号分隔；localhost 与 127.0.0.1 是两个 Origin，都要列） |
 | `AUTO_MIGRATE` | `true` | 启动时自动 `alembic upgrade head` |
 
 `frontend/.env.local`：`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`。

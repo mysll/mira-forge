@@ -33,10 +33,22 @@
 ## 快速开始
 
 ```powershell
-.\setup.ps1        # 建 venv、装依赖、写 .env、跑迁移
+.\setup.ps1     # 首次：建 venv、装依赖、写 .env、跑迁移
+.\start.ps1     # 以后：一条命令起全部，就绪后自动开浏览器
+```
+
+`start.ps1` 会先确认 ComfyUI 在 8188 上活着（没开就给提示，加 `-StartComfyUI` 可以帮你拉起 `run_nvidia_gpu.bat`），然后把后端和前端各自放进一个新窗口启动，等两边都响应了再打开 <http://127.0.0.1:3000>。关脚本不影响服务，停服一律用 `.\stop.ps1`。
+
+两个地址等价，都可以用：<http://127.0.0.1:3000> 与 <http://localhost:3000>。
+
+想分开调试时仍然可以单独起：
+
+```powershell
 .\start-backend.ps1    # http://127.0.0.1:8000/docs
 .\start-frontend.ps1   # http://127.0.0.1:3000
 ```
+
+> 为什么要起两个进程？因为前端是 Node/Next，后端是 Python/FastAPI，本来就是两个运行时。生产部署时通常由 Nginx 把 `/api` 反代到后端、其余给前端，开发期则是两个开发服务器各跑各的。`start.ps1` 只是把这两步合成一条命令。
 
 检查：
 
