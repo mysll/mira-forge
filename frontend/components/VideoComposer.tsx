@@ -33,6 +33,7 @@ export default function VideoComposer({
   const [ratioKey, setRatioKey] = useState<VideoRatioKey>("auto");
   const [tierKey, setTierKey] = useState("480p");
   const [duration, setDuration] = useState(5);
+  const [count, setCount] = useState(1);
   const [first, setFirst] = useState<File | null>(null);
   const [last, setLast] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -83,6 +84,19 @@ export default function VideoComposer({
   // 1080p × 10 秒以上在 16GB 卡上很容易吃满，提前提示一句
   const heavy = weight > VIDEO_WEIGHT_WARN;
 
+  // 数量：默认 1 条，最多 4 条（能力里没声明就按 4 兜底）
+  const countOptions = useMemo(() => {
+    const declared = model?.capabilities.count_options ?? [];
+    const max = Math.max(1, Math.round(Number(model?.capabilities.max_count ?? 4)));
+    const values = declared.length > 0 ? declared : [1, 2, 3, 4];
+    return Array.from(new Set(values.map((value) => Math.round(value))))
+      .filter((value) => value >= 1 && value <= max)
+      .sort((left, right) => left - right);
+  }, [model?.capabilities.count_options, model?.capabilities.max_count]);
+
+  // 粗估每条要几分钟：480p 5 秒约 1 分钟，720p 约 2.7 分钟，1080p 更久
+  const estimateMinutes = Math.max(1, Math.round((weight / 51) * 1.2));
+
   // 提示词框随内容长高，最多 200px
   useEffect(() => {
     const node = textareaRef.current;
@@ -105,6 +119,7 @@ export default function VideoComposer({
         form.set("duration_seconds", String(clampDuration(duration)));
         form.set("width", String(size.width));
         form.set("height", String(size.height));
+        form.set("count", String(count));
         if (first) {
           form.append("files", first);
         }
@@ -117,7 +132,7 @@ export default function VideoComposer({
         prompt: text,
         model: model.id,
         generation_type: "text_to_video",
-        count: 1,
+        count,
         duration_seconds: clampDuration(duration),
         fps,
         width: size.width,
@@ -385,6 +400,36 @@ export default function VideoComposer({
                       完成
                     </button>
                   </div>
+                </div>
+              )}
+            </Popover>
+
+            {/* 数量：视频一次最多 4 条，默认 1 条 */}
+            <Popover label={`${count} 条`} title="数量" width={188}>
+              {(close) => (
+                <div className="grid gap-1.5">
+                  <div className="grid grid-cols-4 gap-1">
+                    {countOptions.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          setCount(value);
+                          close();
+                        }}
+                        className={`rounded-md border py-1.5 text-[11px] transition ${
+                          value === count
+                            ? "border-accent/60 bg-accent/15 text-accentSoft"
+                            : "border-edge/70 text-muted hover:border-edge hover:text-ink"
+                        }`}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-muted">
+                    串行生成，{count} 条约需 {count * estimateMinutes} 分钟（同一条提示词、不同 seed）
+                  </p>
                 </div>
               )}
             </Popover>

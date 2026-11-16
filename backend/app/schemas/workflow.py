@@ -43,6 +43,10 @@ class ModelCapabilities(BaseModel):
     # 视频：durations 是快捷档位，duration_min/max 是滑块允许的区间
     duration_min: float = 1
     duration_max: float = 15
+    # 一次请求最多出几个：None 表示沿用全局 MAX_GENERATION_COUNT；
+    # count_options 是前端给的快捷按钮（视频默认 1，最多 4）
+    max_count: int | None = None
+    count_options: list[int] = Field(default_factory=list)
     durations: list[float] = Field(default_factory=list)
     resolutions: list[VideoResolution] = Field(default_factory=list)
 

@@ -176,9 +176,13 @@ def create_generation(
         )
 
     if is_video:
-        # 视频一次只出一条：单条约 2 分钟，批量串行没有意义，也容易让队列失控
-        if payload.count != 1:
-            raise GenerationValidationError("视频一次只能生成 1 条")
+        # 视频一次最多 4 条（串行出，每条约 1–3 分钟）；上限写在模型能力里，
+        # 免得以后换模型还要改这里。
+        limit = int(model.capabilities.max_count or settings.max_generation_count)
+        if payload.count > limit:
+            raise GenerationValidationError(
+                f"视频一次最多生成 {limit} 条，收到 {payload.count}"
+            )
         duration = payload.duration_seconds or model.defaults.get("duration_seconds")
         low = float(model.capabilities.duration_min)
         high = float(model.capabilities.duration_max)

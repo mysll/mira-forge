@@ -86,6 +86,7 @@ VAEDecode ─► ImageFromBatch(batch_index 0, length 1) ─► SaveImage(封面
 | text_to_video（6 步） | 5 s / 124 帧 | 1280×736 | 161 s | ~15 GB |
 | image_to_video（首帧） | 3 s / 73 帧 | 864×480 | 30 s | ~15 GB |
 | image_to_video（首帧 + 尾帧） | 3 s / 73 帧 | 864×480 | 35 s | ~15 GB |
+| text_to_video × 2 条（串行） | 3 s / 73 帧 ×2 | 864×480 | 55 s | ~15 GB |
 
 720p 的耗时大约是 480p 的 4 倍（像素 2.4 倍 + 注意力随长度平方增长），1080p × 10 秒以上在 16GB 卡上不保证能出——前端在估算偏重时会提示一句，但不拦着（真跑挂了任务会 `failed` 并带 ComfyUI 的报错）。
 

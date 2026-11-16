@@ -103,6 +103,9 @@ models:
       durations: [3, 5, 8, 10]
       duration_min: 1
       duration_max: 15
+      # 一次最多 4 条，默认 1 条：串行出，4 条 × 5 秒大约 4–8 分钟
+      max_count: 4
+      count_options: [1, 2, 3, 4]
       # 前端按「比例 × 分辨率档（480/720/1080）」自己算宽高（32 对齐），这里列常用档位给接口做参考
       resolutions:
         - { width: 864, height: 480, label: "16:9 480p" }

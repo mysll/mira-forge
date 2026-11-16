@@ -74,18 +74,35 @@ def test_video_rejects_unknown_duration(client: TestClient) -> None:
     assert "1" in detail and "15" in detail and "20" in detail
 
 
-def test_video_only_one_per_request(client: TestClient) -> None:
+def test_video_accepts_up_to_four(client: TestClient) -> None:
+    response = client.post(
+        f"{API}/generations",
+        json={
+            "prompt": "夜里下起雨",
+            "model": "minimax_h3",
+            "generation_type": "text_to_video",
+            "count": 4,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["requested_count"] == 4
+    assert len(body["tasks"]) == 4
+    assert len({task["seed"] for task in body["tasks"]}) == 4
+
+
+def test_video_rejects_more_than_four(client: TestClient) -> None:
     response = client.post(
         f"{API}/generations",
         json={
             "prompt": "x",
             "model": "minimax_h3",
             "generation_type": "text_to_video",
-            "count": 2,
+            "count": 5,
         },
     )
     assert response.status_code == 422
-    assert "1 条" in response.json()["detail"]
+    assert "最多生成 4 条" in response.json()["detail"]
 
 
 def test_video_size_must_align_to_32(client: TestClient) -> None:

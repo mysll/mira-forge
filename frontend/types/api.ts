@@ -50,6 +50,9 @@ export type ModelCapabilities = {
   /** 滑块允许的区间（秒） */
   duration_min: number;
   duration_max: number;
+  /** 一次最多出几个；count_options 是快捷按钮 */
+  max_count: number | null;
+  count_options: number[];
   resolutions: VideoResolution[];
 };
 
@@ -229,3 +232,4 @@ export type ProjectListResponse = {
   items: ProjectRead[];
   active: string;
 };
+

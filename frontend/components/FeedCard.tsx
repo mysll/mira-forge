@@ -185,6 +185,10 @@ function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) 
   const label = status === "pending" ? "排队中" : statusLabel(status);
   const tone = toneOf(status);
 
+  const isVideo =
+    generation.generation_type === "text_to_video" || generation.generation_type === "image_to_video";
+  const unit = isVideo ? "条" : "张";
+
   if (view === "list") {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-dashed border-edge/70 px-1 py-1">
@@ -192,17 +196,13 @@ function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) 
           {running ? <Spinner className="h-3.5 w-3.5" /> : <span className="text-[10px] text-muted/50">·</span>}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-ink/75">第 {index} / {total} 张</p>
+          <p className="truncate text-xs text-ink/75">第 {index} / {total} {unit}</p>
           <p className="mt-0.5 truncate text-[11px] text-muted/70">{reason ?? (running ? `${label} ${progress}%` : label)}</p>
         </div>
         <span className={`shrink-0 text-[11px] ${tone}`}>{label}</span>
       </div>
     );
   }
-
-  const isVideo =
-    generation.generation_type === "text_to_video" || generation.generation_type === "image_to_video";
-  const unit = isVideo ? "条" : "张";
 
   return (
     <div className="relative flex flex-col overflow-hidden rounded-xl border border-dashed border-edge/70 bg-surface/30">
@@ -269,7 +269,7 @@ export default function FeedCard(props: Props) {
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-ink/90">
-            第 {position} 张 · {props.modelLabels?.[generation.model_name] ?? generation.model_name}
+            第 {position} {props.item.image?.media_type === "video" ? "条" : "张"} · {props.modelLabels?.[generation.model_name] ?? generation.model_name}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-muted">
             {image.width}×{image.height} · {formatBytes(image.file_size)} · {formatTime(image.created_at)}
@@ -397,3 +397,4 @@ export default function FeedCard(props: Props) {
     </div>
   );
 }
+

@@ -305,7 +305,8 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
 | `duration_seconds` | 否 | 1–15 秒的整数（`capabilities.duration_min/max`）；3 / 5 / 8 / 10 是前端快捷档，缺省取模型默认 |
 | `fps` | 否 | 1–120，缺省 24 |
 | `width` / `height` | 否 | 必须是 32 的倍数；前端按「比例 × 480p/720p/1080p」算，例如 864×480、1280×736、1920×1088 |
-| `seed` | 否 | 0–2³¹−1 |
+| `count` | 否 | 1–4，缺省 1；串行生成，每条独立 seed |
+| `seed` | 否 | 0–2³¹−1；批量时按 `seed, seed+1, …` 依次派生 |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
@@ -318,7 +319,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 错误：
 
 ```
-422 {"detail": "视频一次只能生成 1 条"}
+422 {"detail": "视频一次最多生成 4 条，收到 5"}
 422 {"detail": "视频时长需要在 1–15 秒之间，收到 20"}
 422 {"detail": "视频宽度必须是 32 的倍数，收到 900"}
 422 {"detail": "图生视频最多 2 张图（首帧 + 尾帧），收到 3 张"}
@@ -461,4 +462,4 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 | `GET /generations/{id}` | `duration_seconds` / `fps` 直接可读 |
 | `GET /images?media_type=video` | 未实现（前端的视频页用 `model=minimax_h3` 过滤） |
 
-已知边界：视频目前一次只能 1 条（`count` 必须为 1）、参考视频（r2v）与视频编辑尚未开放。
+已知边界：视频一次最多 4 条（`count` 1–4，默认 1，串行逐条出）、参考视频（r2v）与视频编辑尚未开放。
