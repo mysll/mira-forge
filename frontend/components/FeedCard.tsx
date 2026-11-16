@@ -131,9 +131,10 @@ export default function FeedCard(props: Props) {
   const { image, generation } = item;
   const active = ACTIVE_STATUS.has(generation.status);
 
+  const position = generation.images.findIndex((candidate) => candidate.id === image.id) + 1;
   const batchBadge = (
     <span className="rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur">
-      批次 #{generation.id} · {generation.images.length}/{generation.requested_count}
+      批次 #{generation.id} · 第 {position} 张
     </span>
   );
 
