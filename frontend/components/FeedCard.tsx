@@ -130,13 +130,7 @@ export default function FeedCard(props: Props) {
   const { item, view } = props;
   const { image, generation } = item;
   const active = ACTIVE_STATUS.has(generation.status);
-
   const position = generation.images.findIndex((candidate) => candidate.id === image.id) + 1;
-  const batchBadge = (
-    <span className="rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur">
-      批次 #{generation.id} · 第 {position} 张
-    </span>
-  );
 
   if (view === "list") {
     return (
@@ -161,10 +155,9 @@ export default function FeedCard(props: Props) {
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs text-ink/90">{generation.prompt}</p>
+          <p className="truncate text-xs text-ink/90">第 {position} 张 · {props.modelLabels?.[generation.model_name] ?? generation.model_name}</p>
           <p className="mt-0.5 truncate text-[11px] text-muted">
-            #{generation.id} · {props.modelLabels?.[generation.model_name] ?? generation.model_name} · {image.width}×{image.height} · {formatBytes(image.file_size)} ·{" "}
-            {formatTime(image.created_at)}
+            {image.width}×{image.height} · {formatBytes(image.file_size)} · {formatTime(image.created_at)}
           </p>
         </div>
 
@@ -232,7 +225,7 @@ export default function FeedCard(props: Props) {
         />
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
-          {batchBadge}
+
           {image.is_favorite ? (
             <span className="rounded-md bg-black/55 p-1 text-warn backdrop-blur">
               <IconStar filled />
