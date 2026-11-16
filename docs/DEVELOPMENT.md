@@ -31,7 +31,7 @@
 为什么是两个进程：前端是 Node/Next，后端是 Python/FastAPI，两个不同运行时；开发期各跑各的开发服务器，生产期由反向代理按路径分流。
 
 页面用 `http://localhost:3000` 或 `http://127.0.0.1:3000` 打开都可以——浏览器把它们当成**两个不同的 Origin**，所以 `FRONTEND_ORIGIN` 里两个都列了；`next.config.ts` 的 `allowedDevOrigins` 同理放行了两者，避免 dev 资源被当成跨域。
-左下角那个圆形图标是 **Next.js 自己的调试指示器**，不是 MiraForge 的界面元素：点开能看到编译状态、当前路由是静态还是动态。它只在 `npm run dev` 时出现，`npm run build && npm start` 里没有。默认停在左下角、会压住侧边栏的版本号，所以 `next.config.ts` 里用 `devIndicators: { position: "bottom-right" }` 挪到了右下角；想彻底去掉就改成 `devIndicators: false`。
+左下角那个圆形图标是 **Next.js 自己的调试指示器**，不是 MiraForge 的界面元素：点开能看到编译状态、当前路由是静态还是动态。它只在 `npm run dev` 时出现，`npm run build && npm start` 里没有。它停在左下角，正好压住侧边栏底部的版本号，所以侧边栏 footer 留了 `pb-10`，让 `v0.1` 浮在它上方（曾试过挪到右下角，但窄窗口下会压住创作框，已还原）；想彻底去掉就写 `devIndicators: false`。
 
 ## 测试
 

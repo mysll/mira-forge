@@ -152,7 +152,8 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto flex flex-col items-center px-2 pb-2">
+      {/* 留出底部空间，避免被 Next 的调试指示器（左下角）压住 */}
+      <div className="mt-auto flex flex-col items-center px-2 pb-10">
         <span className="text-[10px] text-muted/50">v0.1</span>
       </div>
     </aside>
