@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { imageFileUrl, referenceImageUrl } from "@/lib/api";
+import { imageFileUrl, imageThumbnailUrl, referenceImageUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
 import type { FeedItem } from "@/types/api";
 
@@ -70,19 +70,31 @@ export default function ImageDetail({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex min-w-0 flex-1 items-center justify-center bg-black/40 p-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageFileUrl(image)}
-            alt={generation.prompt}
-            className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
-          />
+          {image.media_type === "video" ? (
+            <video
+              src={imageFileUrl(image)}
+              poster={imageThumbnailUrl(image)}
+              controls
+              autoPlay
+              loop
+              playsInline
+              className="max-h-[80vh] w-auto max-w-full rounded-lg bg-black"
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={imageFileUrl(image)}
+              alt={generation.prompt}
+              className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
+            />
+          )}
         </div>
 
         <div className="flex w-[330px] shrink-0 flex-col border-l border-edge">
           <div className="flex items-start justify-between gap-2 px-4 pb-2 pt-4">
             <div>
               <p className="text-[11px] text-muted">批次 #{generation.id}</p>
-              <p className="text-sm font-medium text-ink">图片详情</p>
+              <p className="text-sm font-medium text-ink">{image.media_type === "video" ? "视频详情" : "图片详情"}</p>
             </div>
             <button type="button" onClick={onClose} className="icon-btn" title="关闭">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
@@ -141,7 +153,11 @@ export default function ImageDetail({
                     ? "图片编辑"
                     : generation.generation_type === "image_to_image"
                       ? "参考图生成"
-                      : "文生图"
+                      : generation.generation_type === "text_to_video"
+                        ? "文生视频"
+                        : generation.generation_type === "image_to_video"
+                          ? "图生视频"
+                          : "文生图"
                 }
               />
               <Row
@@ -162,6 +178,19 @@ export default function ImageDetail({
                 }
               />
               <Row label="尺寸" value={`${image.width} × ${image.height}`} />
+              {image.media_type === "video" ? (
+                <>
+                  <Row
+                    label="时长"
+                    value={
+                      image.duration_seconds
+                        ? `${image.duration_seconds.toFixed(1)} 秒${image.fps ? ` · ${Math.round(image.fps)}fps` : ""}`
+                        : "—"
+                    }
+                  />
+                  {image.frame_count ? <Row label="帧数" value={`${image.frame_count} 帧`} /> : null}
+                </>
+              ) : null}
               <Row label="大小" value={formatBytes(image.file_size)} />
               <Row label="生成时间" value={formatTime(image.created_at)} />
               {generation.steps ? <Row label="步数" value={generation.steps} /> : null}
@@ -177,9 +206,12 @@ export default function ImageDetail({
             <button type="button" onClick={() => onFavorite(item)} className="btn-ghost">
               {image.is_favorite ? "取消收藏" : "收藏"}
             </button>
-            <button type="button" onClick={() => onEdit(item)} className="btn-ghost">
-              继续编辑
-            </button>
+            {/* 视频没有「继续编辑成图片」这条路，按钮直接不出现 */}
+            {image.media_type === "video" ? null : (
+              <button type="button" onClick={() => onEdit(item)} className="btn-ghost">
+                继续编辑
+              </button>
+            )}
             <button type="button" onClick={() => onRegenerate(item)} className="btn-ghost">
               重新生成
             </button>
@@ -188,7 +220,7 @@ export default function ImageDetail({
               onClick={() => onDelete(item)}
               className="btn-ghost col-span-2 !text-bad hover:!border-bad/50"
             >
-              删除这张图
+              {image.media_type === "video" ? "删除这条视频" : "删除这张图"}
             </button>
           </div>
         </div>

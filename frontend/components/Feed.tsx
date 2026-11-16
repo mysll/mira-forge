@@ -22,6 +22,10 @@ type Props = {
   onEdit: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
   emptyHint?: string;
+  /** 网格卡宽度（视频比图片宽，留出 16:9 的空间） */
+  cardWidth?: number;
+  /** 计数单位：图片用「张」，视频用「条」 */
+  unit?: string;
 };
 
 type Batch = { generation: GenerationRead; items: FeedSlot[] };
@@ -49,7 +53,7 @@ const STATUS_TONE: Record<string, string> = {
   pending: "text-warn",
 };
 
-function BatchHeader({ batch }: { batch: Batch }) {
+function BatchHeader({ batch, unit }: { batch: Batch; unit: string }) {
   const { generation, items } = batch;
   const done = items.filter((item) => item.image !== null).length;
   const active = ACTIVE_STATUS.has(generation.status);
@@ -60,7 +64,7 @@ function BatchHeader({ batch }: { batch: Batch }) {
       <div className="flex min-w-0 items-baseline gap-2 text-[11px]">
         <span className="shrink-0 text-muted">批次 #{generation.id}</span>
         <span className="shrink-0 text-muted/60">
-          · {done}/{items.length} 张
+          · {done}/{items.length} {unit}
         </span>
         {finished ? null : (
           <span className={`shrink-0 ${STATUS_TONE[generation.status] ?? "text-muted"}`}>
@@ -84,6 +88,8 @@ export default function Feed({
   onLoadMore,
   modelLabels,
   emptyHint,
+  cardWidth = CARD,
+  unit = "张",
   ...actions
 }: Props) {
   if (!loading && items.length === 0) {
@@ -117,7 +123,7 @@ export default function Feed({
           <div className="flex items-center gap-3">
             <h2 className="text-xs font-medium text-ink/80">{group.bucket}</h2>
             <span className="text-[11px] text-muted/60">
-              {group.batches.length} 个批次 · {group.total} 张
+              {group.batches.length} 个批次 · {group.total} {unit}
             </span>
             <span className="h-px flex-1 bg-edge/60" />
           </div>
@@ -126,7 +132,7 @@ export default function Feed({
             <div className="flex flex-col gap-4">
               {group.batches.map((batch) => (
                 <div key={batch.generation.id} className="flex flex-col gap-0.5 px-2">
-                  <BatchHeader batch={batch} />
+                  <BatchHeader batch={batch} unit={unit} />
                   {batch.items.map((item) => (
                     <FeedCard key={item.key} item={item} view="list" modelLabels={modelLabels} {...actions} />
                   ))}
@@ -137,10 +143,10 @@ export default function Feed({
             <div className="flex flex-col gap-5">
               {group.batches.map((batch) => (
                 <div key={batch.generation.id} className="flex flex-col gap-2">
-                  <BatchHeader batch={batch} />
+                  <BatchHeader batch={batch} unit={unit} />
                   <div className="flex flex-wrap gap-3">
                     {batch.items.map((item) => (
-                      <div key={item.key} style={{ width: CARD }}>
+                      <div key={item.key} style={{ width: cardWidth }}>
                         <FeedCard item={item} view="grid" modelLabels={modelLabels} {...actions} />
                       </div>
                     ))}

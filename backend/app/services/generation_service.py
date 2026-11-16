@@ -159,22 +159,46 @@ def create_generation(
         available = ", ".join(item.id for item in workflow_service.list_models())
         raise GenerationValidationError(f"未知模型 '{payload.model}'，可选: {available}")
 
-    target = workflow_service.get_workflow_target(model, payload.generation_type)
-    if target is None:
-        raise GenerationValidationError(
-            f"模型 '{model.id}' 不支持任务类型 '{payload.generation_type}'"
-        )
-
     paths = [path for path in (reference_image_paths or ()) if path]
     if not paths and reference_image_path:
         paths = [reference_image_path]
 
-    if payload.generation_type == GenerationType.IMAGE_EDIT:
+    # 图生视频但首帧尾帧都没给：按约定退化成文生视频，而不是报错
+    generation_type = GenerationType(payload.generation_type)
+    if generation_type == GenerationType.IMAGE_TO_VIDEO and not paths:
+        generation_type = GenerationType.TEXT_TO_VIDEO
+    is_video = generation_type.is_video
+
+    target = workflow_service.get_workflow_target(model, generation_type)
+    if target is None:
+        raise GenerationValidationError(
+            f"模型 '{model.id}' 不支持任务类型 '{generation_type}'"
+        )
+
+    if is_video:
+        # 视频一次只出一条：单条约 2 分钟，批量串行没有意义，也容易让队列失控
+        if payload.count != 1:
+            raise GenerationValidationError("视频一次只能生成 1 条")
+        duration = payload.duration_seconds or model.defaults.get("duration_seconds")
+        low = float(model.capabilities.duration_min)
+        high = float(model.capabilities.duration_max)
+        if duration is None or not (low <= float(duration) <= high):
+            raise GenerationValidationError(
+                f"视频时长需要在 {low:g}–{high:g} 秒之间，收到 {duration}"
+            )
+        fps = payload.fps or model.defaults.get("fps")
+        if fps is None or float(fps) <= 0:
+            raise GenerationValidationError("视频帧率必须大于 0")
+        if len(paths) > settings.max_reference_images:
+            raise GenerationValidationError(
+                f"图生视频最多 {settings.max_reference_images} 张图（首帧 + 尾帧），收到 {len(paths)} 张"
+            )
+    elif generation_type == GenerationType.IMAGE_EDIT:
         if len(paths) != 1:
             raise GenerationValidationError(
                 f"图片编辑必须提供 1 张参考图，收到 {len(paths)} 张"
             )
-    elif payload.generation_type == GenerationType.IMAGE_TO_IMAGE:
+    elif generation_type == GenerationType.IMAGE_TO_IMAGE:
         if not paths:
             raise GenerationValidationError("图生图必须提供 1 张参考图")
         if len(paths) > settings.max_reference_images:
@@ -185,8 +209,13 @@ def create_generation(
         paths = []
 
     # 编辑的输出比例跟随参考图，width/height 只决定像素量级（映射到节点的 resolution）
-    width = payload.width or model.defaults.get("width")
-    height = payload.height or model.defaults.get("height")
+    width = int(payload.width or model.defaults.get("width") or 0)
+    height = int(payload.height or model.defaults.get("height") or 0)
+    if is_video:
+        # MiniMax 的 width/height 在节点里是 step=32，不对齐会被 ComfyUI 静默改值
+        for name, value in (("宽", width), ("高", height)):
+            if value % 32:
+                raise GenerationValidationError(f"视频{name}度必须是 32 的倍数，收到 {value}")
 
     negative_prompt = (payload.negative_prompt or "").strip() or None
     cfg = payload.cfg if payload.cfg is not None else model.defaults.get("cfg")
@@ -204,7 +233,7 @@ def create_generation(
     generation = Generation(
         prompt=prompt,
         workflow_id=workflow_row.id if workflow_row else None,
-        generation_type=payload.generation_type,
+        generation_type=str(generation_type),
         model_name=model.id,
         width=width,
         height=height,
@@ -216,6 +245,8 @@ def create_generation(
         steps=payload.steps,
         cfg=cfg,
         sampler=payload.sampler,
+        duration_seconds=float(duration) if is_video and duration is not None else None,
+        fps=float(fps) if is_video and fps is not None else None,
     )
     if payload.seed is not None:
         seeds = _fixed_seeds(payload.seed, payload.count)

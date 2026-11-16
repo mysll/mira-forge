@@ -29,12 +29,28 @@ export type HealthResponse = {
   max_generation_count: number;
 };
 
+/** 视频的可选分辨率档位（来自 registry，前端不写死） */
+export type VideoResolution = {
+  width: number;
+  height: number;
+  label: string;
+};
+
 export type ModelCapabilities = {
+  /** image | video：决定放在哪个创作页、产物用哪种卡片 */
+  media: string;
   exposes_steps: boolean;
   exposes_cfg: boolean;
   exposes_sampler: boolean;
   exposes_negative_prompt: boolean;
   sampler_options: string[];
+  exposes_duration: boolean;
+  /** 快捷档位 */
+  durations: number[];
+  /** 滑块允许的区间（秒） */
+  duration_min: number;
+  duration_max: number;
+  resolutions: VideoResolution[];
 };
 
 export type WorkflowTarget = {
@@ -59,7 +75,12 @@ export type ModelInfo = {
   negative_prompt_cfg: number | null;
 };
 
-export type GenerationType = "text_to_image" | "image_to_image" | "image_edit";
+export type GenerationType =
+  | "text_to_image"
+  | "image_to_image"
+  | "image_edit"
+  | "text_to_video"
+  | "image_to_video";
 
 export type TaskRead = {
   id: number;
@@ -73,13 +94,18 @@ export type TaskRead = {
   completed_at: string | null;
 };
 
-/** 作品流里每张图；seed 靠 task_id 从所属批次的 tasks 里取。 */
+/** 作品流里的一个产物（图片或视频）；seed 靠 task_id 从所属批次的 tasks 里取。 */
 export type ImageBrief = {
   id: number;
   task_id: number | null;
   width: number;
   height: number;
   file_size: number;
+  /** image | video */
+  media_type: string;
+  duration_seconds: number | null;
+  fps: number | null;
+  frame_count: number | null;
   is_favorite: boolean;
   created_at: string;
 };
@@ -102,6 +128,8 @@ export type GenerationRead = {
   steps: number | null;
   cfg: number | null;
   sampler: string | null;
+  duration_seconds: number | null;
+  fps: number | null;
   created_at: string;
   completed_at: string | null;
   tasks: TaskRead[];
@@ -127,6 +155,8 @@ export type GenerationCreatePayload = {
   steps?: number | null;
   cfg?: number | null;
   sampler?: string | null;
+  duration_seconds?: number | null;
+  fps?: number | null;
 };
 
 export type ImageRead = {
@@ -139,6 +169,10 @@ export type ImageRead = {
   width: number;
   height: number;
   file_size: number;
+  media_type: string;
+  duration_seconds: number | null;
+  fps: number | null;
+  frame_count: number | null;
   is_favorite: boolean;
   created_at: string;
 };

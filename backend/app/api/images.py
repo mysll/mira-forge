@@ -75,7 +75,14 @@ def get_image_file(image_id: int, db: Session = Depends(get_db)) -> FileResponse
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"图片文件缺失：{image.file_path}",
         )
-    return FileResponse(path, media_type="image/png", filename=path.name)
+    # 视频产物走同一个端点，Content-Type 必须跟着 media_type 变，否则浏览器当图片解码
+    media_type = "video/mp4" if image.media_type == "video" else "image/png"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=path.name,
+        headers={"Accept-Ranges": "bytes"},
+    )
 
 
 @router.get("/{image_id}/thumbnail", response_class=FileResponse)

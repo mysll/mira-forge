@@ -197,6 +197,59 @@ async def create_image_to_image(
     return _to_read(generation)
 
 
+@router.post(
+    "/image-to-video", response_model=GenerationRead, status_code=status.HTTP_201_CREATED
+)
+async def create_image_to_video(
+    prompt: str = Form(..., min_length=1, max_length=8000),
+    model: str = Form(..., min_length=1, max_length=64),
+    duration_seconds: float | None = Form(None, ge=1, le=30),
+    fps: float | None = Form(None, ge=1, le=120),
+    width: int | None = Form(None, ge=64, le=4096),
+    height: int | None = Form(None, ge=64, le=4096),
+    seed: int | None = Form(None, ge=0, le=2**31 - 1),
+    files: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+) -> GenerationRead:
+    """创建一次图生视频请求（multipart）。
+
+    第一张图当首帧、第二张当尾帧，两张都可以不给（都不给就退化成文生视频）；
+    只给首帧就是「从这张图开始动」。
+    """
+    limit = get_settings().max_reference_images
+    if len(files) > limit:
+        raise HTTPException(
+            status_code=422,
+            detail=f"图生视频最多 {limit} 张图（首帧 + 尾帧），收到 {len(files)} 张",
+        )
+
+    labels = ("首帧", "尾帧")
+    paths: list[str] = []
+    for index, upload in enumerate(files):
+        content, extension = await _validated_upload(upload, labels[index])
+        try:
+            paths.append(store_upload(content, extension=extension))
+        except ImageStoreError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    payload = GenerationCreate(
+        prompt=prompt,
+        model=model,
+        generation_type="image_to_video" if paths else "text_to_video",
+        width=width,
+        height=height,
+        count=1,
+        seed=seed,
+        duration_seconds=duration_seconds,
+        fps=fps,
+    )
+    try:
+        generation = create_generation(db, payload, reference_image_paths=paths)
+    except GenerationValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _to_read(generation)
+
+
 @router.get("/{generation_id}/reference")
 def get_reference(
     generation_id: int,

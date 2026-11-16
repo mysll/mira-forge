@@ -77,3 +77,48 @@ models:
         json: workflows/qwen_image_21_turbo_i2i.json
         config: workflow_configs/qwen_image_21_turbo_i2i.yaml
         validated: true
+
+  # ---- 视频（二期）----
+  - id: minimax_h3
+    label: MiniMax H3
+    description: 音视频同出，1–15 秒 / 24fps；8 步 turbo LoRA，5 秒约 1 分钟
+    defaults:
+      # 时长用秒表达，Worker 再换算成 MiniMax 要求的帧数（5 + 17k）
+      duration_seconds: 5
+      fps: 24
+      steps: 6
+      scheduler: simple
+      sampler: res_multistep
+      width: 864
+      height: 480
+    capabilities:
+      media: video
+      exposes_steps: false
+      exposes_cfg: false
+      exposes_sampler: false
+      exposes_negative_prompt: false
+      exposes_duration: true
+      # 时长：3/5/8/10 是前端快捷档，1–15 秒可用滑块自由取；
+      # 帧数 = max(5, round(秒×24)) 再补齐到 5 + 17k（模型 length 的 step 是 17）
+      durations: [3, 5, 8, 10]
+      duration_min: 1
+      duration_max: 15
+      # 前端按「比例 × 分辨率档（480/720/1080）」自己算宽高（32 对齐），这里列常用档位给接口做参考
+      resolutions:
+        - { width: 864, height: 480, label: "16:9 480p" }
+        - { width: 1280, height: 736, label: "16:9 720p" }
+        - { width: 1920, height: 1088, label: "16:9 1080p" }
+        - { width: 480, height: 864, label: "9:16 480p" }
+        - { width: 736, height: 1280, label: "9:16 720p" }
+        - { width: 1088, height: 1920, label: "9:16 1080p" }
+    workflows:
+      - type: text_to_video
+        label: 文生视频
+        json: workflows/minimax_h3_t2v.json
+        config: workflow_configs/minimax_h3_t2v.yaml
+        validated: false
+      - type: image_to_video
+        label: 图生视频
+        json: workflows/minimax_h3_i2v.json
+        config: workflow_configs/minimax_h3_i2v.yaml
+        validated: false

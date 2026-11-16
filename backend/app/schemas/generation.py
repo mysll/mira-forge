@@ -28,6 +28,9 @@ class GenerationCreate(BaseModel):
     steps: int | None = Field(default=None, ge=1, le=100)
     cfg: float | None = Field(default=None, ge=0, le=30)
     sampler: str | None = Field(default=None, max_length=64)
+    # 视频：时长（秒）与帧率；图片任务留空
+    duration_seconds: float | None = Field(default=None, ge=1, le=30)
+    fps: float | None = Field(default=None, ge=1, le=120)
 
 
 class TaskRead(TimestampedModel):
@@ -52,6 +55,11 @@ class ImageBrief(BaseModel):
     width: int
     height: int
     file_size: int
+    # image | video
+    media_type: str = "image"
+    duration_seconds: float | None = None
+    fps: float | None = None
+    frame_count: int | None = None
     is_favorite: bool = False
     created_at: datetime
 
@@ -74,6 +82,8 @@ class GenerationRead(TimestampedModel):
     steps: int | None = None
     cfg: float | None = None
     sampler: str | None = None
+    duration_seconds: float | None = None
+    fps: float | None = None
     created_at: datetime
     completed_at: datetime | None = None
     tasks: list[TaskRead] = Field(default_factory=list)

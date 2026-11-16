@@ -68,7 +68,7 @@ const ITEMS: NavItem[] = [
   { label: "资产", href: "/gallery", icon: GalleryIcon },
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
   { label: "图片", href: "/", icon: ImageIcon, mode: "text_to_image" },
-  { label: "视频", href: "#", icon: VideoIcon, disabled: true, hint: "视频生成在二期开放" },
+  { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },
   { label: "设置", href: "/settings", icon: SettingsIcon },
 ];
 
@@ -86,6 +86,9 @@ export default function Sidebar() {
     }
     if (item.href === "/settings") {
       return pathname.startsWith("/settings");
+    }
+    if (item.href === "/video") {
+      return pathname.startsWith("/video");
     }
     return pathname === "/";
   };

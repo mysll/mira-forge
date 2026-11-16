@@ -1,0 +1,51 @@
+# MiniMax H3 图生视频（首帧 / 尾帧可选，fl2va + turbo LoRA）
+#
+# 节点 id 与 workflows/minimax_h3_i2v.json 对应（20 = 首帧 LoadImage，21 = 尾帧 LoadImage）。
+# 时长不直接暴露：Worker 把「秒」换算成 MiniMax 要求的帧数（5 + 17k），
+# 写入 length。fps 只影响 CreateVideo 的封装与播放速度。
+
+output_node: "15"          # SaveVideo
+poster_node: "17"          # SaveImage（第 0 帧，用作缩略图）
+
+bindings:
+  prompt:
+    node: "6"
+    input: prompt
+  width:
+    node: "6"
+    input: width
+  height:
+    node: "6"
+    input: height
+  length:
+    node: "6"
+    input: length
+  fps:
+    node: "14"
+    input: fps
+  seed:
+    node: "10"
+    input: noise_seed
+  steps:
+    node: "8"
+    input: steps
+  scheduler:
+    node: "8"
+    input: scheduler
+  sampler:
+    node: "9"
+    input: sampler_name
+  filename_prefix:
+    node: "15"
+    input: filename_prefix
+  poster_prefix:
+    node: "17"
+    input: filename_prefix
+
+# 首帧 / 尾帧：两张都可选。只给首帧就是「首帧起画」，什么都不给就退化成文生视频。
+frames:
+  node: "6"
+  first_input: first_frame
+  last_input: last_frame
+  first_loader: "20"
+  last_loader: "21"

@@ -158,7 +158,7 @@ Base URL：`http://127.0.0.1:8000/api/v1`
 | --- | --- | --- |
 | `prompt` | 是 | 去空白后不能为空 |
 | `model` | 是 | 注册表中的模型 id |
-| `generation_type` | 是 | `text_to_image` \| `image_edit` |
+| `generation_type` | 是 | `text_to_image` \| `image_edit` \| `text_to_video` |
 | `width` / `height` | 否 | 64–4096；缺省回落到模型 defaults。**image_edit 时它只决定像素量级**（输出比例跟随参考图），见下文编辑接口 |
 | `count` | 否 | 1–`MAX_GENERATION_COUNT`（默认 8），每张独立 task + 独立 seed |
 | `seed` | 否 | 给定则固定 seed，N 张时按 `seed, seed+1, …` 递增；缺省随机且批内不重复 |
@@ -293,6 +293,39 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
 
 工作流侧：参考图接到编码器的 `images.image_1` / `images.image_2`，潜空间来自 `EmptyLatentImage`（这点与图片编辑相反），只有 1 张参考图时第二张的 `LoadImage` 节点会被自动摘掉。
 
+### `POST /generations/image-to-video`
+
+图生视频：`multipart/form-data`，字段同上，外加 `files`（0–2 张，第一张当首帧、第二张当尾帧）。`generation_type` 固定为 `image_to_video`；**一张都不给时后端自动按 `text_to_video` 落库**（所以前端也可以直接走 `POST /generations`）。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `prompt` | 是 | 镜头描述：主体、动作、镜头运动、光线 |
+| `model` | 是 | 支持 `image_to_video` 的模型 id（当前 `minimax_h3`） |
+| `files` | 否 | 0–2 张；按顺序是首帧、尾帧；PNG / JPEG / WEBP；单张 ≤ 20 MB |
+| `duration_seconds` | 否 | 1–15 秒的整数（`capabilities.duration_min/max`）；3 / 5 / 8 / 10 是前端快捷档，缺省取模型默认 |
+| `fps` | 否 | 1–120，缺省 24 |
+| `width` / `height` | 否 | 必须是 32 的倍数；前端按「比例 × 480p/720p/1080p」算，例如 864×480、1280×736、1920×1088 |
+| `seed` | 否 | 0–2³¹−1 |
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
+  -F "prompt=the teapot slowly starts steaming, rain intensifies, gentle push in" \
+  -F "model=minimax_h3" \
+  -F "duration_seconds=5" -F "width=864" -F "height=480" \
+  -F "files=@D:/AI/MiraForge/data/probe-video-frame.png"
+```
+
+错误：
+
+```
+422 {"detail": "视频一次只能生成 1 条"}
+422 {"detail": "视频时长需要在 1–15 秒之间，收到 20"}
+422 {"detail": "视频宽度必须是 32 的倍数，收到 900"}
+422 {"detail": "图生视频最多 2 张图（首帧 + 尾帧），收到 3 张"}
+```
+
+工作流侧：首帧接 `MiniMaxH3ImageToVideo.first_frame`、尾帧接 `last_frame`；缺哪一帧，那个输入与对应的 `LoadImage` 节点都会被 `prompt_builder` 摘掉，所以「只给首帧」「两帧都不给」都是干净的图。
+
 ### `GET /generations/{id}/reference`
 
 回显该次生成用的参考图（`FileResponse`，按扩展名给 `image/png` / `image/jpeg` / `image/webp`）。查询参数 `index` 从 `0` 开始，缺省 `0`。没有参考图、文件缺失、或 `index` 越界时 `404`（例如「generation 25 只有 2 张参考图，没有第 3 张」）。
@@ -344,16 +377,19 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
 
 `file_path` 相对 `STORAGE_DIR`，因此项目目录可整体搬迁。
 
+每个 `ImageRead` 都带 `media_type`（`image` / `video`）与视频专用的 `duration_seconds` / `fps` / `frame_count`；`GenerationRead` 也带 `duration_seconds` / `fps`，所以前端不需要再单独查任务表。
+
 ### `GET /images/{id}`
 
 返回单个 `ImageRead`；不存在 `404`。
 
 ### `GET /images/{id}/file`
 
-返回原始 PNG（`image/png`，`Content-Disposition: attachment`）。可直接作为 `<img src>`：
+返回原始文件，`Content-Type` 按 `media_type` 决定：图片是 `image/png`，视频是 `video/mp4`，并带 `Accept-Ranges: bytes`（浏览器可以拖动进度条）。可直接作为 `<img src>` / `<video src>`：
 
 ```html
 <img src="http://127.0.0.1:8000/api/v1/images/6/file" />
+<video src="http://127.0.0.1:8000/api/v1/images/1/file" controls></video>
 ```
 
 文件在磁盘上缺失时返回 `404` 并说明缺失的 `file_path`。
@@ -414,6 +450,15 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-image \
 `data` 结构与 `GET /tasks/{id}` 相同；一次生成通常产生 `queued → running(多个进度) → completed` 若干条。
 前端收到事件后只做「有变化」的信号，真实数据仍走 REST（`invalidateQueries`），这样断线也不会停在错误状态；断开 2 秒后自动重连。
 
-## 二期（视频）
+## 视频
 
-一期（图片）的功能已经全部落地。视频生成与编辑是二期内容，届时会新增 `POST /videos`、视频工作流与播放器页面，不影响现有接口。
+视频不新开一套资源接口：产物仍然是 `images` 表里的一行，只是 `media_type = video`、`file_path` 指向 `.mp4`、并带 `duration_seconds` / `fps` / `frame_count`。因此 `GET /images`、收藏、批量删除、清空工作区、`/images/{id}/file` 全部照旧可用。
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /generations` | `generation_type=text_to_video`，JSON 提交 |
+| `POST /generations/image-to-video` | 首帧 / 尾帧可选，`multipart/form-data` |
+| `GET /generations/{id}` | `duration_seconds` / `fps` 直接可读 |
+| `GET /images?media_type=video` | 未实现（前端的视频页用 `model=minimax_h3` 过滤） |
+
+已知边界：视频目前一次只能 1 条（`count` 必须为 1）、参考视频（r2v）与视频编辑尚未开放。

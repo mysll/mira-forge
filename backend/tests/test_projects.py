@@ -46,7 +46,7 @@ def test_create_activates_and_starts_empty(client: TestClient) -> None:
     assert client.get(f"{API}/images").json()["total"] == 0
     assert client.get(f"{API}/models").json()["items"]
     # 工作流注册表已经同步进新库
-    assert len(client.get(f"{API}/workflows").json()["items"]) == 6
+    assert len(client.get(f"{API}/workflows").json()["items"]) == 8
 
 
 def test_projects_are_isolated(client: TestClient) -> None:

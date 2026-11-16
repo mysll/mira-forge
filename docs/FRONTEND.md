@@ -2,12 +2,13 @@
 
 一期前端只有一个目的：**让「看图 → 改图 → 再生成」这件事不离开同一个屏幕**。因此它不是表单页 + 画廊页的组合，而是一个两栏工作台：左边一条 72px 的图标导航，右边是内容区。
 
-导航只有四项：**资产 / 图片 / 视频（二期） / 设置**。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。
+导航只有四项：**资产 / 图片 / 视频 / 设置**。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。视频是独立的一页，而不是图片创作框的第三个 Tab：它的参数面（首帧 / 尾帧、时长、画幅档、音频）和图片几乎不重叠，混在一起会让那个框变成四组条件分支。
 
 | 页面 | 路径 | 做什么 |
 | --- | --- | --- |
 | 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧 |
 | 图片 | `/` | 创作：批次流的作品 + 底部悬浮创作框（默认文生图，可在框内切编辑） |
+| 视频 | `/video` | 视频工作台：只显示视频作品，底部是视频创作框（首帧 / 尾帧、时长、画幅） |
 | 设置 | `/settings` | 系统状态 |
 
 ## 布局骨架（创作页）
@@ -57,16 +58,18 @@
 | --- | --- |
 | `app/layout.tsx` | 两栏外壳 + Providers |
 | `app/page.tsx` | 创作页：筛选状态、数据拉取、批次扁平化、Toast，把五个图片操作交给 `hooks/useImageActions` |
+| `app/video/page.tsx` | 视频工作台：与创作页同构，但模型只取 `capabilities.media === "video"`、查询固定收在视频模型上、卡片宽度 340、单位用「条」 |
 | `app/gallery/page.tsx` | 资产页：把 `/generations` 里的 `images` 摊平成一个图片流，按 `image.created_at` 倒序、按日期分节、响应式网格 |
 | `app/settings/page.tsx` | 系统状态：后端版本、SQLite、ComfyUI 版本/连接/GPU、存储路径、生成上限 |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |
-| `components/Sidebar.tsx` | 图标导航（资产 `/gallery` / 图片 `/` / 视频禁用 / 设置） |
+| `components/Sidebar.tsx` | 图标导航（资产 `/gallery` / 图片 `/` / 视频 `/video` / 设置） |
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
 | `components/TopBar.tsx` | 标题与计数（`title` / `countText`）、搜索、日期、模型、仅收藏、网格/列表切换（`viewToggle={false}` 时隐藏）、右侧插槽 `actions`（管理按钮） |
 | `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多 |
-| `components/FeedCard.tsx` | 单张图的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度（批次信息在 `Feed` 的批次头里） |
-| `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器、五个操作 |
-| `components/Composer.tsx` | 底部创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
+| `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9 |
+| `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器、五个操作；视频则换成 `<video controls>` 播放器 + 时长 / 帧数，并隐藏「继续编辑」 |
+| `components/Composer.tsx` | 图片创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
+| `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点击或拖入，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、模型，`⌘/Ctrl+Enter` 提交 |
 | `components/Popover.tsx` | 参数用的小弹层（点外部 / ESC 关闭，向上弹出） |
 | `components/ToastStack.tsx` | 右下角轻提示，2.6s 自动消失 |
 | `lib/api.ts` | 所有 REST 调用、`ApiError`、`TASK_EVENTS_URL` |
@@ -152,12 +155,14 @@
 | 高级设置默认折叠 | `advancedOpen` 默认 `false` |
 | 历史来自真实后端 | `GET /generations`，无任何静态假数据 |
 | 文生图与编辑功能保留 | 两条提交路径都走真实接口 |
-| 视频仅入口 | 侧栏与创作框各有一个禁用项，标注二期 |
+| 视频入口 | 侧栏「视频」进 `/video`；视频不进图片创作框，独立创作框 |
 | 环境卡片移出首页 | `app/settings/page.tsx` |
+| 视频播放 | 详情弹窗用 `<video controls>`，缩略图当 poster；`/images/{id}/file` 返回 `video/mp4` + `Accept-Ranges` |
 
 ## 还没做的
 
-- 视频生成的任何真实逻辑（二期）。
+- 视频编辑、参考视频（r2v）、视频一次多条、首尾帧的强度控制。
+- 视频卡片没有 hover 预览（只能点开详情播放）。
 - 项目内子目录：每个项目目前只有一层平铺的批次，没有文件夹/专辑概念。
 - 资产页没有虚拟滚动（一次 60 张，靠「加载更多」），也没有多选与批量操作。
 - 参考图多张（一期编辑只接受 1 张）、图片拖拽排序、批量选择。

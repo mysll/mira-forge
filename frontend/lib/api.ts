@@ -125,6 +125,14 @@ export function createImageToImageGeneration(form: FormData): Promise<Generation
   });
 }
 
+/** 图生视频：首帧 / 尾帧都走 multipart，字段名是 files（最多 2 张，按顺序）。 */
+export function createImageToVideoGeneration(form: FormData): Promise<GenerationRead> {
+  return request<GenerationRead>("/generations/image-to-video", {
+    method: "POST",
+    body: form,
+  });
+}
+
 /** 把画廊里已有的图取回成 File，供编辑时复用，避免再让用户选一次文件。 */
 export async function imageAsFile(imageId: number): Promise<File> {
   const response = await fetch(`${API_BASE}/images/${imageId}/file`, {

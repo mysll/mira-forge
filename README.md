@@ -11,6 +11,7 @@
 - **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除；点「管理」可勾选批量删除，或清空整个工作区（危险操作，二次确认）。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），7 种比例 × 4 档长边，一次 1/2/4/6/8 张，每张独立 seed、串行执行。
 - **参考图生成（图生图）**：在「图片生成」里可选加 1–2 张参考图——有图就参考构图/材质出图，无图就是普通文生图；参考图不改变输出比例，尺寸仍按右下角的设置（实测同一句提示词，加参考图后画面构图明显跟随参考图）。
+- **视频（MiniMax H3）**：独立 `/video` 工作台（左侧栏切换）。写一句镜头描述就是文生视频；给首帧、或首帧 + 尾帧就变成图生视频（两张都不给自动退回文生视频）。尺寸按「比例 × 480p / 720p / 1080p」选，时长 3 / 5 / 8 / 10 秒快捷档或 1–15 秒滑块自定，24fps、音视频一起出；卡片带时长与播放角标，详情里直接播放。
 - **图片编辑**：上传或拖入一张参考图 + 一句修改指令（"改成夜晚"/"换成大理石雕像"），输出比例跟随参考图；也能从作品流 hover「继续编辑」把整张图当参考图带回来。
 - **作品流**：缩略图网格 / 列表两种视图，按提示词搜索、按模型与日期筛选、仅看收藏；hover 出查看大图 / 收藏 / 继续编辑 / 下载 / 删除。
 - **大图详情**：图片 + 正面/负面提示词 + 模型 + Seed + 尺寸 + 生成时间 + 步数/CFG/采样器，可复制提示词与 Seed、下载、继续编辑、重新生成。
@@ -26,7 +27,7 @@
 | 前端 | Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS 3 · TanStack Query 5 · Zustand 5 |
 | 后端 | FastAPI · Pydantic v2 · SQLAlchemy 2 · Alembic · httpx · WebSocket |
 | 存储 | 每个项目一套 SQLite（`data/projects/<id>/app.db`，WAL 模式）· 本地文件（`data/projects/<id>/storage/`） |
-| 生成 | ComfyUI HTTP API（默认 `http://127.0.0.1:8188`），Qwen Image 2.1 / Turbo |
+| 生成 | ComfyUI HTTP API（默认 `http://127.0.0.1:8188`），图片 Qwen Image 2.1 / Turbo，视频 MiniMax H3（fl2va + 8 步 turbo LoRA） |
 
 前端**永远不直连 ComfyUI**：所有生成请求由后端排队，Worker 串行提交，避免并发把 16 GB 显存打爆。
 
@@ -77,9 +78,9 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-  app/              page.tsx（创作页）/ gallery（资产库）/ settings（系统状态）
+  app/              page.tsx（创作页）/ video（视频工作台）/ gallery（资产库）/ settings（系统状态）
   components/       Sidebar · TopBar · ProjectSwitcher · Feed · FeedCard · ImageDetail
-                    · Composer · Popover · ConfirmDialog · ToastStack
+                    · Composer · VideoComposer · Popover · ConfirmDialog · ToastStack
   hooks/            useImageActions（收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用）
   stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）
   lib/              api · size（比例与分辨率）· date（日期分组与筛选）
@@ -110,7 +111,8 @@ docs/               架构、API、工作流映射、开发说明
 | P6 | 取消、重试、崩溃恢复、WebSocket 实时刷新 | ✅ 完成 |
 | P7 | 前端重构为两栏创作工作台（作品流 / 创作框 / 详情弹窗 / 设置页），后端补生成参数落库、收藏与筛选 | ✅ 完成 |
 | P8 | 参考图生成（图生图）：1–2 张参考图只参考构图、尺寸仍生效，独立工作流与绑定配置 | ✅ 完成 |
+| P9 | 视频二期（MiniMax H3）：文生视频 / 图生视频（首帧 + 尾帧），独立 `/video` 工作台、音视频同出、封面帧与播放 | ✅ 完成 |
 
-> 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）到此完成；二期是视频生成与编辑。
-> `POST /generations` 返回 `pending` 后由 Worker 接手，约 3–12 秒后图片出现在 `storage/images/`，可通过 `GET /api/v1/images/{id}/file` 访问。
-> 界面在 `http://127.0.0.1:3000`（`/` 创作、`/gallery` 资产库、`/settings` 系统状态）。
+> 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）与视频的生成（二期第一批）都已跑通；视频编辑、参考视频等留待后续。
+> `POST /generations` 返回 `pending` 后由 Worker 接手：图片约 3–12 秒、5 秒视频约 40–60 秒出现在 `storage/images/`（视频是 `.mp4`），可通过 `GET /api/v1/images/{id}/file` 访问。
+> 界面在 `http://127.0.0.1:3000`（`/` 图片创作、`/video` 视频、`/gallery` 资产库、`/settings` 系统状态）。

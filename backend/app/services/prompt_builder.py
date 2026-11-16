@@ -71,6 +71,7 @@ def build_prompt(
     config: WorkflowConfig,
     params: dict[str, Any],
     reference_images: Sequence[str] | None = None,
+    frames: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """返回可直接 POST /prompt 的图（不改动传入的 graph）。"""
     prompt = copy.deepcopy(graph)
@@ -93,7 +94,44 @@ def build_prompt(
     if config.reference_image is not None:
         _attach_references(prompt, config, list(reference_images or []))
 
+    if config.frames is not None:
+        _attach_frames(prompt, config, frames or {})
+
     return prompt
+
+
+def _attach_frames(
+    prompt: dict[str, Any], config: WorkflowConfig, frames: dict[str, str]
+) -> None:
+    """视频的首帧 / 尾帧：给了就接上，没给就把那个 LoadImage 摘掉。
+
+    与参考图不同，这里允许两张都不给（纯文生视频），所以不抛"缺少参考图"。
+    """
+    binding = config.frames
+    assert binding is not None
+    node = _node(prompt, binding.node, "首尾帧节点")
+    inputs = node.setdefault("inputs", {})
+
+    for which in ("first", "last"):
+        image = frames.get(which)
+        loader_id = binding.loader_for(which)
+        input_name = binding.input_for(which)
+        if image is None:
+            # 没给这一帧：断开并摘掉对应的 LoadImage，免得 ComfyUI 去读占位图
+            inputs.pop(input_name, None)
+            if loader_id is not None:
+                _detach(prompt, loader_id)
+            continue
+        if loader_id is None:
+            raise WorkflowConfigError(f"工作流没有配置{'首' if which == 'first' else '尾'}帧的 LoadImage 节点")
+        if input_name not in inputs:
+            raise WorkflowConfigError(
+                f"首尾帧节点 {binding.node} 没有输入 {input_name}"
+                "（可用：" + ", ".join(sorted(inputs)) + "）"
+            )
+        loader = _node(prompt, loader_id, f"{'首' if which == 'first' else '尾'}帧节点")
+        loader.setdefault("inputs", {})["image"] = image
+        inputs[input_name] = [loader_id, 0]
 
 
 def _attach_references(

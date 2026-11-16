@@ -1,4 +1,4 @@
-"""生成产物图片的响应模型。"""
+"""生成产物（图片 / 视频）的响应模型。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,11 @@ class ImageRead(OrmModel):
     width: int
     height: int
     file_size: int
+    # image | video：视频多出时长、帧率、帧数与封面图（thumbnail_path）
+    media_type: str = "image"
+    duration_seconds: float | None = None
+    fps: float | None = None
+    frame_count: int | None = None
     is_favorite: bool = False
     created_at: datetime
 

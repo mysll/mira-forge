@@ -44,13 +44,30 @@ IDLE_SLEEP_SECONDS = 1.0
 
 @dataclass
 class _Plan:
-    """一张图要提交的东西：图本身 + 参考图（编辑 / 图生图时才有，可多张）。"""
+    """一条任务要提交的东西：图本身 + 参考图（编辑 / 图生图时才有，可多张）。
+
+    视频还多两样：首帧 / 尾帧（各自可选）和 is_video 标记。
+    """
 
     generation_id: int
     graph: dict[str, Any]
     config: WorkflowConfig
     params: dict[str, Any]
     reference_paths: list[str] = field(default_factory=list)
+    frames: dict[str, str] = field(default_factory=dict)
+    is_video: bool = False
+
+
+def _video_length(duration_seconds: float | None, fps: float | None) -> int:
+    """秒 → MiniMax 要求的帧数。
+
+    length 在节点上是 min=5 / max=3600 / step=17，且必须是 5 + 17k；
+    官方模板也是这么算的：先按 fps 算帧数，再补到最近的 5 + 17k。
+    """
+    seconds = float(duration_seconds or 5.0)
+    rate = float(fps or 24.0)
+    frames = max(5, round(seconds * rate))
+    return frames + (5 - frames % 17) % 17
 
 
 def _edit_resolution(width: int | None, height: int | None) -> int:
@@ -192,9 +209,30 @@ class GenerationWorker:
                 return
             reference_names.append(name)
 
+        frame_names: dict[str, str] = {}
+        for which, frame_path in plan.frames.items():
+            label = "首帧" if which == "first" else "尾帧"
+            try:
+                content = read_storage_file(frame_path, storage_root)
+                info = await self.client.upload_image(
+                    content, f"miraforge_frame_{task_id}_{which}{_suffix(frame_path)}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._fail(project, task_id, f"上传{label}失败：{exc}")
+                return
+            name = info.get("name") or info.get("filename")
+            if not name:
+                self._fail(project, task_id, f"ComfyUI 未返回{label}文件名：{info}")
+                return
+            frame_names[which] = name
+
         try:
             prompt = build_prompt(
-                plan.graph, plan.config, plan.params, reference_images=reference_names
+                plan.graph,
+                plan.config,
+                plan.params,
+                reference_images=reference_names,
+                frames=frame_names,
             )
         except PromptBuildError as exc:
             self._fail(project, task_id, str(exc))
@@ -229,6 +267,8 @@ class GenerationWorker:
             self._fail(project, task_id, self._describe_execution_error(history))
             return
 
+        poster = await self._download_poster(plan, outputs, task_id)
+
         saved = 0
         for index, entry in enumerate(entries):
             try:
@@ -241,6 +281,7 @@ class GenerationWorker:
                 self._fail(project, task_id, f"下载产物失败：{exc}")
                 return
             metadata = entry.get("metadata") or {}
+            suffix = os.path.splitext(entry.get("filename", ""))[1].lower() or ".png"
             try:
                 with session_for(project) as db:
                     store_image(
@@ -251,7 +292,13 @@ class GenerationWorker:
                         index=index,
                         width=metadata.get("width"),
                         height=metadata.get("height"),
+                        extension="mp4" if plan.is_video else suffix.lstrip("."),
                         storage_root=storage_root,
+                        media_type="video" if plan.is_video else "image",
+                        duration_seconds=metadata.get("duration") if plan.is_video else None,
+                        fps=metadata.get("fps") if plan.is_video else None,
+                        frame_count=metadata.get("frame_count") if plan.is_video else None,
+                        poster=poster if plan.is_video else None,
                     )
                     db.commit()
             except (ImageStoreError, OSError) as exc:
@@ -270,6 +317,27 @@ class GenerationWorker:
         self._sync_generation_status(project, generation_id)
         await self._broadcast_task(project, task_id)
         logger.info("任务 %s（项目 %s）完成，产物 %s 张", task_id, project.id, saved)
+
+    async def _download_poster(
+        self, plan: _Plan, outputs: dict[str, Any], task_id: int
+    ) -> bytes | None:
+        """视频工作流额外存了一张第 0 帧 PNG，拿它当封面；失败只是没封面。"""
+        node = plan.config.poster_node
+        if not plan.is_video or not node:
+            return None
+        entries = (outputs.get(node) or {}).get("images") or []
+        if not entries:
+            return None
+        entry = entries[0]
+        try:
+            return await self.client.download(
+                entry.get("filename", ""),
+                entry.get("subfolder", ""),
+                entry.get("type", "output"),
+            )
+        except Exception:  # noqa: BLE001 - 封面缺失不该让任务失败
+            logger.warning("任务 %s 的封面帧下载失败", task_id, exc_info=True)
+            return None
 
     def _build_plan(self, project: Project, task_id: int) -> _Plan | None:
         """组装可直接提交的 API 图；配置有问题就在这一步判失败。"""
@@ -308,6 +376,13 @@ class GenerationWorker:
                 if key in model.defaults:
                     params[key] = model.defaults[key]
 
+            is_video = GenerationType(generation.generation_type).is_video
+            if is_video:
+                params["fps"] = float(generation.fps or model.defaults.get("fps") or 24)
+                params["length"] = _video_length(
+                    generation.duration_seconds, params["fps"]
+                )
+
             # 用户显式给的参数覆盖默认值；绑定表里没有的键会被 prompt_builder 跳过，
             # 所以 turbo 这类不暴露 steps 的模型多传也不会出错。
             for key in ("steps", "cfg", "sampler"):
@@ -316,7 +391,15 @@ class GenerationWorker:
                     params[key] = value
 
             reference_paths: list[str] = []
-            if generation.generation_type in (
+            frames: dict[str, str] = {}
+            if generation.generation_type == GenerationType.IMAGE_TO_VIDEO:
+                # 首帧 / 尾帧按上传顺序：第一张当首帧，第二张当尾帧；只给一张就是首帧
+                paths = decode_reference_paths(
+                    generation.reference_image_paths, generation.reference_image_path
+                )
+                for which, path in zip(("first", "last"), paths):
+                    frames[which] = path
+            elif generation.generation_type in (
                 GenerationType.IMAGE_EDIT,
                 GenerationType.IMAGE_TO_IMAGE,
             ):
@@ -342,6 +425,8 @@ class GenerationWorker:
                 config=config,
                 params=params,
                 reference_paths=reference_paths,
+                frames=frames,
+                is_video=is_video,
             )
 
     async def _wait_for_history(

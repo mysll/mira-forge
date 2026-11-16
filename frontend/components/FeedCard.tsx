@@ -138,6 +138,28 @@ function ActionBar({
   );
 }
 
+// 视频产物用封面帧当缩略图，时长直接标在角上（不需要读视频元数据）
+function lengthLabel(image: ImageBrief): string | null {
+  if (image.media_type !== "video" || !image.duration_seconds) {
+    return null;
+  }
+  return `${image.duration_seconds.toFixed(1)} 秒`;
+}
+
+function PlayBadge({ small = false }: { small?: boolean }) {
+  return (
+    <span
+      className={`flex items-center justify-center rounded-full bg-black/55 text-white backdrop-blur ${
+        small ? "h-6 w-6" : "h-9 w-9"
+      }`}
+    >
+      <svg width={small ? 10 : 13} height={small ? 10 : 13} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </span>
+  );
+}
+
 function toneOf(status: string): string {
   if (status === "running") {
     return "text-accentSoft";
@@ -178,9 +200,17 @@ function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) 
     );
   }
 
+  const isVideo =
+    generation.generation_type === "text_to_video" || generation.generation_type === "image_to_video";
+  const unit = isVideo ? "条" : "张";
+
   return (
     <div className="relative flex flex-col overflow-hidden rounded-xl border border-dashed border-edge/70 bg-surface/30">
-      <div className="relative flex aspect-square flex-col items-center justify-center gap-2 text-[11px]">
+      <div
+        className={`relative flex flex-col items-center justify-center gap-2 text-[11px] ${
+          isVideo ? "aspect-video" : "aspect-square"
+        }`}
+      >
         {running ? <Spinner className="h-5 w-5" /> : <span className="h-5 w-5 rounded-full border border-dashed border-muted/30" />}
         <span className={tone}>{running ? `${label} ${progress}%` : label}</span>
         {failed && reason ? (
@@ -194,7 +224,7 @@ function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) 
       </div>
 
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-        <span className="truncate text-[11px] text-muted/60">第 {index} / {total} 张</span>
+        <span className="truncate text-[11px] text-muted/60">第 {index} / {total} {unit}</span>
         <span className={`shrink-0 text-[10px] ${tone}`}>{label}</span>
       </div>
     </div>
@@ -227,6 +257,11 @@ export default function FeedCard(props: Props) {
         <div className="relative h-[54px] w-[54px] shrink-0 overflow-hidden rounded-lg border border-edge/70 bg-surface2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageThumbnailUrl(image)} alt={generation.prompt} loading="lazy" className="h-full w-full object-cover" />
+          {image.media_type === "video" ? (
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <PlayBadge small />
+            </span>
+          ) : null}
           {active ? (
             <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" style={{ width: `${progress}%` }} />
           ) : null}
@@ -238,6 +273,7 @@ export default function FeedCard(props: Props) {
           </p>
           <p className="mt-0.5 truncate text-[11px] text-muted">
             {image.width}×{image.height} · {formatBytes(image.file_size)} · {formatTime(image.created_at)}
+            {lengthLabel(image) ? ` · ${lengthLabel(image)}` : ""}
           </p>
         </div>
 
@@ -292,7 +328,7 @@ export default function FeedCard(props: Props) {
       onKeyDown={(event) => event.key === "Enter" && props.onOpen(filled)}
       className="group relative cursor-pointer overflow-hidden rounded-xl border border-edge/60 bg-surface2 transition hover:border-accent/40 hover:shadow-pop"
     >
-      <div className="relative aspect-square overflow-hidden">
+      <div className={`relative overflow-hidden ${image.media_type === "video" ? "aspect-video" : "aspect-square"}`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageThumbnailUrl(image)}
@@ -308,6 +344,17 @@ export default function FeedCard(props: Props) {
             </span>
           ) : null}
         </div>
+
+        {image.media_type === "video" ? (
+          <>
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <PlayBadge />
+            </div>
+            <span className="pointer-events-none absolute right-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur">
+              {lengthLabel(image) ?? "视频"}
+            </span>
+          </>
+        ) : null}
 
         {active ? (
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
@@ -331,7 +378,12 @@ export default function FeedCard(props: Props) {
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <span className="truncate text-[11px] text-muted">
           {image.width}×{image.height}
-          {generation.reference_images?.length ? (
+          {image.media_type === "video" ? (
+            <span className="ml-1.5 rounded bg-white/10 px-1 py-px text-[10px] text-ink/80">
+              {image.fps ? `${Math.round(image.fps)}fps` : "视频"}
+            </span>
+          ) : null}
+          {generation.reference_images?.length && image.media_type !== "video" ? (
             <span
               className="ml-1.5 rounded bg-accent/15 px-1 py-px text-[10px] text-accentSoft"
               title={`使用了 ${generation.reference_images.length} 张参考图`}

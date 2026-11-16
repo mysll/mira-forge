@@ -186,4 +186,16 @@ P6：任务取消（含 `POST /interrupt`）、任务重试（同记录下追加
 
 P7：前端重构为两栏工作台（作品流 / 底部创作框 / 详情弹窗 / 设置页）；后端相应增补——`generations` 增加 `negative_prompt / steps / cfg / sampler`（迁移 `0003`）、`images` 增加 `is_favorite`、`GET /generations` 支持 `q / model / favorite / date_from / date_to` 且直接返回批次内图片、`POST /images/{id}/favorite`、`/health` 暴露 `storage_path` 与 `max_generation_count`。
 
-二期（视频）不在当前代码范围内。
+P8：多项目（一个项目一个文件夹，`engine_for` / `session_for` 按项目取引擎）、参考图生成（`image_to_image`，1–2 张参考图，迁移 `0004`）、资产库与批量删除 / 清空工作区。
+
+P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类型、`images` 表扩成「产物表」（`media_type` / `duration_seconds` / `fps` / `frame_count`，迁移 `0005`）、首帧 / 尾帧可选（都不给即退化为文生视频）、`/video` 工作台、`<video>` 播放与海报帧。
+
+## 视频：为什么复用同一张 `images` 表
+
+视频产物和图片产物在业务上是同一种东西——「某次生成的一张产出」，都要进作品流、收藏、删除、详情。差别只在文件类型与几个元信息，所以 `images` 加了 `media_type`（`image` / `video`）和 `duration_seconds` / `fps` / `frame_count`，而不是新开一张 `videos` 表（那会让作品流、收藏、清空工作区全部出现两条代码路径）。
+
+`GET /images/{id}/file` 按 `media_type` 决定 `Content-Type`（`image/png` / `video/mp4`）并加 `Accept-Ranges`，因为浏览器播放视频要先发 Range 请求。缩略图对视频来说就是**海报帧**：Worker 用 `ImageFromBatch` 抽第 0 帧，Pillow 压成 `thumbnails/{generation_id}/{id}.jpg`，列表与 hover 都用它；`ensure_thumbnail` 遇到没有海报的视频会直接报错，而不是拿 Pillow 去解 mp4。
+
+视频只有一条产物：`count` 必须是 1（一次请求一条），所以 Worker 的「每任务一张图」逻辑不需要改，只是扩展名变成 `.mp4`、落盘时多写几个 metadata 字段。
+
+二期（视频）已落地；参考视频（r2v）与视频编辑仍不在范围内。

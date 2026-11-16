@@ -53,10 +53,33 @@ class ReferenceImageBinding(BaseModel):
         return []
 
 
+class FrameBinding(BaseModel):
+    """视频的首帧 / 尾帧：两个 LoadImage 分别接到同一个节点的两个固定输入。
+
+    与 reference_image 的区别是这里不按序号顺延——首帧和尾帧语义不同，
+    而且两张都可以缺席（都缺席就退化成文生视频）。
+    """
+
+    node: str
+    first_input: str = "first_frame"
+    last_input: str = "last_frame"
+    first_loader: str | None = None
+    last_loader: str | None = None
+
+    def loader_for(self, which: str) -> str | None:
+        return self.first_loader if which == "first" else self.last_loader
+
+    def input_for(self, which: str) -> str:
+        return self.first_input if which == "first" else self.last_input
+
+
 class WorkflowConfig(BaseModel):
     output_node: str
+    # 视频工作流额外产出一张封面图（第 0 帧），用来做缩略图
+    poster_node: str | None = None
     bindings: dict[str, ParamBinding] = Field(default_factory=dict)
     reference_image: ReferenceImageBinding | None = None
+    frames: FrameBinding | None = None
 
 
 def resolve_workflow_path(relative: str) -> Path:

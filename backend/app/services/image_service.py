@@ -88,8 +88,17 @@ def store_image(
     height: int | None = None,
     extension: str = "png",
     storage_root: Path | None = None,
+    media_type: str = "image",
+    duration_seconds: float | None = None,
+    fps: float | None = None,
+    frame_count: int | None = None,
+    poster: bytes | None = None,
 ) -> Image:
-    """写入 storage/images/{generation_id}/{task_id}_{index}.png 并登记 images 行。"""
+    """写入 storage/images/{generation_id}/{task_id}_{index}.{ext} 并登记产物行。
+
+    视频时 extension="mp4"、宽高与时长从 ComfyUI 的 metadata 传进来，
+    poster 是封面帧 PNG —— 直接压成缩略图，作品流里用封面代替视频本身。
+    """
     root = storage_root_for(storage_root)
     relative = Path("images") / str(generation_id) / f"{task_id}_{index}.{extension}"
     absolute = root / relative
@@ -102,7 +111,7 @@ def store_image(
     if width is None or height is None:
         detected = png_dimensions(content)
         if detected is None:
-            raise ImageStoreError("无法确定图片尺寸，且未提供宽高")
+            raise ImageStoreError("无法确定产物尺寸，且未提供宽高")
         width, height = detected
 
     image = Image(
@@ -114,9 +123,31 @@ def store_image(
         width=width,
         height=height,
         file_size=len(content),
+        media_type=media_type,
+        duration_seconds=duration_seconds,
+        fps=fps,
+        frame_count=frame_count,
     )
     db.add(image)
     db.flush()
+
+    if poster:
+        relative_thumb = thumbnail_relative(image)
+        target = root / relative_thumb
+        try:
+            from PIL import Image as PillowImage
+            import io
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with PillowImage.open(io.BytesIO(poster)) as opened:
+                frame = opened.convert("RGB")
+                frame.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+                frame.save(target, format="JPEG", quality=THUMBNAIL_QUALITY, optimize=True)
+        except Exception as exc:  # noqa: BLE001 - 封面坏了不该让整条任务失败
+            raise ImageStoreError(f"保存视频封面失败：{target}（{exc}）") from exc
+        image.thumbnail_path = relative_thumb.as_posix()
+        db.flush()
+
     return image
 
 
@@ -146,9 +177,13 @@ def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None
         if cached.is_file():
             return cached
 
+    if image.media_type == "video":
+        # 视频没法用 Pillow 解码；worker 落库时已经用封面帧生成缩略图了
+        raise ImageStoreError(f"视频产物缺少封面帧：{image.file_path}")
+
     source = absolute_path(image, storage_root)
     if not source.is_file():
-        raise ImageStoreError(f"图片文件缺失：{image.file_path}")
+        raise ImageStoreError(f"产物文件缺失：{image.file_path}")
 
     relative = thumbnail_relative(image)
     target = root / relative

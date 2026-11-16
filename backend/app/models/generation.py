@@ -31,6 +31,13 @@ class GenerationType(StrEnum):
     # 参考图引导：参考图只进条件，潜空间仍按 width/height 新开一张
     IMAGE_TO_IMAGE = "image_to_image"
     IMAGE_EDIT = "image_edit"
+    # 视频（二期）：首帧 / 尾帧都可选，两张都不给就是纯文生视频
+    TEXT_TO_VIDEO = "text_to_video"
+    IMAGE_TO_VIDEO = "image_to_video"
+
+    @property
+    def is_video(self) -> bool:
+        return self in (GenerationType.TEXT_TO_VIDEO, GenerationType.IMAGE_TO_VIDEO)
 
 
 class Generation(Base):
@@ -54,6 +61,9 @@ class Generation(Base):
     steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cfg: Mapped[float | None] = mapped_column(Float, nullable=True)
     sampler: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 视频用的时长（秒）与帧率；图片任务为 None
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fps: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=GenerationStatus.PENDING, index=True
     )

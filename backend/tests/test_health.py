@@ -39,7 +39,7 @@ def test_models_catalog_is_data_driven(client: TestClient) -> None:
     assert response.status_code == 200
     items = response.json()["items"]
     ids = {item["id"] for item in items}
-    assert {"qwen_image_21", "qwen_image_21_turbo"} <= ids
+    assert {"qwen_image_21", "qwen_image_21_turbo", "minimax_h3"} <= ids
 
     turbo = next(item for item in items if item["id"] == "qwen_image_21_turbo")
     standard = next(item for item in items if item["id"] == "qwen_image_21")
@@ -48,11 +48,29 @@ def test_models_catalog_is_data_driven(client: TestClient) -> None:
     assert standard["capabilities"]["exposes_steps"] is True
     assert turbo["defaults"]["steps"] == 8
 
+    image_types = {"text_to_image", "image_to_image", "image_edit"}
     for item in items:
         types = {workflow["type"] for workflow in item["workflows"]}
-        assert types == {"text_to_image", "image_to_image", "image_edit"}
+        if item["capabilities"]["media"] == "video":
+            assert types == {"text_to_video", "image_to_video"}
+            assert item["capabilities"]["exposes_duration"] is True
+        else:
+            assert types == image_types
         for workflow in item["workflows"]:
             assert isinstance(workflow["available"], bool)
+
+    video = next(item for item in items if item["id"] == "minimax_h3")
+    assert video["capabilities"]["durations"] == [3.0, 5.0, 8.0, 10.0]
+    assert video["capabilities"]["duration_min"] == 1
+    assert video["capabilities"]["duration_max"] == 15
+    assert {item["width"] for item in video["capabilities"]["resolutions"]} == {
+        864,
+        1280,
+        1920,
+        480,
+        736,
+        1088,
+    }
 
 
 def test_single_model_lookup(client: TestClient) -> None:
@@ -64,7 +82,14 @@ def test_workflows_table_synced_from_registry(client: TestClient) -> None:
     response = client.get("/api/v1/workflows")
     assert response.status_code == 200
     rows = response.json()["items"]
-    assert len(rows) == 6  # 2 个模型 × 3 种任务类型
-    assert {row["type"] for row in rows} == {"text_to_image", "image_to_image", "image_edit"}
+    # 2 个图片模型 × 3 种任务 + 1 个视频模型 × 2 种任务 = 8 个目标工作流
+    assert len(rows) == 8
+    assert {row["type"] for row in rows} == {
+        "text_to_image",
+        "image_to_image",
+        "image_edit",
+        "text_to_video",
+        "image_to_video",
+    }
     # P1 阶段工作流 JSON 尚未落地，enabled 必须如实为 False
     assert all(row["json_path"].endswith(".json") for row in rows)

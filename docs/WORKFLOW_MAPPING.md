@@ -46,6 +46,51 @@ UI 模板是 subgraph 结构，**不能直接提交给 `/prompt`**；必须展�
 
 四张图都已通过 MiraForge 的 `POST /prompt` 真实跑通，注册表里 `validated: true`。编辑链路的参考图由 Worker 先 `POST /upload/image` 送进 ComfyUI 的 `input/`，再写进 `LoadImage.image`。
 
+## 两个视频目标工作流（MiniMax H3）
+
+| 注册表条目 | 文件 | 采样方式 | 状态 |
+| --- | --- | --- | --- |
+| `minimax_h3` / text_to_video | `backend/workflows/minimax_h3_t2v.json` | SamplerCustomAdvanced + BasicScheduler(simple, 6 步) | ✅ 真实出片（3 秒 73 帧约 40 s；5 秒 124 帧 1280×736 约 1 min） |
+| `minimax_h3` / image_to_video | `backend/workflows/minimax_h3_i2v.json` | 同上 | ✅ 真实出片（3 秒、5 秒；只给首帧 / 首帧 + 尾帧都验过） |
+
+两套图结构相同，唯一的差别是 i2v 多了 `LoadImage` → `MiniMaxH3ImageToVideo.first_frame / last_frame`。首帧、尾帧都是**可选输入**：缺哪一帧，`prompt_builder` 会把那个输入和对应的 `LoadImage` 节点一起摘掉（两帧都缺时就是纯文生视频），所以不需要为「只给首帧」再准备第三套图。
+
+### 视频链路
+
+```
+UNETLoader(minimax_h3_fl2va_pruned_int8_convrot)
+  └─► LoraLoaderModelOnly(minimax_h3_fl2v_turbo_8step_v1.0, strength 1.0) ─┐
+CLIPLoader(qwen3vl_32b_minimax_h3_nvfp4_awq, type=minimax) ────────────────┤
+VAELoader(minimax_h3_video_vae_int8_convrot) ─┐                            │
+VAELoader(minimax_h3_audio_vae_fp32) ─────────┼──► MiniMaxH3ImageToVideo ──┤
+LoadImage(首帧, 可选) ────────────────────────┤   (prompt/width/height/length)
+LoadImage(尾帧, 可选) ────────────────────────┘        ├─ positive ─► BasicGuider
+                                                       └─ LATENT ───► SamplerCustomAdvanced
+                                                                          ├─► VAEDecode ─► CreateVideo(fps, audio) ─► SaveVideo(.mp4)
+                                                                          └─► VAEDecodeAudio ─┘
+VAEDecode ─► ImageFromBatch(batch_index 0, length 1) ─► SaveImage(封面帧)
+```
+
+- 采样：`RandomNoise` + `BasicGuider(cfg 1.0)` + `KSamplerSelect(res_multistep)` + `BasicScheduler(simple, steps 6, denoise 1.0)`，6 步是 turbo LoRA 的档位。
+- **帧数由时长算**，不是自由填：`frames = max(5, round(seconds × fps))`，再补到 `5 + 17k`（模型 `length` 的 step 是 17）。5 秒 24fps → 120 → 124 帧（5.17 s）；3 秒 → 73 帧；1–15 秒任意整数都落在 `5 + 17k` 上。
+- **尺寸按「比例 × 档位」算**：前端给 480p / 720p / 1080p 三档，宽高都对齐到 32（如 864×480、1280×736、1920×1088），因为模型的 `width` / `height` step 是 32，1280×720 这种「标准 720p」反而会被拒。
+- 声音与画面一起出：`VAEDecodeAudio` 的音频接到 `CreateVideo.audio`，再由 `SaveVideo` 封装成 mp4。
+- 封面帧：`ImageFromBatch` 取第 0 帧存成 png，Worker 把它下载下来压成缩略图（视频本身没法用 Pillow 解码），列表里因此有海报图。
+
+### 实测结果（RTX 5070 Ti 16 GB）
+
+| 任务 | 时长 / 帧数 | 分辨率 | 实测耗时 | 峰值显存 |
+| --- | --- | --- | --- | --- |
+| text_to_video（6 步） | 5 s / 124 帧 | 864×480 | 109 s（首次冷启） | 15.33 GB |
+| text_to_video（6 步） | 3 s / 73 帧 | 864×480 | 40 s（模型常驻后） | ~15 GB |
+| text_to_video（6 步） | 5 s / 124 帧 | 1280×736 | 161 s | ~15 GB |
+| image_to_video（首帧） | 3 s / 73 帧 | 864×480 | 30 s | ~15 GB |
+| image_to_video（首帧 + 尾帧） | 3 s / 73 帧 | 864×480 | 35 s | ~15 GB |
+
+720p 的耗时大约是 480p 的 4 倍（像素 2.4 倍 + 注意力随长度平方增长），1080p × 10 秒以上在 16GB 卡上不保证能出——前端在估算偏重时会提示一句，但不拦着（真跑挂了任务会 `failed` 并带 ComfyUI 的报错）。
+
+产物走 `GET /history/{prompt_id}`：`outputs[node]["images"][0]` 的 `metadata` 直接给出 `width` / `height` / `duration` / `fps` / `frame_count`，`animated: true`；扩展名是 `.mp4`。
+
 ### 文生图链路
 
 ```
@@ -203,9 +248,11 @@ bindings:
 5. 编辑图四张全部经 `POST /prompt` 真实执行；`images.image_1` 键名、`latent_image=[6,2]`、`resolution` 换算均正确。
 6. 批量 8 张串行、中途取消 / 重试、后端强杀后重启续跑均未出现显存问题。
 7. 图生图的 `EmptyLatentImage` 潜空间 + `images.image_1/image_2` 双槽位：1 张与 2 张参考图都真实出图；只给 1 张时多余的 `LoadImage` 节点被摘掉，ComfyUI 未报「找不到 placeholder.png」。
+8. 视频：`length` 必须落在 `5 + 17k`；t2v、只给首帧、首帧 + 尾帧三种输入都真实出片；`SaveVideo` 的产出是 mp4 且 `metadata.kind == "video"`；封面帧靠 `ImageFromBatch` 单独存一张 png。
 
 仍待观察：
 
+0. 视频的峰值显存 15.33 GB 已经贴着 16 GB 上限：如果同时还有图片任务排队，Worker 的串行调度要保证不会两个大模型同时驻留（当前靠单协程串行，实测未出问题）。
 1. PE 支路（9 GB 编码器）在 16 GB 显存下的可行性——一期不启用。
 2. 16 GB 卡上同时跑编辑 + 大批量的极端情况（目前实测最多 8 张串行）。
 
@@ -220,6 +267,8 @@ bindings:
 - 待一期跑通后再决定是否作为可选项暴露给前端。
 
 ## 新增一个模型需要做什么
+
+视频模型与图片模型的流程一致，但多三件事：`capabilities.media: video`（前端据此把它的创作页放到 `/video`）、`durations` / `resolutions` 两个档位表（校验与下拉都读它）、以及绑定里的 `poster_node`（封面帧输出节点）。
 
 1. 在 ComfyUI 里把工作流导出成 **API 格式**（不是 UI 格式），得到扁平的节点字典。
 2. 放进 `backend/workflows/<name>.json`，节点 id 可以随意，但要在 YAML 里引用。
