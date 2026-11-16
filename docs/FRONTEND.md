@@ -70,8 +70,8 @@
 | `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器、五个操作；视频则换成 `<video controls>` 播放器 + 时长 / 帧数，并隐藏「继续编辑」 |
 | `components/CountMenu.tsx` | 数量菜单（一列数字 + 选中勾），图片 1–8 张与视频 1–4 条共用 |
 | `components/Composer.tsx` | 图片创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
-| `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点击从资产挑或上传本机图片，也可拖入，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、数量（1–4 条，默认 1）、模型，`⌘/Ctrl+Enter` 提交 |
-| `components/ImagePicker.tsx` | 资产挑图弹层：读 `/images`（自动滤掉视频）列最近 60 张，点一张就返回；底部还有「从本机上传」出口。用 portal 挂到 `body`，否则会被创作框的 `backdrop-filter` 当成包含块、弹层跑偏 |
+| `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点格子先弹两项小菜单——「从本机上传」/「从资产选」，也可拖入文件，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、数量（1–4 条，默认 1）、模型，`⌘/Ctrl+Enter` 提交 |
+| `components/ImagePicker.tsx` | 资产挑图弹层：读 `/images`（自动滤掉视频）列最近 60 张，点一张就返回；底部还有「从本机上传」出口。**只有用户选了「从资产选」才挂载并发请求**（`useQuery({ enabled: open })`），开菜单本身不发请求。用 portal 挂到 `body`，否则会被创作框的 `backdrop-filter` 当成包含块、弹层跑偏 |
 | `components/Popover.tsx` | 参数用的小弹层（点外部 / ESC 关闭，向上弹出） |
 | `components/ToastStack.tsx` | 右下角轻提示，2.6s 自动消失 |
 | `lib/api.ts` | 所有 REST 调用、`ApiError`、`TASK_EVENTS_URL` |

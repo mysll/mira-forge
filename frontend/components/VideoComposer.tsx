@@ -44,6 +44,7 @@ export default function VideoComposer({
   const [first, setFirst] = useState<FrameSource | null>(null);
   const [last, setLast] = useState<FrameSource | null>(null);
   const [picking, setPicking] = useState<"first" | "last" | null>(null);
+  const [menu, setMenu] = useState<"first" | "last" | null>(null);
   const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const firstInput = useRef<HTMLInputElement>(null);
@@ -208,6 +209,30 @@ export default function VideoComposer({
     }
   };
 
+  // 点开的是小菜单，不是挑图面板——资产列表只在真的选「从资产」时才拉
+  useEffect(() => {
+    if (!menu) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-frame-slot]")) {
+        setMenu(null);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
   const disabled = !prompt.trim() || !model || submit.isPending;
 
   const go = () => {
@@ -246,14 +271,32 @@ export default function VideoComposer({
           <FrameSlot
             label="首帧"
             source={first}
-            onPick={() => setPicking("first")}
+            open={menu === "first"}
+            onPick={() => setMenu(menu === "first" ? null : "first")}
             onClear={() => setFirst(null)}
+            onUpload={() => {
+              setMenu(null);
+              firstInput.current?.click();
+            }}
+            onPickAsset={() => {
+              setMenu(null);
+              setPicking("first");
+            }}
           />
           <FrameSlot
             label="尾帧"
             source={last}
-            onPick={() => setPicking("last")}
+            open={menu === "last"}
+            onPick={() => setMenu(menu === "last" ? null : "last")}
             onClear={() => setLast(null)}
+            onUpload={() => {
+              setMenu(null);
+              lastInput.current?.click();
+            }}
+            onPickAsset={() => {
+              setMenu(null);
+              setPicking("last");
+            }}
           />
           <p className="text-[11px] leading-snug text-muted">
             {first || last
@@ -518,13 +561,19 @@ async function frameAsFile(source: FrameSource): Promise<File> {
 function FrameSlot({
   label,
   source,
+  open,
   onPick,
   onClear,
+  onUpload,
+  onPickAsset,
 }: {
   label: string;
   source: FrameSource | null;
+  open: boolean;
   onPick: () => void;
   onClear: () => void;
+  onUpload: () => void;
+  onPickAsset: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
 
@@ -542,35 +591,91 @@ function FrameSlot({
     return () => URL.revokeObjectURL(objectUrl);
   }, [source]);
 
-  if (!url) {
-    return (
+  const menu = open ? (
+    <div
+      className="absolute bottom-full left-0 z-30 mb-2 w-36 overflow-hidden rounded-lg border border-edge bg-surface p-1 shadow-pop"
+      role="menu"
+    >
       <button
         type="button"
-        onClick={onPick}
-        title={`选择${label}：从资产挑，或上传本机图片`}
-        className="flex h-[52px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-edge text-[10px] text-muted transition hover:border-accent/50 hover:text-accentSoft"
+        role="menuitem"
+        onClick={onUpload}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink transition hover:bg-white/[0.06]"
       >
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-          <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted" fill="none" aria-hidden>
+          <path
+            d="M12 16V4m0 0L8 8m4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
-        {label}
+        从本机上传
       </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={onPickAsset}
+        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-ink transition hover:bg-white/[0.06]"
+      >
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted" fill="none" aria-hidden>
+          <path
+            d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4l1.5 2h7.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-11Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+        从资产选
+      </button>
+    </div>
+  ) : null;
+
+  if (!url) {
+    return (
+      <div className="relative" data-frame-slot>
+        <button
+          type="button"
+          onClick={onPick}
+          title={`选择${label}：从本机上传，或从资产里挑一张`}
+          className={`flex h-[52px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed text-[10px] transition ${
+            open
+              ? "border-accent/60 text-accentSoft"
+              : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
+          }`}
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+            <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          {label}
+        </button>
+        {menu}
+      </div>
     );
   }
 
   return (
-    <div className="group relative h-[52px] w-[52px] shrink-0 overflow-hidden rounded-lg border border-edge">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={url} alt={label} className="h-full w-full object-cover" />
-      <span className="absolute inset-x-0 bottom-0 bg-black/60 text-center text-[9px] text-white/90">{label}</span>
+    <div className="group relative shrink-0" data-frame-slot>
+      <button
+        type="button"
+        onClick={onPick}
+        title={`更换${label}：从本机上传，或从资产里挑一张`}
+        className="relative block h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={label} className="h-full w-full object-cover" />
+        <span className="absolute inset-x-0 bottom-0 bg-black/60 text-center text-[9px] text-white/90">{label}</span>
+      </button>
       <button
         type="button"
         onClick={onClear}
         title={`移除${label}`}
-        className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
+        className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full border border-edge bg-surface text-[10px] text-muted group-hover:flex hover:text-ink"
       >
         ×
       </button>
+      {menu}
     </div>
   );
 }

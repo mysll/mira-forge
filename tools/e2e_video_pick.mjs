@@ -101,8 +101,14 @@ await sleep(3000);
 const before = await (await fetch(`${api}/generations?media=video&limit=1`)).json();
 console.log("视频批次（提交前）:", before.total);
 
+const imageRequests = () => evaluate(`performance.getEntriesByType("resource").filter((entry) => /\\/api\\/v1\\/images\\?/.test(entry.name)).length`);
+
 console.log("点首帧:", await evaluate(clickText("首帧")));
+await sleep(800);
+console.log("/images 请求数（只开菜单）:", await imageRequests());
+console.log("点从资产选:", await evaluate(clickText("从资产选")));
 await sleep(1500);
+console.log("/images 请求数（选了从资产）:", await imageRequests());
 
 const picked = await evaluate(`(() => {
   const grid = document.querySelector('div[class*="grid-cols-3"]');
