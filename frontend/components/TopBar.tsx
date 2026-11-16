@@ -16,6 +16,10 @@ type Props = {
   view: "grid" | "list";
   onView: (value: "grid" | "list") => void;
   total: number;
+  title?: string;
+  viewToggle?: boolean;
+  /** 右上角的计数说明，缺省按批次数显示 */
+  countText?: string;
 };
 
 const DATE_LABELS: Record<DateFilter, string> = {
@@ -41,6 +45,9 @@ export default function TopBar({
   view,
   onView,
   total,
+  title = "作品库",
+  viewToggle = true,
+  countText,
 }: Props) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-edge/70 px-5">
@@ -63,8 +70,8 @@ export default function TopBar({
       </div>
 
       <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
-        <h1 className="text-sm font-medium text-ink">作品库</h1>
-        <span className="hidden text-xs text-muted sm:inline">{total} 个批次</span>
+        <h1 className="text-sm font-medium text-ink">{title}</h1>
+        <span className="hidden text-xs text-muted sm:inline">{countText ?? `${total} 个批次`}</span>
       </div>
 
       <div className="ml-auto flex items-center gap-2">
@@ -136,7 +143,12 @@ export default function TopBar({
           收藏
         </button>
 
-        <div className="ml-1 flex items-center rounded-lg border border-edge bg-surface2 p-0.5">
+        <div
+          className={[
+            "ml-1 flex items-center rounded-lg border border-edge bg-surface2 p-0.5",
+            viewToggle ? "" : "hidden",
+          ].join(" ")}
+        >
           {(["grid", "list"] as const).map((item) => (
             <button
               key={item}

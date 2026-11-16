@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import Composer from "@/components/Composer";
@@ -8,26 +8,17 @@ import Feed from "@/components/Feed";
 import ImageDetail from "@/components/ImageDetail";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import TopBar from "@/components/TopBar";
+import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import {
-  deleteImage,
-  fetchGenerations,
-  fetchModels,
-  imageFileUrl,
-  setImageFavorite,
-} from "@/lib/api";
+import { fetchGenerations, fetchModels } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
-import { useComposerStore } from "@/stores/composer";
-import { useReferenceStore } from "@/stores/reference";
-import type { FeedItem, FeedSlot, GenerationRead, ImageBrief } from "@/types/api";
+import type { FeedItem, FeedSlot, GenerationRead } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
-type CardRef = { image: ImageBrief; generation: GenerationRead };
 const PAGE_SIZE = 40;
 
 
 export default function WorkspacePage() {
-  const queryClient = useQueryClient();
   useTaskEvents();
 
   const [query, setQuery] = useState("");
@@ -129,80 +120,20 @@ export default function WorkspacePage() {
     [modelsQuery.data],
   );
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["generations"] });
-    queryClient.invalidateQueries({ queryKey: ["images"] });
-  };
-
-  const onFavorite = (item: CardRef) => {
-    const next = !item.image.is_favorite;
-    void setImageFavorite(item.image.id, next)
-      .then(() => {
-        invalidate();
-        toast(next ? "已收藏" : "已取消收藏");
-      })
-      .catch((error: Error) => toast(error.message || "操作失败"));
-  };
-
-  const onDownload = async (item: CardRef) => {
-    try {
-      const response = await fetch(imageFileUrl(item.image));
-      if (!response.ok) {
-        throw new Error("图片下载失败");
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `miraforge-${item.image.id}.png`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      toast((error as Error).message || "下载失败");
-    }
-  };
-
-  const onDelete = async (item: CardRef) => {
-    if (!window.confirm("删除这张图？文件会从磁盘移除。")) {
-      return;
-    }
-    try {
-      await deleteImage(item.image.id);
-      if (detail?.image.id === item.image.id) {
+  const actions = useImageActions({
+    onToast: toast,
+    onDeleted: (imageId) => {
+      if (detail?.image.id === imageId) {
         setDetail(null);
       }
-      invalidate();
-      toast("已删除");
-    } catch (error) {
-      toast((error as Error).message || "删除失败");
-    }
-  };
-
-  const onEdit = (item: CardRef) => {
-    setDetail(null);
-    useReferenceStore.getState().setImage({
-      id: item.image.id,
-      url: imageFileUrl(item.image),
-    });
-    toast("已作为参考图，写在下方提示词里描述要改成什么");
-  };
-
-  const onRegenerate = (item: CardRef) => {
-    const store = useComposerStore.getState();
-    const { generation } = item;
-    store.setMode(generation.generation_type === "image_edit" ? "image_edit" : "text_to_image");
-    store.setPrompt(generation.prompt);
-    store.setModelId(generation.model_name);
-    if (generation.width && generation.height) {
-      store.setCustomSize(generation.width, generation.height);
-    }
-    setDetail(null);
-    toast("参数已填回创作框，点「生成」即可再跑一批");
-  };
+    },
+    onEdited: () => setDetail(null),
+  });
 
   return (
     <>
       <TopBar
+        title="创作"
         query={query}
         onQuery={(value) => {
           setQuery(value);
@@ -239,16 +170,16 @@ export default function WorkspacePage() {
           onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
           onOpen={(slot) => { if (slot.image) setDetail({ key: slot.key, image: slot.image, generation: slot.generation, seed: slot.seed }); }}
           onFavorite={(slot) => {
-            if (slot.image) onFavorite({ image: slot.image, generation: slot.generation });
+            if (slot.image) actions.favorite({ image: slot.image, generation: slot.generation });
           }}
           onDownload={(slot) => {
-            if (slot.image) void onDownload({ image: slot.image, generation: slot.generation });
+            if (slot.image) void actions.download({ image: slot.image, generation: slot.generation });
           }}
           onDelete={(slot) => {
-            if (slot.image) void onDelete({ image: slot.image, generation: slot.generation });
+            if (slot.image) void actions.remove({ image: slot.image, generation: slot.generation });
           }}
           onEdit={(slot) => {
-            if (slot.image) onEdit({ image: slot.image, generation: slot.generation });
+            if (slot.image) actions.edit({ image: slot.image, generation: slot.generation });
           }}
           modelLabels={modelLabels}
         />
@@ -261,11 +192,11 @@ export default function WorkspacePage() {
         <ImageDetail
           item={detail}
           onClose={() => setDetail(null)}
-          onFavorite={(item) => onFavorite({ image: item.image, generation: item.generation })}
-          onDownload={(item) => void onDownload({ image: item.image, generation: item.generation })}
-          onDelete={(item) => void onDelete({ image: item.image, generation: item.generation })}
-          onEdit={(item) => onEdit({ image: item.image, generation: item.generation })}
-          onRegenerate={(item) => onRegenerate({ image: item.image, generation: item.generation })}
+          onFavorite={(item) => actions.favorite({ image: item.image, generation: item.generation })}
+          onDownload={(item) => void actions.download({ image: item.image, generation: item.generation })}
+          onDelete={(item) => void actions.remove({ image: item.image, generation: item.generation })}
+          onEdit={(item) => actions.edit({ image: item.image, generation: item.generation })}
+          onRegenerate={(item) => actions.regenerate({ image: item.image, generation: item.generation })}
           onToast={toast}
           modelLabels={modelLabels}
         />

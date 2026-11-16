@@ -6,7 +6,8 @@
 
 ## 能做什么
 
-- **工作台**：左侧 72px 图标导航，右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部常驻创作框。没有第三栏、没有把参数平铺一屏。
+- **工作台**：左侧 72px 图标导航（资产 / 图片 / 视频 / 设置），右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部悬浮创作框。没有第三栏、没有把参数平铺一屏。
+- **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），7 种比例 × 4 档长边，一次 1/2/4/6/8 张，每张独立 seed、串行执行。
 - **参考图生成（图生图）**：在「图片生成」里可选加 1–2 张参考图——有图就参考构图/材质出图，无图就是普通文生图；参考图不改变输出比例，尺寸仍按右下角的设置（实测同一句提示词，加参考图后画面构图明显跟随参考图）。
 - **图片编辑**：上传或拖入一张参考图 + 一句修改指令（"改成夜晚"/"换成大理石雕像"），输出比例跟随参考图；也能从作品流 hover「继续编辑」把整张图当参考图带回来。
@@ -75,9 +76,10 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-  app/              page.tsx（工作台）/ settings / gallery（重定向到工作台）
+  app/              page.tsx（创作页）/ gallery（资产库）/ settings
   components/       Sidebar · TopBar · Feed · FeedCard · ImageDetail · Composer · Popover · ToastStack
-  stores/           composer（创作框状态）· reference（参考图）
+  hooks/            useImageActions（收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用）
+  stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）
   lib/              api · size（比例与分辨率）· date（日期分组与筛选）
 storage/            images / thumbnails / uploads（产物）
 data/               app.db
@@ -108,4 +110,4 @@ docs/               架构、API、工作流映射、开发说明
 
 > 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）到此完成；二期是视频生成与编辑。
 > `POST /generations` 返回 `pending` 后由 Worker 接手，约 3–12 秒后图片出现在 `storage/images/`，可通过 `GET /api/v1/images/{id}/file` 访问。
-> 界面在 `http://127.0.0.1:3000`（工作台）与 `/settings`（系统状态）；旧的 `/gallery` 会重定向回工作台。
+> 界面在 `http://127.0.0.1:3000`（`/` 创作、`/gallery` 资产库、`/settings` 系统状态）。

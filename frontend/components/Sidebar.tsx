@@ -3,27 +3,26 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
-import { useComposerStore, type ComposerMode } from "@/stores/composer";
+import { useComposerStore } from "@/stores/composer";
 
 type NavItem = {
   label: string;
   href: string;
   icon: React.ReactNode;
-  mode?: ComposerMode;
+  /** 点击后要把创作框切到哪个模式（只对创作页有意义） */
+  mode?: "text_to_image" | "image_edit";
   disabled?: boolean;
   hint?: string;
 };
 
 const iconClass = "h-[18px] w-[18px]";
 
-const HomeIcon = (
+const GalleryIcon = (
   <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
-    <path
-      d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1v-9.5Z"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
+    <rect x="3.5" y="4.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+    <rect x="13.5" y="4.5" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+    <rect x="3.5" y="14.5" width="7" height="5" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+    <rect x="13.5" y="14.5" width="7" height="5" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
   </svg>
 );
 
@@ -38,18 +37,6 @@ const ImageIcon = (
       strokeLinecap="round"
       strokeLinejoin="round"
     />
-  </svg>
-);
-
-const EditIcon = (
-  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
-    <path
-      d="M4 20h4.2l9.4-9.4a2.3 2.3 0 0 0 0-3.2l-1-1a2.3 2.3 0 0 0-3.2 0L4 15.8V20Z"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-    <path d="m13.4 7.8 2.8 2.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
   </svg>
 );
 
@@ -77,46 +64,36 @@ const SettingsIcon = (
   </svg>
 );
 
+const ITEMS: NavItem[] = [
+  { label: "资产", href: "/gallery", icon: GalleryIcon },
+  // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
+  { label: "图片", href: "/", icon: ImageIcon, mode: "text_to_image" },
+  { label: "视频", href: "#", icon: VideoIcon, disabled: true, hint: "视频生成在二期开放" },
+  { label: "设置", href: "/settings", icon: SettingsIcon },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const mode = useComposerStore((state) => state.mode);
   const setMode = useComposerStore((state) => state.setMode);
-
-  const items: NavItem[] = [
-    { label: "作品", href: "/", icon: HomeIcon },
-    { label: "文生图", href: "/", icon: ImageIcon, mode: "text_to_image" },
-    { label: "图片编辑", href: "/", icon: EditIcon, mode: "image_edit" },
-    {
-      label: "视频",
-      href: "#",
-      icon: VideoIcon,
-      disabled: true,
-      hint: "视频生成在二期开放",
-    },
-    { label: "设置", href: "/settings", icon: SettingsIcon },
-  ];
 
   const isActive = (item: NavItem): boolean => {
     if (item.disabled) {
       return false;
     }
+    if (item.href === "/gallery") {
+      return pathname.startsWith("/gallery");
+    }
     if (item.href === "/settings") {
-      return pathname === "/settings";
+      return pathname.startsWith("/settings");
     }
-    if (pathname === "/settings") {
-      return false;
-    }
-    if (item.label === "作品") {
-      return true;
-    }
-    return mode === item.mode;
+    return pathname === "/";
   };
 
   return (
     <aside className="flex h-full w-[72px] shrink-0 flex-col items-center gap-1 border-r border-edge/70 bg-rail py-3">
       <Link
-        href="/"
+        href="/gallery"
         className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-accent/20"
         title="MiraForge"
       >
@@ -132,7 +109,7 @@ export default function Sidebar() {
       </Link>
 
       <nav className="flex w-full flex-col items-center gap-1 px-2">
-        {items.map((item) => {
+        {ITEMS.map((item) => {
           const active = isActive(item);
           const className = [
             "flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] transition",
