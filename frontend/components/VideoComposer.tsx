@@ -4,8 +4,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import CountMenu from "@/components/CountMenu";
+import ImagePicker from "@/components/ImagePicker";
 import Popover from "@/components/Popover";
-import { createGeneration, createImageToVideoGeneration } from "@/lib/api";
+import { createGeneration, createImageToVideoGeneration, imageAsFile, imageThumbnailUrl } from "@/lib/api";
 import {
   VIDEO_DURATION_MAX,
   VIDEO_DURATION_MIN,
@@ -18,7 +19,12 @@ import {
   VIDEO_WEIGHT_WARN,
   type VideoRatioKey,
 } from "@/lib/videoSize";
-import type { ModelInfo } from "@/types/api";
+import type { ImageBrief, ModelInfo } from "@/types/api";
+
+/** 首帧 / 尾帧的来源：本机文件，或资产库里已经生成的一张图。 */
+type FrameSource =
+  | { kind: "file"; file: File }
+  | { kind: "image"; imageId: number; preview: string };
 
 /** 视频创作框：提示词 + 可选首帧 / 尾帧 + 比例 × 分辨率 + 时长。 */
 export default function VideoComposer({
@@ -35,8 +41,9 @@ export default function VideoComposer({
   const [tierKey, setTierKey] = useState("480p");
   const [duration, setDuration] = useState(5);
   const [count, setCount] = useState(1);
-  const [first, setFirst] = useState<File | null>(null);
-  const [last, setLast] = useState<File | null>(null);
+  const [first, setFirst] = useState<FrameSource | null>(null);
+  const [last, setLast] = useState<FrameSource | null>(null);
+  const [picking, setPicking] = useState<"first" | "last" | null>(null);
   const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const firstInput = useRef<HTMLInputElement>(null);
@@ -122,10 +129,10 @@ export default function VideoComposer({
         form.set("height", String(size.height));
         form.set("count", String(count));
         if (first) {
-          form.append("files", first);
+          form.append("files", await frameAsFile(first));
         }
         if (last) {
-          form.append("files", last);
+          form.append("files", await frameAsFile(last));
         }
         return createImageToVideoGeneration(form);
       }
@@ -168,11 +175,37 @@ export default function VideoComposer({
       onToast("图片不能超过 20 MB");
       return;
     }
+    const source: FrameSource = { kind: "file", file };
     if (first && !last) {
-      setLast(file);
+      setLast(source);
       return;
     }
-    setFirst(file);
+    setFirst(source);
+  };
+
+  // 资产库里选一张当首帧 / 尾帧
+  const pickFrame = (image: ImageBrief) => {
+    const source: FrameSource = {
+      kind: "image",
+      imageId: image.id,
+      preview: imageThumbnailUrl(image),
+    };
+    if (picking === "last") {
+      setLast(source);
+    } else {
+      setFirst(source);
+    }
+    setPicking(null);
+  };
+
+  const openFilePicker = () => {
+    const target = picking;
+    setPicking(null);
+    if (target === "last") {
+      lastInput.current?.click();
+    } else {
+      firstInput.current?.click();
+    }
   };
 
   const disabled = !prompt.trim() || !model || submit.isPending;
@@ -201,10 +234,10 @@ export default function VideoComposer({
           setDragging(false);
           const files = Array.from(event.dataTransfer.files);
           if (files[0]) {
-            setFirst(files[0]);
+            setFirst({ kind: "file", file: files[0] });
           }
           if (files[1]) {
-            setLast(files[1]);
+            setLast({ kind: "file", file: files[1] });
           }
         }}
       >
@@ -212,20 +245,20 @@ export default function VideoComposer({
         <div className="flex items-center gap-2">
           <FrameSlot
             label="首帧"
-            file={first}
-            onPick={() => firstInput.current?.click()}
+            source={first}
+            onPick={() => setPicking("first")}
             onClear={() => setFirst(null)}
           />
           <FrameSlot
             label="尾帧"
-            file={last}
-            onPick={() => lastInput.current?.click()}
+            source={last}
+            onPick={() => setPicking("last")}
             onClear={() => setLast(null)}
           />
           <p className="text-[11px] leading-snug text-muted">
             {first || last
               ? "首帧决定开头画面，尾帧决定结尾；只给一张就是首帧"
-              : "可选：上传首帧 / 尾帧，什么都不传就是文生视频"}
+              : "可选：首帧 / 尾帧可以从资产里挑，也可以拖入本机图片；都不传就是文生视频"}
           </p>
           <input
             ref={firstInput}
@@ -248,6 +281,15 @@ export default function VideoComposer({
             }}
           />
         </div>
+
+        <ImagePicker
+          open={picking !== null}
+          title={picking === "last" ? "选尾帧" : "选首帧"}
+          hint="从已生成的作品里挑一张，或者上传本机图片"
+          onClose={() => setPicking(null)}
+          onPick={pickFrame}
+          onUpload={openFilePicker}
+        />
 
         <div className="flex items-end gap-3">
           <textarea
@@ -465,35 +507,47 @@ export default function VideoComposer({
   );
 }
 
+/** 把首帧 / 尾帧统一成 File：资产里选的图先取回字节再当上传。 */
+async function frameAsFile(source: FrameSource): Promise<File> {
+  if (source.kind === "file") {
+    return source.file;
+  }
+  return imageAsFile(source.imageId);
+}
+
 function FrameSlot({
   label,
-  file,
+  source,
   onPick,
   onClear,
 }: {
   label: string;
-  file: File | null;
+  source: FrameSource | null;
   onPick: () => void;
   onClear: () => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!file) {
+    if (!source) {
       setUrl(null);
       return;
     }
-    const objectUrl = URL.createObjectURL(file);
+    if (source.kind === "image") {
+      setUrl(source.preview);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(source.file);
     setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
+  }, [source]);
 
   if (!url) {
     return (
       <button
         type="button"
         onClick={onPick}
-        title={`上传${label}`}
+        title={`选择${label}：从资产挑，或上传本机图片`}
         className="flex h-[52px] w-[52px] shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-edge text-[10px] text-muted transition hover:border-accent/50 hover:text-accentSoft"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
