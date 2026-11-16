@@ -11,7 +11,7 @@ import {
   createImageToImageGeneration,
   imageAsFile,
 } from "@/lib/api";
-import { LONG_EDGES, RATIOS, megapixels, sizeFor } from "@/lib/size";
+import { IMAGE_RATIOS, IMAGE_TIERS, megapixels } from "@/lib/size";
 import { useComposerStore } from "@/stores/composer";
 import { MAX_GENERATION_REFS, useGenerationRefStore } from "@/stores/generationRefs";
 import { useReferenceStore } from "@/stores/reference";
@@ -42,10 +42,11 @@ export default function Composer({ models, onToast }: Props) {
   const modelId = useComposerStore((state) => state.modelId);
   const setModelId = useComposerStore((state) => state.setModelId);
   const ratioKey = useComposerStore((state) => state.ratioKey);
-  const longEdge = useComposerStore((state) => state.longEdge);
+  const tierKey = useComposerStore((state) => state.tierKey);
   const width = useComposerStore((state) => state.width);
   const height = useComposerStore((state) => state.height);
-  const setSize = useComposerStore((state) => state.setSize);
+  const setRatio = useComposerStore((state) => state.setRatio);
+  const setTier = useComposerStore((state) => state.setTier);
   const setCustomSize = useComposerStore((state) => state.setCustomSize);
   const count = useComposerStore((state) => state.count);
   const setCount = useComposerStore((state) => state.setCount);
@@ -219,7 +220,8 @@ export default function Composer({ models, onToast }: Props) {
     }
   };
 
-  const sizeLabel = longEdge > 0 ? `${ratioKey} · ${longEdge}` : `自定义 · ${width}×${height}`;
+  const sizeLabel =
+    ratioKey === "custom" ? `自定义 · ${width}×${height}` : `${ratioKey} · ${tierKey || "1K"}`;
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4">
@@ -508,63 +510,93 @@ export default function Composer({ models, onToast }: Props) {
               </span>
             }
             title="比例与分辨率"
-            width={300}
+            width={330}
           >
-            {() => (
-              <div className="flex flex-col gap-2">
-                <div className="grid grid-cols-4 gap-1">
-                  {RATIOS.map((ratio) => (
+            {(close) => (
+              <div className="flex flex-col gap-2.5">
+                <div>
+                  <p className="mb-1.5 text-[10px] text-muted">比例</p>
+                  <div className="grid grid-cols-6 gap-1">
                     <button
-                      key={ratio.key}
                       type="button"
-                      onClick={() => setSize(ratio.key, longEdge || 1024)}
-                      className={[
-                        "rounded-md border px-1 py-1.5 text-[11px] transition",
-                        ratioKey === ratio.key
+                      onClick={() => setCustomSize(width, height)}
+                      title="自定义宽高"
+                      className={`flex h-11 flex-col items-center justify-center gap-1 rounded-md border text-[10px] transition ${
+                        ratioKey === "custom"
                           ? "border-accent/60 bg-accent/15 text-accentSoft"
-                          : "border-edge text-ink/80 hover:border-accent/40",
-                      ].join(" ")}
+                          : "border-edge/70 text-muted hover:border-edge hover:text-ink"
+                      }`}
                     >
-                      {ratio.label}
+                      <span
+                        className={`block rounded-[2px] border border-dashed ${
+                          ratioKey === "custom" ? "border-accentSoft/70" : "border-muted/40"
+                        }`}
+                        style={{ width: 16, height: 12 }}
+                      />
+                      自定义
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setCustomSize(width, height)}
-                    className={[
-                      "rounded-md border px-1 py-1.5 text-[11px] transition",
-                      ratioKey === "custom"
-                        ? "border-accent/60 bg-accent/15 text-accentSoft"
-                        : "border-edge text-ink/80 hover:border-accent/40",
-                    ].join(" ")}
-                  >
-                    自定义
-                  </button>
+                    {IMAGE_RATIOS.map((ratio) => {
+                      const wide = ratio.w >= ratio.h;
+                      return (
+                        <button
+                          key={ratio.key}
+                          type="button"
+                          onClick={() => setRatio(ratio.key)}
+                          title={ratio.label}
+                          className={`flex h-11 flex-col items-center justify-center gap-1 rounded-md border text-[10px] transition ${
+                            ratioKey === ratio.key
+                              ? "border-accent/60 bg-accent/15 text-accentSoft"
+                              : "border-edge/70 text-muted hover:border-edge hover:text-ink"
+                          }`}
+                        >
+                          <span
+                            className={`block rounded-[2px] border ${
+                              ratioKey === ratio.key ? "border-accentSoft/70" : "border-muted/40"
+                            }`}
+                            style={
+                              wide
+                                ? { width: 18, height: Math.max(6, Math.round((18 * ratio.h) / ratio.w)) }
+                                : { width: Math.max(6, Math.round((18 * ratio.w) / ratio.h)), height: 18 }
+                            }
+                          />
+                          {ratio.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  {LONG_EDGES.map((edge) => (
-                    <button
-                      key={edge}
-                      type="button"
-                      onClick={() => setSize(ratioKey === "custom" ? "1:1" : ratioKey, edge)}
-                      className={[
-                        "flex-1 rounded-md border px-1 py-1 text-[11px] transition",
-                        longEdge === edge
-                          ? "border-accent/60 bg-accent/15 text-accentSoft"
-                          : "border-edge text-ink/80 hover:border-accent/40",
-                      ].join(" ")}
-                    >
-                      {edge}
-                    </button>
-                  ))}
+                <div>
+                  <p className="mb-1.5 text-[10px] text-muted">分辨率</p>
+                  <div className="grid grid-cols-4 gap-1">
+                    {IMAGE_TIERS.map((tier) => (
+                      <button
+                        key={tier.key}
+                        type="button"
+                        onClick={() => setTier(tier.key)}
+                        className={`whitespace-nowrap rounded-md border py-1.5 text-[11px] transition ${
+                          tierKey === tier.key
+                            ? "border-accent/60 bg-accent/15 text-accentSoft"
+                            : "border-edge/70 text-muted hover:border-edge hover:text-ink"
+                        }`}
+                      >
+                        {tier.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-muted">
+                <div className="flex items-center justify-between border-t border-edge/70 pt-2 text-[10px] text-muted">
                   <span>
                     {width} × {height} · {megapixels(width, height)}
                   </span>
-                  <span>长边像素</span>
+                  <button
+                    type="button"
+                    onClick={close}
+                    className="rounded px-1.5 py-0.5 text-accentSoft hover:bg-white/5"
+                  >
+                    完成
+                  </button>
                 </div>
 
                 {ratioKey === "custom" ? (
@@ -582,6 +614,7 @@ export default function Composer({ models, onToast }: Props) {
                       inputMode="numeric"
                       className="field h-7 px-2 py-0 text-[11px]"
                     />
+                    <span className="ml-auto text-[10px] text-muted/70">16 的倍数</span>
                   </div>
                 ) : null}
               </div>

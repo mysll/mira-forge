@@ -73,7 +73,7 @@
 | `components/Popover.tsx` | 参数用的小弹层（点外部 / ESC 关闭，向上弹出） |
 | `components/ToastStack.tsx` | 右下角轻提示，2.6s 自动消失 |
 | `lib/api.ts` | 所有 REST 调用、`ApiError`、`TASK_EVENTS_URL` |
-| `lib/size.ts` | 7 种比例 × 4 档长边 → 宽高（对齐 16） |
+| `lib/size.ts` | 10 种比例 + 自定义 × 4 档分辨率（480/720/1K/2K，短边定档）→ 宽高，对齐 16、长边上限 2560 |
 | `lib/date.ts` | 日期分组（今天/昨天/更早）、筛选区间、时间与体积格式化 |
 | `stores/composer.ts` | 创作框状态（按模式分别保存提示词） |
 | `stores/reference.ts` | 图片编辑的参考图来源（本地文件 / 已生成图片）与预览 |

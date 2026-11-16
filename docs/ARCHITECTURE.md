@@ -176,7 +176,7 @@ P1：配置、迁移、四张表、注册表解析、创建记录（含校验与
 
 P2：四个 API 格式工作流 JSON + 参数绑定 YAML、`prompt_builder`、`comfyui_client`、`generation_worker`、图片落盘、`/images` 接口、WS 事件广播、真实出图。
 
-P3：`GenerationSummary.progress`（任务进度均值）、生成记录展开详情（每 task 的 seed 与进度）、比例 × 长边尺寸面板、图片墙。
+P3：任务进度均值、生成记录展开详情（每 task 的 seed 与进度）、比例 + 分辨率档的尺寸面板、图片墙。
 
 P4：`POST /generations/edit`（multipart）、参考图上传到 ComfyUI、`GET /generations/{id}/reference`、`reference_image_path` 列（迁移 `0002`）、编辑链路真实出图。
 
