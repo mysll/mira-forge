@@ -2,13 +2,20 @@
 #
 # 没有 width/height 绑定，但绑了 resolution：编辑的输出比例跟随参考图，
 # resolution 决定像素量级（节点内部按 sqrt(resolution² × 比例) 取整到 32 倍数）。
+#
+# 两个参考图槽位：第 1 张决定被编辑的画面（潜空间与构图都跟它走），
+# 第 2 张可选，只作为服装 / 材质参考。只给 1 张时 prompt_builder 会把
+# 节点 20 与 images.image_2 一起摘掉，所以单图编辑跑的还是原来的图。
 output_node: "9"
 
 reference_image:
-  loader_node: "1"
-  loader_input: image
   encoder_node: "6"
   encoder_input: images.image_1
+  loaders:
+    - node: "1"
+      input: image
+    - node: "20"
+      input: image
 
 bindings:
   prompt: { node: "6", input: prompt }

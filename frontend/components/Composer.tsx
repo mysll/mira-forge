@@ -18,7 +18,7 @@ import {
 import { IMAGE_RATIOS, IMAGE_TIERS, megapixels } from "@/lib/size";
 import { useComposerStore } from "@/stores/composer";
 import { MAX_GENERATION_REFS, useGenerationRefStore } from "@/stores/generationRefs";
-import { useReferenceStore } from "@/stores/reference";
+import { MAX_EDIT_REFS, useReferenceStore } from "@/stores/reference";
 import type { GenerationCreatePayload, ImageBrief, ModelInfo } from "@/types/api";
 
 type Props = {
@@ -27,6 +27,9 @@ type Props = {
 };
 
 const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/** 图片编辑的图片槽：index 0 定结构，index 1 是可选参考。 */
+type SlotTarget = { kind: "edit"; index: number } | { kind: "gen" };
 
 function PillIcon({ children }: { children: React.ReactNode }) {
   return <span className="text-muted">{children}</span>;
@@ -38,8 +41,10 @@ export default function Composer({ models, onToast }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const genFileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [slotMenu, setSlotMenu] = useState<"edit" | "add" | null>(null);
-  const [picking, setPicking] = useState<"edit" | "add" | null>(null);
+  const [slotMenu, setSlotMenu] = useState<SlotTarget | null>(null);
+  const [picking, setPicking] = useState<SlotTarget | null>(null);
+  /** 本次「从本机上传」要落到哪个槽：点空槽时记下来，选完文件再消费。 */
+  const pendingSlot = useRef<number | undefined>(undefined);
 
   const mode = useComposerStore((state) => state.mode);
   const prompts = useComposerStore((state) => state.prompts);
@@ -166,13 +171,17 @@ export default function Composer({ models, onToast }: Props) {
         return createImageToImageGeneration(form);
       }
 
-      const source = reference.source;
-      if (!source) {
+      const items = reference.items;
+      if (items.length === 0) {
         throw new Error("图片编辑需要 1 张参考图");
       }
-      const file = source.kind === "file" ? source.file : await imageAsFile(source.id);
+      // 顺序即语义：第 1 张定结构，第 2 张是服装 / 材质参考
       const form = buildForm();
-      form.set("images", file);
+      for (const item of items) {
+        const file =
+          item.source.kind === "file" ? item.source.file : await imageAsFile(item.source.id);
+        form.append("images", file);
+      }
       return createEditGeneration(form);
     },
     onSuccess: (created, variables) => {
@@ -197,7 +206,7 @@ export default function Composer({ models, onToast }: Props) {
   const canSubmit =
     prompt.trim().length > 0 &&
     !!activeModel &&
-    (mode === "text_to_image" || !!reference.source) &&
+    (mode === "text_to_image" || reference.items.length > 0) &&
     !submit.isPending;
 
   // 点开小菜单后，点别处/Esc 收起
@@ -224,12 +233,12 @@ export default function Composer({ models, onToast }: Props) {
     };
   }, [slotMenu]);
 
-  // 资产库里选一张：编辑模式当参考图，生成模式追加进参考图列表
+  // 资产库里选一张：编辑模式放进当前空槽，生成模式追加进参考图列表
   const pickAsset = async (image: ImageBrief) => {
     const target = picking;
     setPicking(null);
-    if (target === "edit") {
-      reference.setImage({ id: image.id, url: imageFileUrl(image) });
+    if (target?.kind === "edit") {
+      reference.putImage({ id: image.id, url: imageFileUrl(image) }, target.index);
       return;
     }
     try {
@@ -243,7 +252,7 @@ export default function Composer({ models, onToast }: Props) {
     }
   };
 
-  const handleFiles = (files: FileList | File[] | null | undefined) => {
+  const handleFiles = (files: FileList | File[] | null | undefined, into?: number) => {
     const accepted = Array.from(files ?? []).filter((file) => {
       if (!file.type.startsWith("image/")) {
         onToast("只能选 PNG / JPEG / WEBP 图片");
@@ -259,7 +268,10 @@ export default function Composer({ models, onToast }: Props) {
       return;
     }
     if (mode === "image_edit") {
-      reference.setFile(accepted[0]);
+      const placed = reference.putFiles(accepted, into);
+      if (placed < accepted.length) {
+        onToast(`图片编辑最多 ${MAX_EDIT_REFS} 张：第 1 张定结构，第 2 张可选`);
+      }
       return;
     }
     // 图片生成模式下参考图是可选的：有图走参考引导，无图就是普通文生图
@@ -330,63 +342,107 @@ export default function Composer({ models, onToast }: Props) {
         {/* 输入区 + 参考图 */}
         <div className="flex items-start gap-2">
           {mode === "image_edit" ? (
-            <div className="relative shrink-0" data-slot>
-              {reference.previewUrl ? (
-                <div className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={reference.previewUrl} alt="参考图" className="h-full w-full object-cover" />
+            <div className="flex shrink-0 items-center gap-1.5">
+              {reference.items.map((item, index) => (
+                <div key={item.key} className="relative" data-slot title={item.name}>
+                  <div className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.previewUrl}
+                      alt={index === 0 ? "参考图" : "可选参考图"}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSlotMenu(
+                          slotMenu?.kind === "edit" && slotMenu.index === index
+                            ? null
+                            : { kind: "edit", index },
+                        )
+                      }
+                      title={index === 0 ? "更换参考图" : "更换这张可选参考图"}
+                      className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+                        <path
+                          d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reference.removeAt(index)}
+                      title="移除这张"
+                      className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <span className="absolute -bottom-4 left-0 text-[9px] text-muted/70">
+                    {index === 0 ? "结构" : "参考"}
+                  </span>
+                  <SlotMenu
+                    open={slotMenu?.kind === "edit" && slotMenu.index === index}
+                    onUpload={() => {
+                      setSlotMenu(null);
+                      fileRef.current?.click();
+                      pendingSlot.current = index;
+                    }}
+                    onPickAsset={() => {
+                      setSlotMenu(null);
+                      setPicking({ kind: "edit", index });
+                    }}
+                  />
+                </div>
+              ))}
+              {reference.items.length < MAX_EDIT_REFS ? (
+                <div className="relative" data-slot>
                   <button
                     type="button"
-                    onClick={() => setSlotMenu(slotMenu === "edit" ? null : "edit")}
-                    title="更换参考图"
-                    className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+                    onClick={() =>
+                      setSlotMenu(
+                        slotMenu?.kind === "edit" && slotMenu.index === reference.items.length
+                          ? null
+                          : { kind: "edit", index: reference.items.length },
+                      )
+                    }
+                    className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed transition ${
+                      slotMenu?.kind === "edit" && slotMenu.index === reference.items.length
+                        ? "border-accent/60 text-accentSoft"
+                        : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
+                    }`}
+                    title={
+                      reference.items.length === 0
+                        ? "第 1 张：要被编辑的画面（定结构、比例、构图）"
+                        : "第 2 张（可选）：服装 / 材质参考，只影响条件"
+                    }
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                      <path
-                        d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinejoin="round"
-                      />
+                      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </svg>
+                    <span className="text-[10px]">
+                      {reference.items.length === 0 ? "参考图" : "再 1 张?"}
+                    </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => reference.clear()}
-                    title="移除参考图"
-                    className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
-                  >
-                    ×
-                  </button>
+                  <SlotMenu
+                    open={slotMenu?.kind === "edit" && slotMenu.index === reference.items.length}
+                    onUpload={() => {
+                      const index = reference.items.length;
+                      setSlotMenu(null);
+                      pendingSlot.current = index;
+                      fileRef.current?.click();
+                    }}
+                    onPickAsset={() => {
+                      setSlotMenu(null);
+                      setPicking({ kind: "edit", index: reference.items.length });
+                    }}
+                  />
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setSlotMenu(slotMenu === "edit" ? null : "edit")}
-                  className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed transition ${
-                    slotMenu === "edit"
-                      ? "border-accent/60 text-accentSoft"
-                      : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
-                  }`}
-                  title="参考图：从本机上传，或从资产里挑一张"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  </svg>
-                  <span className="text-[10px]">参考图</span>
-                </button>
-              )}
-              <SlotMenu
-                open={slotMenu === "edit"}
-                onUpload={() => {
-                  setSlotMenu(null);
-                  fileRef.current?.click();
-                }}
-                onPickAsset={() => {
-                  setSlotMenu(null);
-                  setPicking("edit");
-                }}
-              />
+              ) : null}
             </div>
           ) : (
             <div className="flex shrink-0 items-center gap-1.5">
@@ -414,10 +470,10 @@ export default function Composer({ models, onToast }: Props) {
                 <div className="relative" data-slot>
                   <button
                     type="button"
-                    onClick={() => setSlotMenu(slotMenu === "add" ? null : "add")}
+                    onClick={() => setSlotMenu(slotMenu?.kind === "gen" ? null : { kind: "gen" })}
                     title="可选：加 1–2 张参考图，只参考构图，出图尺寸仍按右下角设置"
                     className={`flex h-[52px] w-[52px] flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed transition ${
-                      slotMenu === "add"
+                      slotMenu?.kind === "gen"
                         ? "border-accent/60 text-accentSoft"
                         : "border-edge text-muted hover:border-accent/50 hover:text-accentSoft"
                     }`}
@@ -428,14 +484,14 @@ export default function Composer({ models, onToast }: Props) {
                     <span className="text-[10px]">参考图?</span>
                   </button>
                   <SlotMenu
-                    open={slotMenu === "add"}
+                    open={slotMenu?.kind === "gen"}
                     onUpload={() => {
                       setSlotMenu(null);
                       genFileRef.current?.click();
                     }}
                     onPickAsset={() => {
                       setSlotMenu(null);
-                      setPicking("add");
+                      setPicking({ kind: "gen" });
                     }}
                   />
                 </div>
@@ -455,7 +511,9 @@ export default function Composer({ models, onToast }: Props) {
             rows={1}
             placeholder={
               mode === "image_edit"
-                ? "描述要改成什么样，例如 same scene but at night, moonlight"
+                ? reference.items.length > 1
+                  ? "只描述要改的部分，例如 把服装换成第二张图的样式，其余保持不变"
+                  : "只描述要改的部分，例如 换成夜景，加一层月光"
                 : genRefs.items.length > 0
                   ? "描述想让它变成什么样，例如 same teapot, now on a stone table in an autumn garden"
                   : "输入你想要的画面，中文描述也可以，英文通常更稳"
@@ -788,9 +846,12 @@ export default function Composer({ models, onToast }: Props) {
           ref={fileRef}
           type="file"
           accept="image/png,image/jpeg,image/webp"
+          multiple
           className="hidden"
           onChange={(event) => {
-            handleFiles(event.target.files);
+            const into = pendingSlot.current;
+            pendingSlot.current = undefined;
+            handleFiles(event.target.files, into);
             event.target.value = "";
           }}
         />
@@ -808,10 +869,12 @@ export default function Composer({ models, onToast }: Props) {
 
         <ImagePicker
           open={picking !== null}
-          title={picking === "edit" ? "选参考图（编辑）" : "加参考图（生成）"}
+          title={picking?.kind === "edit" ? "选参考图（编辑）" : "加参考图（生成）"}
           hint={
-            picking === "edit"
-              ? "图片编辑需要 1 张参考图，从已生成的作品里挑一张最省事"
+            picking?.kind === "edit"
+              ? picking.index === 0
+                ? "第 1 张决定被编辑的画面：定结构、比例与构图"
+                : "第 2 张可选：例如只想借它的服装、材质或配色"
               : `最多 ${MAX_GENERATION_REFS} 张，只参考构图与材质，出图尺寸仍按右下角设置`
           }
           onClose={() => setPicking(null)}
@@ -819,7 +882,8 @@ export default function Composer({ models, onToast }: Props) {
           onUpload={() => {
             const target = picking;
             setPicking(null);
-            if (target === "edit") {
+            if (target?.kind === "edit") {
+              pendingSlot.current = target.index;
               fileRef.current?.click();
             } else {
               genFileRef.current?.click();

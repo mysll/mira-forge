@@ -1,11 +1,17 @@
 # Qwen Image 2.1 Turbo 图片编辑（参考图 latent + SamplerCustomAdvanced 固定 8 步）
+#
+# 两个参考图槽位：第 1 张定结构，第 2 张可选（服装 / 材质参考）；
+# 只给 1 张时 prompt_builder 会摘掉节点 20 与 images.image_2。
 output_node: "13"
 
 reference_image:
-  loader_node: "1"
-  loader_input: image
   encoder_node: "6"
   encoder_input: images.image_1
+  loaders:
+    - node: "1"
+      input: image
+    - node: "20"
+      input: image
 
 bindings:
   prompt: { node: "6", input: prompt }

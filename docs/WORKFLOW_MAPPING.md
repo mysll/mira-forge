@@ -108,13 +108,17 @@ VAELoader(qwen_image_2.1_vae_bf16) ───────────────
 ### 图片编辑链路
 
 ```
-LoadImage ─► TextEncodeQwenImage21(clip, vae, prompt, negative_prompt, resolution, images.image_1)
-                        │positive │negative │latent
-                        ▼         ▼         ▼
-                     KSampler(latent_image = 编码器 latent) ─► VAEDecode ─► SaveImage
+LoadImage#1  (第 1 张：定结构) ─┐
+LoadImage#20 (第 2 张：可选)  ─┴─► TextEncodeQwenImage21(clip, vae, prompt, negative_prompt, resolution,
+                                                        images.image_1, images.image_2)
+                                  │positive │negative │latent
+                                  ▼         ▼         ▼
+                               KSampler(latent_image = 编码器 latent) ─► VAEDecode ─► SaveImage
 ```
 
-- 参考图数量 1–10，键名依次 `images.image_1` … `images.image_10`。
+- 我们只开两个槽位：`images.image_1` ← 节点 `1`，`images.image_2` ← 节点 `20`。节点本身支持 `images.image_1` … `images.image_10`，要加槽位只需在工作流 JSON 里补 `LoadImage` 并在 YAML 的 `loaders` 里追一项。
+- **第 1 张决定被编辑的画面**：编码器输出的 latent 是「按第 1 张尺寸的零张量」，`KSampler.latent_image` 直接用它（`["6", 2]`），所以结构、比例、构图都跟着第 1 张；第 2 张只作为补充条件（典型用法：第 1 张角色 + 第 2 张服装）。
+- 只给 1 张时，`prompt_builder` 会摘掉 `images.image_2` 并删掉节点 `20`（否则 ComfyUI 会去找模板里的 `placeholder.png`）。
 - `resolution=0` 表示沿用参考图原尺寸；非 0 时编码器按 `resolution×resolution` 近似并保持比例、对齐到 32 的倍数。
 - 默认 `width`/`height` 不参与计算，所以后端对 image_edit 记录 `null`。
 

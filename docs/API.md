@@ -257,35 +257,41 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 
 返回单个 `GenerationRead`（含 `tasks`、`images`、`reference_images`）。不存在返回 `404`。
 
-`reference_images` 是**相对 `STORAGE_DIR`** 的路径数组：文生图为空，编辑为 1 张，图生图为 1–2 张。
+`reference_images` 是**相对 `STORAGE_DIR`** 的路径数组：文生图为空，编辑为 1–2 张，图生图为 1–2 张。
 
 ### `POST /generations/edit`
 
 图片编辑：`multipart/form-data`。除参考图外字段与 `POST /generations` 相同，`generation_type` 固定为 `image_edit`。
 
+**第 1 张决定被编辑的画面**（结构、比例、构图都跟着它），**第 2 张可选**，只当补充信息用——典型用法是「第 1 张放角色、第 2 张放服装」，让模型把第 2 张的衣服换到第 1 张身上。
+
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `prompt` | 是 | 编辑指令，例如「same scene but at night, moonlight」 |
+| `prompt` | 是 | 编辑指令，例如「把服装换成第二张图的样式，其余保持不变」 |
 | `model` | 是 | 支持 `image_edit` 的模型 id |
-| `images` | 是 | 恰好 1 张；PNG / JPEG / WEBP；≤ 20 MB；按文件魔数校验 |
+| `images` | 是 | 1–2 张（第 2 张可选）；PNG / JPEG / WEBP；单张 ≤ 20 MB；按文件魔数校验 |
 | `count` | 否 | 1–8，同一次编辑出多张变体 |
 | `width` / `height` | 否 | 只决定像素量级：Worker 传 `resolution = round(sqrt(w×h)/32)×32`（夹在 256–4096） |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
-  -F "prompt=replace the fox with a white marble statue" \
+  -F "prompt=把服装换成第二张图的样式，其余保持不变" \
   -F "model=qwen_image_21_turbo" \
   -F "count=1" \
-  -F "images=@D:/AI/MiraForge/storage/images/3/8_0.png"
+  -F "images=@D:/AI/MiraForge/data/case-ref1.png" \
+  -F "images=@D:/AI/MiraForge/data/case-ref2.png"
 ```
 
 返回结构与 `POST /generations` 相同（`201`）。错误：
 
 ```
-422 {"detail": "图片编辑必须提供 1 张参考图"}
-422 {"detail": "参考图需要是 1 张 PNG / JPEG / WEBP 图片"}
+422 {"detail": "图片编辑至少需要 1 张参考图（第 1 张定结构）"}
+422 {"detail": "图片编辑最多 2 张参考图（第 2 张可选），收到 3 张"}
+422 {"detail": "第 2 张参考图需要是 PNG / JPEG / WEBP 图片"}
 422 {"detail": "参考图不能超过 20 MB"}
 ```
+
+工作流侧：两张图分别接到编码器的 `images.image_1` / `images.image_2`，潜空间取编码器输出的 `[6, 2]`（**按第 1 张的尺寸对齐**，所以编辑结果的尺寸跟随第 1 张，与 `width` / `height` 无关）；只给 1 张时第二个 `LoadImage` 节点与 `images.image_2` 会被自动摘掉。
 
 ### `POST /generations/image-to-image`
 

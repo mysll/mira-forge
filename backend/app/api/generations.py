@@ -112,23 +112,32 @@ async def create_edit(
     steps: int | None = Form(None, ge=1, le=100),
     cfg: float | None = Form(None, ge=0, le=30),
     sampler: str | None = Form(None, max_length=64),
-    images: list[UploadFile] = File(...),
+    images: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
 ) -> GenerationRead:
-    """创建一次图片编辑请求（multipart，带 1 张参考图）。"""
-    if len(images) != 1:
+    """创建一次图片编辑请求（multipart，1 张必填 + 1 张可选）。
+
+    第 1 张决定被编辑的画面（潜空间与构图都跟它走），第 2 张只作为
+    服装 / 材质 / 风格参考——用来做「把 A 的衣服换成 B 的」这类跨图编辑。
+    """
+    limit = get_settings().max_reference_images
+    if not images:
+        raise HTTPException(
+            status_code=422, detail="图片编辑至少需要 1 张参考图（第 1 张定结构）"
+        )
+    if len(images) > limit:
         raise HTTPException(
             status_code=422,
-            detail=f"当前仅支持 1 张参考图，收到 {len(images)} 张",
+            detail=f"图片编辑最多 {limit} 张参考图（第 2 张可选），收到 {len(images)} 张",
         )
 
-    upload = images[0]
-    content, extension = await _validated_upload(upload, "参考图")
-
-    try:
-        relative = store_upload(content, extension=extension)
-    except ImageStoreError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    paths: list[str] = []
+    for index, upload in enumerate(images, start=1):
+        content, extension = await _validated_upload(upload, f"第 {index} 张参考图")
+        try:
+            paths.append(store_upload(content, extension=extension))
+        except ImageStoreError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     payload = GenerationCreate(
         prompt=prompt,
@@ -144,7 +153,7 @@ async def create_edit(
         sampler=sampler,
     )
     try:
-        generation = create_generation(db, payload, reference_image_path=relative)
+        generation = create_generation(db, payload, reference_image_paths=paths)
     except GenerationValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _to_read(generation)

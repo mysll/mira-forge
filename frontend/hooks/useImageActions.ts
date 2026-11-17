@@ -94,10 +94,9 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
   const edit = useCallback(
     (item: AssetRef) => {
       onEdited?.();
-      useReferenceStore.getState().setImage({
-        id: item.image.id,
-        url: imageFileUrl(item.image),
-      });
+      const store = useReferenceStore.getState();
+      store.clear();
+      store.putImage({ id: item.image.id, url: imageFileUrl(item.image) }, 0);
       onToast("已作为参考图，写在下方提示词里描述要改成什么");
       goCompose();
     },

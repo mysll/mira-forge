@@ -42,7 +42,8 @@
       "prompt": "",
       "negative_prompt": "",
       "resolution": 0,
-      "images.image_1": ["1", 0]
+      "images.image_1": ["1", 0],
+      "images.image_2": ["20", 0]
     }
   },
   "7": {
@@ -72,6 +73,12 @@
     "inputs": {
       "images": ["8", 0],
       "filename_prefix": "miraforge/edit"
+    }
+  },
+  "20": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "placeholder.png"
     }
   }
 }

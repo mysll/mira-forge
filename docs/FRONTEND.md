@@ -71,7 +71,7 @@
 | `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9 |
 | `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器、五个操作；视频则换成 `<video controls>` 播放器 + 时长 / 帧数，并隐藏「继续编辑」 |
 | `components/CountMenu.tsx` | 数量菜单（一列数字 + 选中勾），图片 1–8 张与视频 1–4 条共用 |
-| `components/Composer.tsx` | 图片创作框：模式、提示词、参考图（点格子先弹「从本机上传 / 从资产选」两项菜单；编辑模式 1 张、生成模式最多 2 张）、参数 pill、高级面板、提交 |
+| `components/Composer.tsx` | 图片创作框：模式、提示词、参考图（点格子先弹「从本机上传 / 从资产选」两项菜单；编辑模式两个槽——第 1 张定结构、第 2 张可选，生成模式最多 2 张）、参数 pill、高级面板、提交 |
 | `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点格子先弹两项小菜单——「从本机上传」/「从资产选」，也可拖入文件，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、数量（1–4 条，默认 1）、模型，`⌘/Ctrl+Enter` 提交 |
 | `components/ImagePicker.tsx` | 资产挑图弹层：读 `/images`（自动滤掉视频）列最近 60 张，点一张就返回；底部还有「从本机上传」出口。**只有用户选了「从资产选」才挂载并发请求**（`useQuery({ enabled: open })`），开菜单本身不发请求。用 portal 挂到 `body`，否则会被创作框的 `backdrop-filter` 当成包含块、弹层跑偏 |
 | `components/SlotMenu.tsx` | 加图前的小菜单：「从本机上传」/「从资产选」。图片创作框（参考图、编辑参考图）与视频创作框（首帧 / 尾帧）共用这一个组件 |
@@ -81,7 +81,7 @@
 | `lib/size.ts` | 10 种比例 + 自定义 × 4 档分辨率（480/720/1K/2K，短边定档）→ 宽高，对齐 16、长边上限 2560 |
 | `lib/date.ts` | 日期分组（今天/昨天/更早）、筛选区间、时间与体积格式化 |
 | `stores/composer.ts` | 创作框状态（按模式分别保存提示词） |
-| `stores/reference.ts` | 图片编辑的参考图来源（本地文件 / 已生成图片）与预览 |
+| `stores/reference.ts` | 图片编辑的参考图来源（本地文件 / 已生成图片）与预览；两个槽位（`MAX_EDIT_REFS = 2`，第 1 张定结构、第 2 张可选） |
 | `stores/generationRefs.ts` | 图片生成模式下可选的 1–2 张参考图（`addFiles / remove / clear`，`MAX_GENERATION_REFS = 2`） |
 
 ## 状态放在哪里

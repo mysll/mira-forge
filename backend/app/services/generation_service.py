@@ -198,9 +198,12 @@ def create_generation(
                 f"图生视频最多 {settings.max_reference_images} 张图（首帧 + 尾帧），收到 {len(paths)} 张"
             )
     elif generation_type == GenerationType.IMAGE_EDIT:
-        if len(paths) != 1:
+        # 第 1 张定结构（必填），第 2 张可选的服装 / 材质参考
+        if not paths:
+            raise GenerationValidationError("图片编辑至少需要 1 张参考图（第 1 张定结构）")
+        if len(paths) > settings.max_reference_images:
             raise GenerationValidationError(
-                f"图片编辑必须提供 1 张参考图，收到 {len(paths)} 张"
+                f"图片编辑最多 {settings.max_reference_images} 张参考图（第 2 张可选），收到 {len(paths)} 张"
             )
     elif generation_type == GenerationType.IMAGE_TO_IMAGE:
         if not paths:

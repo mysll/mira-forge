@@ -48,7 +48,7 @@ def test_reference_file_is_served(client: TestClient) -> None:
     assert response.content == TINY_PNG
 
 
-def test_edit_requires_exactly_one_image(client: TestClient) -> None:
+def test_edit_accepts_one_or_two_images(client: TestClient) -> None:
     data = {"prompt": "x", "model": "qwen_image_21", "count": 1}
     response = client.post(
         f"{API}/generations/edit",
@@ -57,8 +57,35 @@ def test_edit_requires_exactly_one_image(client: TestClient) -> None:
     )
     assert response.status_code == 201
 
+    response = client.post(
+        f"{API}/generations/edit",
+        data=data,
+        files=[
+            ("images", ("ref1.png", TINY_PNG, "image/png")),
+            ("images", ("ref2.png", TINY_PNG, "image/png")),
+        ],
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["generation_type"] == "image_edit"
+    # 两张都记住：第 1 张定结构，第 2 张是服装 / 材质参考
+    assert len(body["reference_images"]) == 2
+    assert body["reference_image_path"] == body["reference_images"][0]
+
+
+def test_edit_requires_at_least_one_image(client: TestClient) -> None:
+    data = {"prompt": "x", "model": "qwen_image_21", "count": 1}
     response = client.post(f"{API}/generations/edit", data=data, files=[])
     assert response.status_code == 422
+    assert "至少" in response.json()["detail"]
+
+
+def test_edit_rejects_more_than_two_images(client: TestClient) -> None:
+    data = {"prompt": "x", "model": "qwen_image_21", "count": 1}
+    files = [("images", (f"ref{i}.png", TINY_PNG, "image/png")) for i in range(3)]
+    response = client.post(f"{API}/generations/edit", data=data, files=files)
+    assert response.status_code == 422
+    assert "最多 2 张" in response.json()["detail"]
 
 
 def test_edit_rejects_non_image_upload(client: TestClient) -> None:

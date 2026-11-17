@@ -91,6 +91,38 @@ def test_edit_wires_reference_image_into_encoder() -> None:
     assert prompt["7"]["inputs"]["latent_image"] == ["6", 2]
 
 
+def test_edit_wires_two_reference_images_into_encoder() -> None:
+    _model, target = _target("qwen_image_21", "image_edit")
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+
+    prompt = build_prompt(
+        graph,
+        config,
+        {"prompt": "换成第二张衣服"},
+        reference_images=["char.png", "clothes.png"],
+    )
+
+    assert prompt["1"]["inputs"]["image"] == "char.png"
+    assert prompt["20"]["inputs"]["image"] == "clothes.png"
+    assert prompt["6"]["inputs"]["images.image_1"] == ["1", 0]
+    assert prompt["6"]["inputs"]["images.image_2"] == ["20", 0]
+    # 两颗槽都是条件，潜空间仍取第 1 张定下来的编码器输出
+    assert prompt["7"]["inputs"]["latent_image"] == ["6", 2]
+
+
+def test_edit_drops_second_slot_when_only_one_image() -> None:
+    _model, target = _target("qwen_image_21", "image_edit")
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+
+    prompt = build_prompt(graph, config, {"prompt": "x"}, reference_images=["char.png"])
+
+    assert prompt["6"]["inputs"]["images.image_1"] == ["1", 0]
+    assert "images.image_2" not in prompt["6"]["inputs"]
+    assert "20" not in prompt, "没用到的第 2 张 LoadImage 要摘掉，否则 ComfyUI 会去读占位图"
+
+
 def test_unknown_binding_is_reported() -> None:
     graph = load_graph("workflows/qwen_image_21_turbo_t2i.json")
     broken = WorkflowConfig.model_validate(
