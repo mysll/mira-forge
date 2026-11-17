@@ -18,6 +18,7 @@ class AssetSaved(BaseModel):
     width: int
     height: int
     media_type: str = "asset"
+    replaced: bool = False
 
 
 class AssetSaveRequest(BaseModel):

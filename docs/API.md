@@ -485,6 +485,22 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 
 素材落盘在 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`，和 `images/`、`videos/` 同级。
 
+### `PUT /assets/{image_id}`
+
+**覆盖**已有素材（工坊里从资产打开、改完再保存时走这条）。
+
+- 请求体与 `POST /assets` 相同，但不需要 `source_image_id`（来源本来就是它自己）。
+- 语义是替换而不是新建：**批次 id 不变、产物 id 不变、资产条数不变**；旧文件与旧缩略图当场删除，新内容写回同一个路径。
+- 产物 `created_at` 会刷新，前端用 `?v=<created_at>` 的缓存键因此拿到新文件，不会撞上旧 ZIP。
+- 返回体多一个 `"replaced": true`；找不到、或 id 不是素材 → 404 `没有 id 为 3 的素材`。
+
+```json
+{ "generation_id": 1, "image_id": 1, "name": "sprite_atlas.zip", "file_size": 988171,
+  "width": 1024, "height": 1024, "media_type": "asset", "replaced": true }
+```
+
+**什么时候用哪条**：资产里点「在序列帧工坊打开」（`?asset=<id>`）或从工坊里「从资产选」图集 → 这条会话绑定该素材，导出弹层的按钮变成「保存并覆盖 #id」，走 `PUT`；本机导入、拖入文件、或从视频开始的新作品 → 未绑定，走 `POST` 新建一条（首次保存成功后也会自动绑定，同一次会话里再保存就是覆盖）。
+
 ## WebSocket
 
 ### `WS /ws/tasks`

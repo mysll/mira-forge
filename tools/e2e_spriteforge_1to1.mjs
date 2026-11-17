@@ -309,6 +309,39 @@ if (newest) {
   }
 }
 
+// 8) 覆盖：用 ?asset=<newest> 重新打开 → 导出弹层按钮应变成「保存并覆盖 #id」→ 保存后资产总数不变
+let overwrite = null;
+if (newest) {
+  try {
+    await waitFor(`(() => !!document.getElementById("exportBtn"))()`, 20000, "覆盖测试挂载");
+    const chip = await evaluate(
+      `document.querySelector(".sf-app")?.parentElement?.querySelector("div.absolute.bottom-3")?.textContent?.trim() ?? ""`,
+    );
+    await evaluate(`document.getElementById("exportBtn").click(), true`);
+    await sleep(800);
+    const label = await evaluate(`document.getElementById("saveAssetBtn")?.textContent?.trim() ?? ""`);
+    const beforeOverwrite = await countAssets();
+    await evaluate(`document.getElementById("saveAssetBtn").click(), true`);
+    await sleep(4000);
+    const afterOverwrite = await countAssets();
+    const detail = await evaluate(
+      `fetch("${api}/images/${newest}").then(r => r.ok ? r.json() : null).then(d => d && ({ file_path: d.file_path, size: d.file_size }))`,
+    );
+    overwrite = {
+      chip,
+      label,
+      bindHint: /覆盖/.test(label) && /覆盖/.test(chip),
+      beforeOverwrite,
+      afterOverwrite,
+      stayed: beforeOverwrite === afterOverwrite,
+      sameId: detail ? detail.file_path.startsWith("assets/") : false,
+    };
+    await shot(resolve("data/ui-spriteforge-overwrite.png"));
+  } catch (cause) {
+    overwrite = { error: String(cause) };
+  }
+}
+
 console.log(
   JSON.stringify(
     {
@@ -326,6 +359,7 @@ console.log(
       modalDiag,
       saveClicked,
       asset: { before, after, newest },
+      overwrite,
       reimported,
       screenshots: { menu: shotMenu, run: out },
     },

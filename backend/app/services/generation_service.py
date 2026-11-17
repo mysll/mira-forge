@@ -325,6 +325,66 @@ def create_local_edit(
     db.refresh(generation)
     return generation, image
 
+
+def replace_local_asset(
+    db: Session,
+    *,
+    image: Image,
+    content: bytes,
+    filename: str,
+    width: int = 0,
+    height: int = 0,
+    prompt: str | None = None,
+    poster: bytes | None = None,
+) -> tuple[Generation, Image]:
+    """用新导出的图集覆盖已有的素材记录。
+
+    覆盖 = 删掉旧产物（行 + 文件 + 缩略图）再在同一批次/任务下写一份新的：
+    - 批次 id 不变，所以资产库里不会多出一条，时间线也不跳；
+    - 产物 id 复用旧的（外部链接不失效），前端靠 `?v=<created_at>` 的变化拿到新文件；
+    - 旧文件当场删除，这是用户要的「覆盖」，不是版本历史。
+    """
+    from app.services.image_service import remove_files, store_image
+
+    generation = image.generation
+    if generation is None:
+        raise ValueError("这条素材没有所属批次，无法覆盖")
+    task_id = image.task_id
+    if task_id is None:
+        raise ValueError("这条素材没有所属任务，无法覆盖")
+
+    suffix = Path(filename).suffix.lower() or ".bin"
+    # 覆盖后仍用同一个产物 id：外部链接（详情弹窗、深链、收藏）不会失效，
+    # 缓存则靠 created_at 变化时的 ?v= 版本串自然失效。
+    keep_id = image.id
+    remove_files(image)
+    db.delete(image)
+    db.flush()
+
+    if prompt:
+        generation.prompt = prompt
+    generation.width = width
+    generation.height = height
+    generation.completed_at = utcnow()
+
+    replaced = store_image(
+        db,
+        content=content,
+        generation_id=generation.id,
+        task_id=task_id,
+        index=0,
+        width=width,
+        height=height,
+        extension=suffix.lstrip("."),
+        media_type="asset",
+        poster=poster,
+    )
+    replaced.id = keep_id
+    db.commit()
+    db.refresh(generation)
+    db.refresh(replaced)
+    return generation, replaced
+
 def create_local_asset(
     db: Session,
     *,

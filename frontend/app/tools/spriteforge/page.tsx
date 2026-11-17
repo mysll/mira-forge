@@ -62,12 +62,22 @@ export default function SpriteForgePage() {
   const hostRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef<((choice: ImportChoice | null) => void) | null>(null);
   const queryClient = useQueryClient();
+  // 正在编辑哪条素材：从资产打开（或从资产挑图集）就记下它的 id，保存时覆盖它；
+  // 本地导入 / 新视频一律清空，保存时新建。
+  const boundRef = useRef<number | null>(null);
 
   const [toastText, setToastText] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ kind: SourceKind; left: number; top: number } | null>(null);
   const [picking, setPicking] = useState<SourceKind | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [bound, setBound] = useState<number | null>(null);
+
+  const bindAsset = useCallback((assetId: number | null) => {
+    boundRef.current = assetId;
+    setBound(assetId);
+  }, []);
+
 
   const toast = useCallback((text: string) => {
     setToastText(text);
@@ -102,18 +112,31 @@ export default function SpriteForgePage() {
   useEffect(() => {
     const bridge = {
       chooseSource,
+      // 导出弹层上的按钮文案：有绑定素材时改成「保存并覆盖」。
+      saveLabel: () => (boundRef.current ? `保存并覆盖 #${boundRef.current}` : "保存到资产"),
       saveAsset: async (blob: Blob, name: string) => {
-        const saved = await saveAssetToLibrary(blob, name, { prompt: "序列帧工坊导出" });
+        const target = boundRef.current;
+        const saved = await saveAssetToLibrary(blob, name, {
+          prompt: "序列帧工坊导出",
+          ...(target === null ? {} : { assetId: target }),
+        });
+        // 新建之后就绑定到这条素材：同一次会话里再保存是覆盖，不会越存越多。
+        if (target === null) bindAsset(saved.image_id);
         await queryClient.invalidateQueries({ queryKey: ["generations"] });
         await queryClient.invalidateQueries({ queryKey: ["images"] });
         return saved;
       },
+      saved: (built: { name: string }) =>
+        boundRef.current
+          ? `已覆盖素材 #${boundRef.current}（${built.name}）`
+          : `已存入资产库：${built.name}`,
     };
     (window as unknown as { MiraForgeToolBridge?: unknown }).MiraForgeToolBridge = bridge;
     return () => {
       delete (window as unknown as { MiraForgeToolBridge?: unknown }).MiraForgeToolBridge;
     };
-  }, [chooseSource, queryClient]);
+  }, [chooseSource, queryClient, bindAsset]);
+
 
   // 拉源码、注入标记与样式、执行脚本；卸载时调工坊自己的 destroy 摘掉全局监听。
   useEffect(() => {
@@ -156,6 +179,8 @@ export default function SpriteForgePage() {
           try {
             const file = await fileFromAsset(deepId);
             tool?.importFile?.(videoId ? "video" : "atlas", file);
+            // 从素材打开 = 编辑这条素材；从视频打开 = 新作品
+            bindAsset(videoId ? null : assetId);
           } catch {
             toast("读取资产失败，请重试");
           }
@@ -191,11 +216,29 @@ export default function SpriteForgePage() {
     };
   }, [menu, settle]);
 
+  // 用「从本机上传」或直接拖文件进来 = 换了一份内容，不再是原来那条素材。
+  // 我们自己的注入是脚本派发的 change（isTrusted 为 false），只认用户真实操作。
+  useEffect(() => {
+    if (!ready) return;
+    const host = hostRef.current;
+    if (!host) return;
+    const onLocalChange = (event: Event) => {
+      if (event.isTrusted) bindAsset(null);
+    };
+    const inputs = Array.from(host.querySelectorAll<HTMLInputElement>("#videoInput, #atlasInput"));
+    inputs.forEach((input) => input.addEventListener("change", onLocalChange));
+    return () => {
+      inputs.forEach((input) => input.removeEventListener("change", onLocalChange));
+    };
+  }, [ready, bindAsset]);
+
   const onAssetPicked = useCallback(
     async (image: ImageBrief) => {
       const kind = picking;
       setPicking(null);
       if (!kind) return;
+      // 挑图集 = 打开这条素材（保存时覆盖它）；挑视频 = 新作品
+      bindAsset(kind === "atlas" ? image.id : null);
       try {
         settle({ action: "asset", file: await fileFromAsset(image.id) });
       } catch {
@@ -203,7 +246,7 @@ export default function SpriteForgePage() {
         settle(null);
       }
     },
-    [picking, settle, toast],
+    [picking, settle, toast, bindAsset],
   );
 
   return (
@@ -211,6 +254,24 @@ export default function SpriteForgePage() {
       {/* 工具自己有一整条顶栏（品牌 + 状态 + 导入导出），左侧栏也有「工具」入口，这里不再叠一层标题栏。 */}
       <div className="relative min-h-0 flex-1">
         <div ref={hostRef} className="sf-app" />
+        {/* 覆盖提示：从资产打开时告诉用户「这次保存会改原来那条」，点 × 就转为新素材。 */}
+        {bound !== null ? (
+          <div className="absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-accent/40 bg-accent/15 px-3 py-1.5 text-[11px] text-accentSoft shadow-pop backdrop-blur">
+            <span>正在编辑素材 #{bound} · 保存会覆盖它</span>
+            <button
+              type="button"
+              title="改成另存为新素材"
+              aria-label="改成另存为新素材"
+              className="grid h-4 w-4 place-items-center rounded-full text-accentSoft/80 hover:bg-white/10 hover:text-ink"
+              onClick={() => {
+                bindAsset(null);
+                toast("已改为另存为新素材");
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {!ready && !error ? (
           <div className="absolute inset-0 grid place-items-center bg-bg/60 text-xs text-muted">正在加载工坊…</div>
         ) : null}
@@ -235,7 +296,11 @@ export default function SpriteForgePage() {
             type="button"
             role="menuitem"
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-muted hover:bg-white/[0.06] hover:text-ink"
-            onClick={() => settle({ action: "local" })}
+            onClick={() => {
+              // 本机上传 = 新内容，交回原版文件框前先解绑
+              bindAsset(null);
+              settle({ action: "local" });
+            }}
           >
             从本机上传
           </button>

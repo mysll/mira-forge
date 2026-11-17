@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.models.database import get_db
 from app.models.image import Image
 from app.schemas.asset import AssetSaved
-from app.services.generation_service import create_local_asset
+from app.services.generation_service import create_local_asset, replace_local_asset
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -47,14 +48,16 @@ def _first_png_from_zip(content: bytes) -> bytes | None:
     return None
 
 
-@router.post("", response_model=AssetSaved, status_code=201)
-async def save_asset(
-    file: UploadFile = File(...),
-    name: str | None = Form(None),
-    prompt: str | None = Form(None),
-    source_image_id: int | None = Form(None),
-    db: Session = Depends(get_db),
-) -> AssetSaved:
+@dataclass(frozen=True)
+class _Prepared:
+    filename: str
+    content: bytes
+    width: int
+    height: int
+    poster: bytes | None
+
+
+async def _prepare_upload(file: UploadFile) -> _Prepared:
     filename = Path(file.filename or "asset.bin").name
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -84,30 +87,77 @@ async def save_asset(
     else:
         width, height = 0, 0
 
-    source: Image | None = None
-    if source_image_id is not None:
-        source = db.get(Image, source_image_id)
+    return _Prepared(filename=filename, content=content, width=width, height=height, poster=poster)
 
-    label = (name or "").strip() or filename
-    text = (prompt or "").strip() or f"素材 · {label}"
 
-    generation, image = create_local_asset(
-        db,
-        content=content,
-        filename=filename,
-        width=width,
-        height=height,
-        prompt=text[:500],
-        poster=poster,
-        source_image=source,
-    )
-
+def _asset_from(payload: _Prepared, generation, image, *, replaced: bool = False) -> AssetSaved:
     return AssetSaved(
         generation_id=generation.id,
         image_id=image.id,
-        name=filename,
+        name=payload.filename,
         file_size=image.file_size,
         width=image.width,
         height=image.height,
         media_type=image.media_type,
+        replaced=replaced,
     )
+
+
+@router.post("", response_model=AssetSaved, status_code=201)
+async def save_asset(
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    prompt: str | None = Form(None),
+    source_image_id: int | None = Form(None),
+    db: Session = Depends(get_db),
+) -> AssetSaved:
+    payload = await _prepare_upload(file)
+
+    source: Image | None = None
+    if source_image_id is not None:
+        source = db.get(Image, source_image_id)
+
+    label = (name or "").strip() or payload.filename
+    text = (prompt or "").strip() or f"素材 · {label}"
+
+    generation, image = create_local_asset(
+        db,
+        content=payload.content,
+        filename=payload.filename,
+        width=payload.width,
+        height=payload.height,
+        prompt=text[:500],
+        poster=payload.poster,
+        source_image=source,
+    )
+    return _asset_from(payload, generation, image)
+
+
+@router.put("/{image_id}", response_model=AssetSaved)
+async def replace_asset(
+    image_id: int,
+    file: UploadFile = File(...),
+    name: str | None = Form(None),
+    prompt: str | None = Form(None),
+    db: Session = Depends(get_db),
+) -> AssetSaved:
+    """覆盖已有素材：同一个批次里换掉产物，资产库不会因此多出一条。"""
+    image = db.get(Image, image_id)
+    if image is None or image.media_type != "asset":
+        raise HTTPException(status_code=404, detail=f"没有 id 为 {image_id} 的素材")
+
+    payload = await _prepare_upload(file)
+    label = (name or "").strip() or payload.filename
+    text = (prompt or "").strip() or f"素材 · {label}"
+
+    generation, replaced = replace_local_asset(
+        db,
+        image=image,
+        content=payload.content,
+        filename=payload.filename,
+        width=payload.width,
+        height=payload.height,
+        prompt=text[:500],
+        poster=payload.poster,
+    )
+    return _asset_from(payload, generation, replaced, replaced=True)

@@ -100,3 +100,40 @@ def test_asset_rejects_empty_file(client: TestClient) -> None:
     status, payload = _save(client, "atlas.png", b"")
     assert status == 422
     assert "空" in payload["detail"]
+
+
+def test_replace_asset_keeps_one_entry_with_new_content(client: TestClient) -> None:
+    status, created = _save(client, "atlas_old.zip", _zip_with_png())
+    assert status == 201, created
+    before = client.get(f"{API}/generations", params={"media": "asset"}).json()["total"]
+    old_image_id = created["image_id"]
+
+    response = client.put(
+        f"{API}/assets/{old_image_id}",
+        files={"file": ("atlas_new.zip", _zip_with_png(), "application/octet-stream")},
+        data={"name": "覆盖后的图集"},
+    )
+    assert response.status_code == 200, response.json()
+    replaced = response.json()
+    assert replaced["replaced"] is True
+    assert replaced["image_id"] == old_image_id
+    assert replaced["generation_id"] == created["generation_id"]
+
+    # 资产库里还是那一条，批次没变、没多出来
+    after = client.get(f"{API}/generations", params={"media": "asset"}).json()
+    assert after["total"] == before
+
+    # 同一个产物 id，但内容已经换新（ZIP 的 content-type 不会变成图片）
+    file = client.get(f"{API}/images/{old_image_id}/file")
+    assert file.status_code == 200
+    assert file.headers["content-type"] == "application/zip"
+
+
+def test_replace_asset_rejects_unknown_or_non_asset(client: TestClient) -> None:
+    response = client.put(
+        f"{API}/assets/999999",
+        files={"file": ("atlas.zip", _zip_with_png(), "application/octet-stream")},
+        data={"name": "x"},
+    )
+    assert response.status_code == 404
+    assert "素材" in response.json()["detail"]

@@ -216,9 +216,13 @@ export type RemoveBackgroundOptions = {
   channel?: "max" | "mean" | "luma";
 };
 
-async function postImage(path: string, form: FormData): Promise<{ blob: Blob; headers: Headers }> {
+async function postImage(
+  path: string,
+  form: FormData,
+  method: "POST" | "PUT" = "POST",
+): Promise<{ blob: Blob; headers: Headers }> {
   const response = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
+    method,
     body: form,
     cache: "no-store",
   });
@@ -302,6 +306,7 @@ export async function saveEditedImage(
 
 /** 素材（工坊导出的 atlas.png / atlas.json / 图集 ZIP）保存进资产库。 */
 export type AssetSaved = {
+  replaced?: boolean;
   generation_id: number;
   image_id: number;
   name: string;
@@ -314,7 +319,7 @@ export type AssetSaved = {
 export async function saveAsset(
   blob: Blob,
   name: string,
-  options: { sourceImageId?: number; prompt?: string } = {},
+  options: { sourceImageId?: number; prompt?: string; assetId?: number } = {},
 ): Promise<AssetSaved> {
   const form = new FormData();
   form.set("file", blob, name);
@@ -325,7 +330,9 @@ export async function saveAsset(
   if (options.prompt) {
     form.set("prompt", options.prompt);
   }
-  const { blob: body } = await postImage("/assets", form);
+  // 传 assetId = 覆盖那条素材；不传 = 新建一条件
+  const target = options.assetId === undefined ? "/assets" : `/assets/${options.assetId}`;
+  const { blob: body } = await postImage(target, form, options.assetId === undefined ? "POST" : "PUT");
   return (await JSON.parse(await body.text())) as AssetSaved;
 }
 

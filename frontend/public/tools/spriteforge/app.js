@@ -2617,7 +2617,7 @@
         <button class="btn btn-ghost" type="button" id="downloadJsonBtn">仅 JSON</button>
         ${readBridge() && typeof readBridge().saveAsset === 'function' ? `
         <button class="btn btn-ghost" type="button" id="saveAssetBtn">
-          <svg class="icon"><use href="#i-upload"/></svg><span>保存到资产</span>
+          <svg class="icon"><use href="#i-upload"/></svg><span>${readBridge().saveLabel ? readBridge().saveLabel() : '保存到资产'}</span>
         </button>` : ''}
         <button class="btn btn-primary" type="button" id="downloadZipBtn">
           <svg class="icon"><use href="#i-download"/></svg><span>下载 ZIP</span>
@@ -2724,7 +2724,8 @@
       const built = await buildAtlasZip(json, '正在编码 PNG');
       if (!built) return;
       await bridge.saveAsset(built.blob, built.name);
-      showToast(`已保存到资产：${built.name}`, 'ok', 4000);
+      const savedLabel = typeof bridge?.saved ? bridge.saved(built) : '';
+      showToast(savedLabel || `已保存到资产：${built.name}`, 'ok', 4000);
     } catch (error) {
       console.error(error);
       showToast(`保存失败：${error.message || '未知错误'}`, 'error', 4500);
