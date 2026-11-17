@@ -96,12 +96,14 @@ export type GenerationType =
   | "image_to_image"
   | "image_edit"
   | "text_to_video"
-  | "image_to_video";
+  | "image_to_video"
+  | "local_edit"
+  | "local_asset";
 
 export type TaskRead = {
   id: number;
   generation_id: number;
-  seed: number;
+  seed: number | null;
   status: string;
   comfy_prompt_id: string | null;
   progress: number;
@@ -117,7 +119,8 @@ export type ImageBrief = {
   width: number;
   height: number;
   file_size: number;
-  /** image | video */
+  file_path: string;
+  /** image | video | asset */
   media_type: string;
   duration_seconds: number | null;
   fps: number | null;

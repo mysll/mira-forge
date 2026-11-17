@@ -19,7 +19,7 @@ from app.models.task import GenerationTask, TaskStatus
 from app.services.image_service import remove_files, storage_root_for
 
 _ACTIVE = (TaskStatus.QUEUED, TaskStatus.RUNNING)
-_CLEARED_DIRS = ("images", "videos", "thumbnails", "uploads")
+_CLEARED_DIRS = ("images", "videos", "assets", "thumbnails", "uploads")
 
 
 class WorkspaceBusyError(RuntimeError):

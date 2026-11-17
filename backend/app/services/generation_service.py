@@ -6,6 +6,7 @@ P1 只负责「校验 + 落库」：生成 N 条 pending 任务，不触碰 Comf
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import secrets
 from collections.abc import Sequence
 
@@ -316,6 +317,66 @@ def create_local_edit(
         index=0,
         width=width,
         height=height,
+    )
+    if source_image is not None:
+        image.original_image_id = source_image.id
+        generation.reference_image_path = source_image.file_path
+    db.commit()
+    db.refresh(generation)
+    return generation, image
+
+def create_local_asset(
+    db: Session,
+    *,
+    content: bytes,
+    filename: str,
+    width: int = 0,
+    height: int = 0,
+    prompt: str,
+    poster: bytes | None = None,
+    source_image: Image | None = None,
+) -> tuple[Generation, Image]:
+    """把外部产物（图集 ZIP、atlas.png、atlas.json）存成一条「素材」记录。
+
+    素材和生成图共用 images 表，靠 media_type="asset" 与 storage/assets/ 目录区分；
+    ZIP / JSON 没法预览，就用调用方给的 poster（通常是图集的第一张 PNG）当缩略图。
+    """
+    from app.services.image_service import store_image
+
+    suffix = Path(filename).suffix.lower() or ".bin"
+    now = utcnow()
+    generation = Generation(
+        prompt=prompt,
+        generation_type=str(GenerationType.LOCAL_ASSET),
+        model_name="spriteforge",
+        width=width,
+        height=height,
+        requested_count=1,
+        status=GenerationStatus.COMPLETED,
+        completed_at=now,
+    )
+    task = GenerationTask(
+        seed=None,
+        status=TaskStatus.COMPLETED,
+        progress=100,
+        started_at=now,
+        completed_at=now,
+    )
+    generation.tasks.append(task)
+    db.add(generation)
+    db.flush()
+
+    image = store_image(
+        db,
+        content=content,
+        generation_id=generation.id,
+        task_id=task.id,
+        index=0,
+        width=width,
+        height=height,
+        extension=suffix.lstrip("."),
+        media_type="asset",
+        poster=poster,
     )
     if source_image is not None:
         image.original_image_id = source_image.id

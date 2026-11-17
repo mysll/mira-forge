@@ -33,6 +33,7 @@ router = APIRouter(prefix="/generations", tags=["generations"])
 
 _VIDEO_TYPES = ("text_to_video", "image_to_video")
 _IMAGE_TYPES = ("text_to_image", "image_to_image", "image_edit", "local_edit")
+_ASSET_TYPES = ("local_asset",)
 
 
 def _types_for_media(media: str | None) -> list[str] | None:
@@ -41,6 +42,8 @@ def _types_for_media(media: str | None) -> list[str] | None:
         return list(_VIDEO_TYPES)
     if media == "image":
         return list(_IMAGE_TYPES)
+    if media == "asset":
+        return list(_ASSET_TYPES)
     return None
 
 
@@ -306,16 +309,16 @@ def list_generations(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200),
     model: str | None = Query(default=None, description="模型 id，多个用逗号分隔"),
-    media: str | None = Query(default=None, description="image 或 video，只取该类型的批次"),
+    media: str | None = Query(default=None, description="image / video / asset，只取该类别"),
     favorite: bool = Query(default=False, description="只看含收藏图片的批次"),
     date_from: str | None = Query(default=None, description="ISO 时间，含"),
     date_to: str | None = Query(default=None, description="ISO 时间，含"),
     db: Session = Depends(get_db),
 ) -> GenerationListResponse:
     models = [item.strip() for item in model.split(",") if item.strip()] if model else None
-    if media is not None and media not in ("image", "video"):
+    if media is not None and media not in ("image", "video", "asset"):
         raise HTTPException(
-            status_code=422, detail=f"media 只能是 image 或 video，收到 {media!r}"
+            status_code=422, detail=f"media 只能是 image、video 或 asset，收到 {media!r}"
         )
     rows, total = GenerationRepository(db).list(
         limit=limit,

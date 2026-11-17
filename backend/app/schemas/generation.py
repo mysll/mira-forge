@@ -56,7 +56,8 @@ class ImageBrief(BaseModel):
     width: int
     height: int
     file_size: int
-    # image | video
+    file_path: str = ""
+    # image | video | asset
     media_type: str = "image"
     duration_seconds: float | None = None
     fps: float | None = None

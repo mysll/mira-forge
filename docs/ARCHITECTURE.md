@@ -19,7 +19,7 @@ FastAPI (8000)
 ComfyUI (8188)  ── 只有 Worker 访问
   │
   ▼
-data/projects/default/{storage/{images,videos}, app.db}
+data/projects/default/{storage/{images,videos,assets}, app.db}
 ```
 
 三条不可动摇的边界：
@@ -48,7 +48,7 @@ data/projects/
   catalog.json                  项目清单（id / 名称 / 创建时间 / 激活项），原子写
   default/
     app.db                      这个项目自己的 SQLite（WAL）
-    storage/{images,videos,thumbnails,uploads}/
+    storage/{images,videos,assets,thumbnails,uploads}/
   p-20261116-160248-cce4/       新建的项目同样一套
 ```
 
@@ -237,3 +237,22 @@ SpriteForge 是别人写好的、完全没有构建步骤的工具（一个 `ind
 - **`/tools/spriteforge` 只是壳**：一个「← 工具」返回、一个「在新标签页打开」，中间同源 `<iframe>`。同源的好处是工具的 `localStorage`、文件选择、ZIP 下载都照常工作，不需要 `postMessage` 协议，也不用给它开后端接口。
 - **不进入我们的数据模型**：抽帧、抠背景、打图集、导出都在浏览器里完成，产物通过工具自己的下载落地；`images` 表里不会多出记录。想做「存进资产」的功能，才需要走 `/editor/save` 那条路。
 - 代价：iframe 内部的样式、快捷键、滚动都由工具自己管，我们的主题（暗色、字体）不会渗进去；如果以后要和 MiraForge 的资产库联动（例如把图集帧直接存成资产），再考虑加一层 `postMessage` 或直接改成组件。
+
+## 素材（assets）：为什么复用 `images` 表
+
+序列帧工坊导出的是 `.zip`（图集 + `atlas.json`）或单张 PNG，它们既要出现在资产库、又要能收藏 / 下载 / 删除。如果新开一张 `assets` 表，就得把 `GET /images`、`POST /images/{id}/favorite`、批量删除、清空工作区、缩略图、`/images/{id}/file` 全部复制一遍。
+
+所以素材就是 `images` 里 `media_type = "asset"` 的一行，文件落 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`（和 `images/`、`videos/` 同级，这也是用户要求的目录结构），并且：
+
+- 每条素材同时有一条 `GenerationType.LOCAL_ASSET` 的 generation + 一条已完成的 task，`seed` 为 `null`——这样作品流的时间线、批次号、`GET /generations?media=asset` 都不用特殊分支；
+- 缩略图不一定是「解码出来的」：ZIP 由后端取里面第一张 PNG 交给 Pillow 压成 `thumbnails/`，JSON 没有图，`/thumbnail` 就返回 404，前端退化成文件牌；
+- `GET /images/{id}/file` 的 `Content-Type` 按后缀给（`application/zip` / `application/json` / 图片类型），否则浏览器会把 ZIP 当图片渲染失败。
+
+## 序列帧工坊的桥接：不碰源码的两个接缝
+
+工坊是别人的静态页面，我们不改它一行代码，只利用两个接缝：
+
+1. **入向**（把资产里的视频交给工坊）：工坊的输入是 `<input type="file" id="videoInput">`，用 `DataTransfer` 构造 `FileList`、赋给 `input.files`、再 `dispatchEvent(new Event("change", { bubbles: true }))`，工坊自己的 `change` 监听就会开始抽帧。深链 `?video=<id>` 只是把这一步自动化。
+2. **出向**（把工坊导出的文件存进资产）：`app.js` 是 IIFE，`downloadBlob` 不在 `window` 上，改不了函数，但它最终一定执行「造 `<a download>` 然后 `click()`」。所以在父页面覆写 `iframe.contentWindow.HTMLAnchorElement.prototype.click`：读 `this.download` 与 `this.href`（`blob:`），`win.fetch(href)` 取回同一份字节留档，再调原始 `click` 让下载照旧发生。
+
+两个注意点：iframe 可能在 React 水合**之前**就 load 完，`onLoad` 会漏，所以在 `useEffect` 里轮询 `readyState === "complete" && #videoInput` 直到挂上钩子（幂等）；另外桥接只在同源时成立，这也是把工坊放在 `public/tools/spriteforge/` 而不是另起端口的原因。

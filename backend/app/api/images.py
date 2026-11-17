@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -62,6 +64,23 @@ def get_image(image_id: int, db: Session = Depends(get_db)) -> ImageRead:
     return ImageRead.model_validate(image)
 
 
+_ASSET_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".json": "application/json",
+    ".zip": "application/zip",
+}
+
+
+def _content_type(image: Image) -> str:
+    """产物类型跟着文件后缀走：视频 mp4、图集 zip、atlas.json 各是各的。"""
+    if image.media_type == "video":
+        return "video/mp4"
+    suffix = Path(image.file_path).suffix.lower()
+    return _ASSET_CONTENT_TYPES.get(suffix, "image/png")
+
 @router.get("/{image_id}/file", response_class=FileResponse)
 def get_image_file(image_id: int, db: Session = Depends(get_db)) -> FileResponse:
     image = db.get(Image, image_id)
@@ -76,7 +95,7 @@ def get_image_file(image_id: int, db: Session = Depends(get_db)) -> FileResponse
             detail=f"图片文件缺失：{image.file_path}",
         )
     # 视频产物走同一个端点，Content-Type 必须跟着 media_type 变，否则浏览器当图片解码
-    media_type = "video/mp4" if image.media_type == "video" else "image/png"
+    media_type = _content_type(image)
     return FileResponse(
         path,
         media_type=media_type,

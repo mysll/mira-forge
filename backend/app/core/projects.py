@@ -4,7 +4,7 @@
 
     data/projects/<项目 id>/
         app.db
-        storage/{images,videos,thumbnails,uploads}
+        storage/{images,videos,assets,thumbnails,uploads}
 
 这样项目之间天然隔离：切项目就是切数据库 + 切 storage，删项目就是删一个文件夹，
 备份 / 搬走一个项目也只需要复制那个目录。项目清单保存在
@@ -62,7 +62,7 @@ class Project:
 
     def ensure_directories(self) -> None:
         self.path.mkdir(parents=True, exist_ok=True)
-        for name in ("images", "videos", "thumbnails", "uploads"):
+        for name in ("images", "videos", "assets", "thumbnails", "uploads"):
             (self.storage_path / name).mkdir(parents=True, exist_ok=True)
 
     def to_dict(self) -> dict:

@@ -20,6 +20,9 @@ class ImageStoreError(RuntimeError):
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
+RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_FOLDER_BY_MEDIA = {"image": "images", "video": "videos", "asset": "assets"}
+
 
 def storage_root_for(storage_root: Path | None = None) -> Path:
     """产物根目录：默认取当前激活项目的 storage；worker 会显式传目标任务所属的项目。"""
@@ -41,6 +44,10 @@ def detect_image_extension(content: bytes) -> str | None:
     if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
         return "webp"
     return None
+
+
+def _is_raster(file_path: str) -> bool:
+    return Path(file_path).suffix.lower() in RASTER_SUFFIXES
 
 
 def store_upload(
@@ -104,7 +111,7 @@ def store_image(
     poster 是封面帧 PNG —— 直接压成缩略图，作品流里用封面代替视频本身。
     """
     root = storage_root_for(storage_root)
-    folder = "videos" if media_type == "video" else "images"
+    folder = _FOLDER_BY_MEDIA.get(media_type, "images")
     relative = Path(folder) / str(generation_id) / f"{task_id}_{index}.{extension}"
     absolute = root / relative
     try:
@@ -182,9 +189,9 @@ def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None
         if cached.is_file():
             return cached
 
-    if image.media_type == "video":
-        # 视频没法用 Pillow 解码；worker 落库时已经用封面帧生成缩略图了
-        raise ImageStoreError(f"视频产物缺少封面帧：{image.file_path}")
+    if image.media_type in ("video", "asset") and not _is_raster(image.file_path):
+        # 视频与 zip/json 这类素材没法用 Pillow 解码；落库时已经给了封面帧
+        raise ImageStoreError(f"产物缺少封面帧：{image.file_path}")
 
     source = absolute_path(image, storage_root)
     if not source.is_file():

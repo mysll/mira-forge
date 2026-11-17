@@ -61,6 +61,10 @@ export default function ImageDetail({
     }
   };
 
+  const assetSuffix =
+    image.media_type === "asset" ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
+  const isRasterAsset = !assetSuffix || /^(png|jpe?g|webp|gif)$/.test(assetSuffix);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
@@ -82,6 +86,18 @@ export default function ImageDetail({
               playsInline
               className="max-h-[80vh] w-auto max-w-full rounded-lg bg-black"
             />
+          ) : image.media_type === "asset" && !isRasterAsset ? (
+            <div className="flex flex-col items-center gap-3 text-center">
+              <span className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs uppercase tracking-wide text-muted">
+                {assetSuffix || "file"}
+              </span>
+              <p className="max-w-xs text-xs leading-relaxed text-muted">
+                素材文件没法在浏览器里预览，下载后到序列帧工坊或游戏引擎里使用。
+              </p>
+              <button type="button" onClick={() => onDownload(item)} className="btn-primary">
+                下载{assetSuffix ? ` .${assetSuffix}` : "文件"}
+              </button>
+            </div>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
@@ -96,7 +112,7 @@ export default function ImageDetail({
           <div className="flex items-start justify-between gap-2 px-4 pb-2 pt-4">
             <div>
               <p className="text-[11px] text-muted">批次 #{generation.id}</p>
-              <p className="text-sm font-medium text-ink">{image.media_type === "video" ? "视频详情" : "图片详情"}</p>
+              <p className="text-sm font-medium text-ink">{image.media_type === "video" ? "视频详情" : image.media_type === "asset" ? "素材详情" : "图片详情"}</p>
             </div>
             <button type="button" onClick={onClose} className="icon-btn" title="关闭">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
@@ -229,7 +245,7 @@ export default function ImageDetail({
               onClick={() => onDelete(item)}
               className="btn-ghost col-span-2 !text-bad hover:!border-bad/50"
             >
-              {image.media_type === "video" ? "删除这条视频" : "删除这张图"}
+              {image.media_type === "video" ? "删除这条视频" : image.media_type === "asset" ? "删除这个素材" : "删除这张图"}
             </button>
           </div>
         </div>

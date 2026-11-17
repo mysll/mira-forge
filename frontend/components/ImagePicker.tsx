@@ -20,6 +20,7 @@ export default function ImagePicker({
   onClose,
   onPick,
   onUpload,
+  kind = "image",
 }: {
   open: boolean;
   title?: string;
@@ -27,6 +28,7 @@ export default function ImagePicker({
   onClose: () => void;
   onPick: (image: ImageBrief) => void;
   onUpload?: () => void;
+  kind?: "image" | "video";
 }) {
   const images = useQuery({
     queryKey: ["images", "picker"],
@@ -57,7 +59,9 @@ export default function ImagePicker({
     return null;
   }
 
-  const items = (images.data?.items ?? []).filter((item) => item.media_type !== "video");
+  const items = (images.data?.items ?? []).filter((item) =>
+    kind === "video" ? item.media_type === "video" : item.media_type !== "video",
+  );
 
   if (!mounted) {
     return null;

@@ -19,12 +19,13 @@ const ACTIVE = new Set(["pending", "queued", "running"]);
 const PAGE_SIZE = 60;
 const BUCKETS: DateBucket[] = ["今天", "昨天", "更早"];
 
-type MediaFilter = "all" | "image" | "video";
+type MediaFilter = "all" | "image" | "video" | "asset";
 
 const MEDIA_FILTERS: { value: MediaFilter; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "image", label: "图片" },
   { value: "video", label: "视频" },
+  { value: "asset", label: "素材" },
 ];
 
 type Asset = AssetRef;
@@ -317,8 +318,14 @@ export default function GalleryPage() {
             </button>
           ))}
           <span className="ml-1 text-[11px] text-muted/70">
-            {mediaFilter === "video" ? "视频" : mediaFilter === "image" ? "图片" : "图片与视频"} ·{" "}
-            {assets.length} 个产物
+            {mediaFilter === "video"
+              ? "视频"
+              : mediaFilter === "image"
+                ? "图片"
+                : mediaFilter === "asset"
+                  ? "素材"
+                  : "图片、视频与素材"}{" "}
+            · {assets.length} 个产物
           </span>
         </div>
 
@@ -452,8 +459,20 @@ function AssetCard({
 }) {
   const { image, generation } = asset;
   const [loaded, setLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const isVideo = image.media_type === "video";
+  const isAsset = image.media_type === "asset";
   const duration = image.duration_seconds;
+  // 素材可能是图集 PNG，也可能是 ZIP / JSON —— 后两种没法当图渲染。
+  const isRaster = !isAsset || /\.(png|jpe?g|webp|gif)$/i.test(image.file_path);
+  const suffix = isAsset ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
+  // 素材若是 ZIP，缩略图是服务端从图集第一页抽出来的；JSON 没有缩略图，加载失败就退回文件牌。
+  const canPreview = !isAsset || isRaster || !imageFailed;
+  const studioHref = isVideo
+    ? `/tools/spriteforge?video=${image.id}`
+    : isAsset
+      ? `/tools/spriteforge?asset=${image.id}`
+      : null;
 
   return (
     <div
@@ -479,18 +498,30 @@ function AssetCard({
       title={selectable ? "点击选择这张图" : `${generation.prompt}\n${formatTime(image.created_at)}`}
     >
       <div className="relative aspect-square w-full overflow-hidden bg-surface2">
-        {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageThumbnailUrl(image)}
-          alt={generation.prompt.slice(0, 60)}
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          className={[
-            "h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]",
-            isVideo ? "opacity-95" : "",
-          ].join(" ")}
-        />
+        {canPreview ? (
+          <>
+            {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageThumbnailUrl(image)}
+              alt={generation.prompt.slice(0, 60)}
+              loading="lazy"
+              onLoad={() => setLoaded(true)}
+              onError={() => setImageFailed(true)}
+              className={[
+                "h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]",
+                isVideo ? "opacity-95" : "",
+              ].join(" ")}
+            />
+          </>
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-3 text-center">
+            <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
+              {suffix || "file"}
+            </span>
+            <span className="line-clamp-2 text-[10px] text-muted/80">{generation.prompt}</span>
+          </div>
+        )}
 
         {isVideo ? (
           <>
@@ -509,6 +540,12 @@ function AssetCard({
               视频
             </span>
           </>
+        ) : null}
+
+        {isAsset ? (
+          <span className="pointer-events-none absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur">
+            素材 · {suffix || "file"}
+          </span>
         ) : null}
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition group-hover:opacity-100" />
@@ -543,16 +580,21 @@ function AssetCard({
           <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
             <StarIcon filled={image.is_favorite} />
           </CellAction>
-          {isVideo ? null : (
+          {isVideo || isAsset ? null : (
             <CellAction label="继续编辑（AI）" onClick={onEdit}>
               <EditIcon />
             </CellAction>
           )}
-          {isVideo ? null : (
+          {isVideo || isAsset ? null : (
             <CellAction label="本地编辑（抠底 / 画布）" href={`/tools/editor?image=${image.id}`}>
               <CropIcon />
             </CellAction>
           )}
+          {studioHref ? (
+            <CellAction label="在序列帧工坊打开" href={studioHref}>
+              <GridIcon />
+            </CellAction>
+          ) : null}
           <CellAction label="下载" onClick={onDownload}>
             <DownloadIcon />
           </CellAction>
@@ -605,6 +647,17 @@ function CellAction({
     >
       {children}
     </button>
+  );
+}
+
+function GridIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.2" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
   );
 }
 

@@ -92,7 +92,7 @@ export function fetchGenerations(params?: {
   offset?: number;
   q?: string;
   model?: string | null;
-  media?: "image" | "video";
+  media?: "image" | "video" | "asset";
   favorite?: boolean;
   dateFrom?: string;
   dateTo?: string;
@@ -300,6 +300,52 @@ export async function saveEditedImage(
   return (await JSON.parse(await body.text())) as LocalEditSaved;
 }
 
+/** 素材（工坊导出的 atlas.png / atlas.json / 图集 ZIP）保存进资产库。 */
+export type AssetSaved = {
+  generation_id: number;
+  image_id: number;
+  name: string;
+  file_size: number;
+  width: number;
+  height: number;
+  media_type: string;
+};
+
+export async function saveAsset(
+  blob: Blob,
+  name: string,
+  options: { sourceImageId?: number; prompt?: string } = {},
+): Promise<AssetSaved> {
+  const form = new FormData();
+  form.set("file", blob, name);
+  form.set("name", name);
+  if (options.sourceImageId !== undefined) {
+    form.set("source_image_id", String(options.sourceImageId));
+  }
+  if (options.prompt) {
+    form.set("prompt", options.prompt);
+  }
+  const { blob: body } = await postImage("/assets", form);
+  return (await JSON.parse(await body.text())) as AssetSaved;
+}
+
+/** 按产物 id 取回文件（连同像扩展名的文件名），用于塞进工坊的 file input。 */
+export async function imageAsNamedFile(image: { id: number }, name?: string): Promise<File> {
+  const response = await fetch(imageFileUrl(image), { cache: "no-store" });
+  if (!response.ok) {
+    throw new ApiError(response.status, "读取产物失败");
+  }
+  const blob = await response.blob();
+  const type = blob.type || "application/octet-stream";
+  const suffix =
+    type === "video/mp4" ? "mp4"
+      : type === "application/zip" ? "zip"
+        : type === "application/json" ? "json"
+          : type === "image/jpeg" ? "jpg"
+            : type === "image/webp" ? "webp"
+              : "png";
+  return new File([blob], name ?? `asset-${image.id}.${suffix}`, { type });
+}
 /** 图片原始文件的绝对地址，用于 <img src>。 */
 /**
  * 图片地址带上版本号：SQLite 会复用被删除行的最大 id，而缩略图响应是 immutable 缓存，

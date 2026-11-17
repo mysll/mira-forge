@@ -33,6 +33,7 @@ class GenerationType(StrEnum):
     IMAGE_EDIT = "image_edit"
     # 本地编辑器保存的成品：不用模型、不排队，直接是一条已完成记录
     LOCAL_EDIT = "local_edit"
+    LOCAL_ASSET = "local_asset"
     # 视频（二期）：首帧 / 尾帧都可选，两张都不给就是纯文生视频
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"

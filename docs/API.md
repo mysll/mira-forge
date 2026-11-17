@@ -243,7 +243,7 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 | `limit` / `offset` | 分页，`limit` 1–100 |
 | `q` | 提示词模糊匹配（`LIKE %q%`） |
 | `model` | 模型 id，多个用逗号分隔 |
-| `media` | `image` / `video`：只要图片批次或只要视频批次；其它值 422。创作页固定传 `image`，视频页固定传 `video`，资产页按用户筛选传 |
+| `media` | `image` / `video` / `asset`：只要图片批次、视频批次或素材批次；其它值 422（`media 只能是 image、video 或 asset`）。创作页固定传 `image`，视频页固定传 `video`，资产页按用户筛选传 |
 | `favorite` | `true` 时只返回「批次内至少有一张被收藏」的记录 |
 | `date_from` / `date_to` | ISO 时间，按 epoch 比较（避开 SQLite 时区字符差异）；非法值 422 |
 
@@ -409,7 +409,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 `file_path` 相对 `STORAGE_DIR`，因此项目目录可整体搬迁。
 
-每个 `ImageRead` 都带 `media_type`（`image` / `video`）与视频专用的 `duration_seconds` / `fps` / `frame_count`；`GenerationRead` 也带 `duration_seconds` / `fps`，所以前端不需要再单独查任务表。
+每个 `ImageRead` 都带 `media_type`（`image` / `video` / `asset`）与视频专用的 `duration_seconds` / `fps` / `frame_count`；素材另外带 `file_path`（前端靠后缀区分 PNG 与 ZIP / JSON）；`GenerationRead` 也带 `duration_seconds` / `fps`，所以前端不需要再单独查任务表。
 
 ### `GET /images/{id}`
 
@@ -417,7 +417,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 ### `GET /images/{id}/file`
 
-返回原始文件，`Content-Type` 按 `media_type` 决定：图片是 `image/png`，视频是 `video/mp4`，并带 `Accept-Ranges: bytes`（浏览器可以拖动进度条）。可直接作为 `<img src>` / `<video src>`：
+返回原始文件，`Content-Type` 按 `media_type` 决定：图片是 `image/png`，视频是 `video/mp4`，素材按后缀给 `image/png` / `image/jpeg` / `image/webp` / `application/zip` / `application/json`；视频与素材的缩略图由服务端生成。可直接作为 `<img src>` / `<video src>`：
 
 ```html
 <img src="http://127.0.0.1:8000/api/v1/images/6/file" />
@@ -462,6 +462,28 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
   { "detail": "还有 1 个任务在排队或生成，清空会丢掉它们，请先等完成或取消" }
   ```
 - 不动的东西：模型注册表、工作流 JSON 与绑定配置、数据库文件本身。
+
+### `POST /assets`
+
+把序列帧工坊导出的图集（`.zip` / `.json`）或者单张图片存进「素材」类别。素材与图片、视频同级，走同一套收藏 / 下载 / 删除 / 画廊接口。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `file` | file | 必填。PNG / JPEG / WebP / JSON / ZIP，≤ 64 MB |
+| `name` | string | 可选，默认用上传文件名 |
+| `prompt` | string | 可选，作为素材的说明（默认 `序列帧工坊导出`） |
+| `source_image_id` | int | 可选，记录来源（写进 `images.original_image_id`） |
+
+ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素材卡有真实预览；JSON 没有预览，前端显示文件牌。
+
+```json
+{ "generation_id": 1, "image_id": 1, "name": "sprite_atlas.zip", "file_size": 2135700,
+  "width": 1024, "height": 1024, "media_type": "asset" }
+```
+
+错误：后缀不在白名单 → 422 `素材只支持 PNG / JPEG / WebP / JSON / ZIP，收到 .txt`；空文件 → 422 `素材内容为空`；过大 → 422 `素材不能超过 64 MB，收到 65.0 MB`。
+
+素材落盘在 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`，和 `images/`、`videos/` 同级。
 
 ## WebSocket
 

@@ -8,9 +8,10 @@
 | --- | --- | --- |
 | 首页 | `/` | 落地页：两个创作入口（生成图片 / 生成视频）、本机设备与显存状态、最近作品、模型卡、灵感提示词 |
 | 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧；hover 里有「本地编辑」直达编辑器 |
-| 工具 | `/tools` | 工具目录：卡片网格，目前只有「图片编辑器」，其余是计划中的占位卡 |
-| 图片编辑器 | `/tools/editor` | 本地图片编辑器：抠背景、改画布尺寸、主体等比缩放、指定底边留白，导出 PNG 或**保存到资产** |
-| 序列帧工坊 | `/tools/spriteforge` | 内嵌 SpriteForge（`D:\AI\SpriteForge` 的原样副本，静态托管在 `public/tools/spriteforge/`）：视频抽帧、抠透明背景、按行列打图集、导出 PNG + JSON + ZIP。同源 iframe，不经过后端；右上「在新标签页打开」可直接用原工具 |
+| 工具 | `/tools` | 工具目录：卡片网格，已有「图片编辑器」「序列帧工坊」，其余是计划中的占位卡 |
+| 图片编辑器 | `/tools/editor` | 本地图片编辑器：抠背景、改画布尺寸、主体等比缩放、指定底边留白，导出 PNG 或**保存到资产** |
+
+| 序列帧工坊 | `/tools/spriteforge` | 内嵌 SpriteForge（`D:\AI\SpriteForge` 的原样副本，静态托管在 `public/tools/spriteforge/`）：视频抽帧、抠透明背景、按行列打图集、导出 PNG + JSON + ZIP。同源 iframe，不经过后端；右上还有「从资产导入视频」「保存到资产」两个桥接按钮（`?video=<id>` / `?asset=<id>` 深链可自动载入），以及「在新标签页打开」 |
 | 图片 | `/compose` | 创作：批次流的作品 + 底部悬浮创作框（默认文生图，可在框内切编辑） |
 | 视频 | `/video` | 视频工作台：只显示视频作品，底部是视频创作框（首帧 / 尾帧、时长、画幅） |
 | 设置 | `/settings` | 系统状态 |
@@ -69,8 +70,9 @@
 | `app/tools/page.tsx` | 工具目录：卡片网格（第一张是编辑器，其余是「计划中」占位卡）+ 三条使用提示 |
 | `app/tools/editor/page.tsx` | 编辑器页：从 `window.location.search` 读 `?image=<id>`（不用 `useSearchParams`，避开静态预渲染 bailout）、五个动作（抠底 / 裁边 / 贴合主体 / 导出 / 保存到资产）、空态与 Toast；导出与保存共用 `renderCanvas()`，保存成功后导出区块显示批次号 |
 | `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条同时显示「画布」与「导出」两种尺寸；预览按 `缩放 × devicePixelRatio` 重绘（最高 4×），放大查看时用的是原图细节而不是把成品放大 |
-| `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景（模式、容差、羽化、去杂点；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
-| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：顶部「← 工具 / 在新标签页打开」，主体同源 `<iframe src="/tools/spriteforge/index.html">`；`min-h-0 flex-1` 让它撑满工作区 |
+| `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景（模式、容差、羽化、去杂点；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
+
+| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：顶部「← 工具 / 从资产导入视频 / 保存到资产 · N / 在新标签页打开」，主体同源 `<iframe src="/tools/spriteforge/index.html">`；桥接方式是「用 `DataTransfer` 往 `#videoInput` / `#atlasInput` 塞文件」+「覆写 `iframe` 里 `HTMLAnchorElement.prototype.click` 捕获导出的 blob」，再 `POST /assets` |
 | `public/tools/spriteforge/` | SpriteForge 的 `index.html` / `styles.css` / `app.js` 原样副本（由 `tools/sync-spriteforge.ps1` 同步，勿手改）；同目录 README.md 记录来源 |
 | `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene(ctx, input, scale)`、`exportSize()`（画布 × 倍率，最长边上限 8192）、`upscaleRatio()`（超出原图像素时给警告）、分级降采样绘制、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
 | `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、导出倍率（1×/2×/4×，不进撤销栈）、撤销重做栈（只记参数，抠底有独立「还原」） |
@@ -146,7 +148,8 @@
 - 分组只按日期（今天 / 昨天 / 更早），**不再按批次分块**——同一批的几张图在这里只是时间相邻的几张图；
 - 网格是 `grid-template-columns: repeat(auto-fill, minmax(168px, 1fr))`，窄屏自动降列；
 - 顶栏隐藏网格/列表切换（资产页只有网格），搜索 / 日期 / 模型 / 仅收藏照常可用；
-- 图片与视频在同一个网格里，但视频有明确标记：右上角「视频」角标、正中播放键、左下角时长；不想要混排时用网格上方的「全部 / 图片 / 视频」切换（对应 `GET /generations?media=`）；
+- 图片、视频、素材在同一个网格里，但都有明确标记：视频是右上角「视频」角标 + 正中播放键 + 左下角时长，素材是「素材 · zip」角标（ZIP 用首张 PNG 当封面，所以也有预览；纯 JSON 显示文件牌）；不想要混排时用网格上方的「全部 / 图片 / 视频 / 素材」切换（对应 `GET /generations?media=`）；
+- 视频卡片 hover 里有「在序列帧工坊打开」（`/tools/spriteforge?video=<id>`），素材卡片同样直达工坊（`?asset=<id>`），进去就能直接抽帧或导入图集；
 - 点击卡片打开与创作页同一个 `ImageDetail`；「继续编辑 / 重新生成」会把参数填回创作框并 `router.push("/")`，否则填了也没地方用。
 - 图片操作（收藏 / 下载 / 删除 / 继续编辑 / 重新生成）抽在 `hooks/useImageActions.ts`，两个页面共用一份，避免两份实现慢慢跑偏。
 
@@ -185,3 +188,10 @@
 - 参考图多张（一期编辑只接受 1 张）、图片拖拽排序、批量选择。
 - 虚拟滚动：目前一次最多渲染 40 张，靠「加载更多」翻页；上千张时需要换虚拟列表。
 - 键盘导航与焦点陷阱（详情弹窗只做了 ESC 关闭）。
+
+### 素材（assets）
+
+- 素材不是新表，而是 `images` 里 `media_type = "asset"` 的行，所以收藏、下载、删除、批量删除、清空工作区全都免费复用；
+- 它由两个地方产生：本地编辑器「保存到资产」、序列帧工坊「保存到资产」（ZIP / JSON / 单张 PNG）；
+- 卡片的缩略图来自服务端（ZIP 取里面第一张 PNG 当封面）；纯 JSON 没图可压，前端用 `<img onError>` 退回文件牌；
+- 素材不能「AI 编辑」，但可以「在序列帧工坊打开」，这是它自己的下游动作。
