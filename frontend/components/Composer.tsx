@@ -189,10 +189,12 @@ export default function Composer({ models, onToast }: Props) {
       if (mode === variables.mode && prompts[variables.mode] === variables.text) {
         setPrompt("");
       }
+      // 参考图是一次性输入：这一单已经把它们发出去了，留着只会让下一单重复带图
+      reference.clear();
+      genRefs.clear();
+      setSlotMenu(null);
+      setPicking(null);
       onToast(created.generation_type === "image_to_image" ? "已提交，参考图已生效" : "已提交，正在排队生成");
-      if (created.generation_type === "image_to_image") {
-        genRefs.clear();
-      }
       invalidate();
     },
     onError: (error: Error) => {
@@ -286,9 +288,6 @@ export default function Composer({ models, onToast }: Props) {
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4">
-      {/* 渐隐遮罩：让作品流在创作框下方自然淡出，而不是被一条硬边切成上下两块 */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 -top-32 bg-gradient-to-t from-bg via-bg via-70% to-transparent" />
-
       <div
         className={[
           "pointer-events-auto relative mx-auto flex max-w-[1180px] flex-col gap-2.5 rounded-xl2 border bg-surface/92 p-3 shadow-pop backdrop-blur-2xl transition",
@@ -451,6 +450,7 @@ export default function Composer({ models, onToast }: Props) {
                   key={item.key}
                   className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge"
                   title={item.name}
+                  data-slot
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.previewUrl} alt={item.name} className="h-full w-full object-cover" />

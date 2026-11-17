@@ -155,6 +155,16 @@ const submitted = await evaluate(`(() => {
 console.log("点生成:", submitted);
 await sleep(2500);
 
+// 提交成功后，输入框与参考图都应该被清空，否则下一单会重复带上同一批图
+const cleared = await evaluate(`(() => {
+  const empty = document.body.textContent?.includes("参考图?") ?? false;
+  const thumbs = document.querySelectorAll('[data-slot] img').length;
+  const prompt =
+    document.querySelector("textarea")?.value ?? "";
+  return { placeholderBack: empty, slotThumbs: thumbs, prompt: prompt };
+})()`);
+console.log("提交后清空:", JSON.stringify(cleared));
+
 const after = await (await fetch(`${api}/generations?media=image&limit=3`)).json();
 const newest = after.items?.[0];
 console.log(
