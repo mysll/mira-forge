@@ -62,6 +62,11 @@ export default function ImagePicker({
   const items = (images.data?.items ?? []).filter((item) =>
     kind === "video" ? item.media_type === "video" : item.media_type !== "video",
   );
+  const isVideo = kind === "video";
+  const unit = isVideo ? "条" : "张";
+  const emptyCopy = isVideo
+    ? "还没有生成过视频，先用「视频」工作台生成一条，或者直接上传本机视频。"
+    : "还没有生成过图片，先用「图片」工作台生成一张，或者直接上传本机图片。";
 
   if (!mounted) {
     return null;
@@ -97,9 +102,7 @@ export default function ImagePicker({
           {images.isPending ? (
             <p className="py-10 text-center text-xs text-muted">正在读取作品…</p>
           ) : items.length === 0 ? (
-            <p className="py-10 text-center text-xs text-muted">
-              还没有生成过图片，先用「图片」工作台生成一张，或者直接上传本机图片。
-            </p>
+            <p className="py-10 text-center text-xs text-muted">{emptyCopy}</p>
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
               {items.map((image) => (
@@ -127,7 +130,10 @@ export default function ImagePicker({
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-edge/70 px-4 py-3">
-          <p className="text-[11px] text-muted">共 {items.length} 张图片，点一下就选为画面</p>
+          <p className="text-[11px] text-muted">
+            共 {items.length} {unit}
+            {isVideo ? "视频，点一下就选为视频" : "图片，点一下就选为画面"}
+          </p>
           <div className="flex items-center gap-2">
             {onUpload ? (
               <button type="button" className="btn btn-ghost h-8" onClick={onUpload}>
