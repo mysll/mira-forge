@@ -10,11 +10,14 @@
 export default function SlotMenu({
   open,
   align = "left",
+  placement = "up",
   onUpload,
   onPickAsset,
 }: {
   open: boolean;
   align?: "left" | "right";
+  /** up：贴着底部的输入框向上弹；down：顶部工具栏向下弹 */
+  placement?: "up" | "down";
   onUpload: () => void;
   onPickAsset: () => void;
 }) {
@@ -26,7 +29,8 @@ export default function SlotMenu({
     <div
       role="menu"
       className={[
-        "absolute bottom-full z-30 mb-2 w-36 overflow-hidden rounded-lg border border-edge bg-surface p-1 shadow-pop",
+        "absolute z-30 w-36 overflow-hidden rounded-lg border border-edge bg-surface p-1 shadow-pop",
+        placement === "down" ? "top-full mt-1" : "bottom-full mb-2",
         align === "right" ? "right-0" : "left-0",
       ].join(" ")}
     >

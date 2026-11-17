@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ImagePicker from "@/components/ImagePicker";
+import SlotMenu from "@/components/SlotMenu";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import { imageAsFile, imageFileUrl, saveAsset } from "@/lib/api";
 import {
@@ -60,6 +61,7 @@ export default function SpriteForgePage() {
   // 输入源
   const [kind, setKind] = useState<SourceKind>("video");
   const [picking, setPicking] = useState<null | "video" | "atlas">(null);
+  const [menu, setMenu] = useState<null | "video" | "atlas">(null);
   const [fileName, setFileName] = useState("");
   const videoRef = useRef<VideoSource | null>(null);
   const [videoInfo, setVideoInfo] = useState<{ width: number; height: number; duration: number } | null>(null);
@@ -344,6 +346,23 @@ export default function SpriteForgePage() {
     return { stem, entries, zip: createZip(entries) };
   }, [atlasName, chosen, config, fps, packed]);
 
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("[data-source-menu]")) setMenu(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+
   const onExport = useCallback(async () => {
     const result = await exportFiles();
     if (!result) {
@@ -407,23 +426,61 @@ export default function SpriteForgePage() {
             视频拆序列帧 → 抠掉纯色背景 → 按行列打成透明图集，导出 PNG + JSON + ZIP；全程在本机跑
           </p>
         </div>
-        <button type="button" className="btn" onClick={() => atlasInputRef.current?.click()}>
-          导入图集
-        </button>
-        <button type="button" className="btn" onClick={() => videoInputRef.current?.click()}>
-          导入视频
-        </button>
-        <button type="button" className="btn" onClick={() => setPicking("video")}>
-          从资产导入视频
-        </button>
-        <button type="button" className="btn" onClick={() => setPicking("atlas")}>
-          从资产导入图集
+        <div className="relative" data-source-menu>
+          <button
+            type="button"
+            className="btn inline-flex items-center gap-1.5"
+            aria-haspopup="menu"
+            aria-expanded={menu === "atlas"}
+            onClick={() => setMenu(menu === "atlas" ? null : "atlas")}
+          >
+            打开图集
+            <Caret />
+          </button>
+          <SlotMenu
+            open={menu === "atlas"}
+            align="right"
+            placement="down"
+            onUpload={() => {
+              setMenu(null);
+              atlasInputRef.current?.click();
+            }}
+            onPickAsset={() => {
+              setMenu(null);
+              setPicking("atlas");
+            }}
+          />
+        </div>
+        <div className="relative" data-source-menu>
+          <button
+            type="button"
+            className="btn inline-flex items-center gap-1.5"
+            aria-haspopup="menu"
+            aria-expanded={menu === "video"}
+            onClick={() => setMenu(menu === "video" ? null : "video")}
+          >
+            加载视频
+            <Caret />
+          </button>
+          <SlotMenu
+            open={menu === "video"}
+            align="right"
+            placement="down"
+            onUpload={() => {
+              setMenu(null);
+              videoInputRef.current?.click();
+            }}
+            onPickAsset={() => {
+              setMenu(null);
+              setPicking("video");
+            }}
+          />
+        </div>
+        <button type="button" className="btn" onClick={() => void onSave()} disabled={!packed || saving}>
+          {saving ? "保存中…" : "保存"}
         </button>
         <button type="button" className="btn-primary" onClick={() => void onExport()} disabled={!packed}>
-          导出图集
-        </button>
-        <button type="button" className="btn" onClick={() => void onSave()} disabled={!packed || saving}>
-          {saving ? "保存中…" : "保存到资产"}
+          导出
         </button>
       </header>
 
@@ -812,5 +869,13 @@ function SliderField({
         className="h-1.5 w-full appearance-none rounded-full bg-edge accent-accent"
       />
     </label>
+  );
+}
+
+function Caret() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3 w-3 text-muted" fill="none" aria-hidden>
+      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

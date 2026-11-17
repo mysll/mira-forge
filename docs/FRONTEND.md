@@ -72,7 +72,7 @@
 | `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条同时显示「画布」与「导出」两种尺寸；预览按 `缩放 × devicePixelRatio` 重绘（最高 4×），放大查看时用的是原图细节而不是把成品放大 |
 | `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景（模式、容差、羽化、去杂点；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
 
-| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：左栏来源与参数（fps / 最多帧数 / 帧最长边 / 抠色容差与羽化 / 行列与格子尺寸）、中栏帧网格（多选）、右栏图集预览；顶栏六个入口——导入图集、导入视频、从资产导入视频、从资产导入图集、导出图集、保存到资产 |
+| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：左栏来源与参数（fps / 最多帧数 / 帧最长边 / 抠色容差与羽化 / 行列与格子尺寸）、中栏帧网格（多选）、右栏图集预览；顶栏四个按钮——打开图集／加载视频（各自下拉出「从本机上传 / 从资产选」）、保存、导出 |
 | `lib/sprite/frames.ts` | 抽帧与抠色：`loadVideo()` / `extractFrames()`（seek + `seeked` 逐帧 drawImage）/ `keyBackground()`（通道差阈值 + 羽化）/ `guessBackgroundColor()`（四角中位数） |
 | `lib/sprite/atlas.ts` | 图集：`packFrames()` 按行列分页填格（格内等比缩放居中）、`buildAtlasJson()` / `parseAtlasJson()` 双向对应 SpriteForge v1 结构 |
 | `lib/sprite/zip.ts` | ZIP 读写：`createZip()`（STORE + CRC32 + UTF-8 文件名）、`readZip()`（扫 EOCD + 中央目录，DEFLATE 走 `DecompressionStream`） |
