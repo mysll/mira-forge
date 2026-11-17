@@ -72,6 +72,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.frontend_origin.split(",") if origin.strip()],
+    # 用局域网 IP 打开前端时（如 http://10.236.134.52:3000）也放行：
+    # 只允许本机与私有网段，不放开公网来源。
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -30,7 +30,7 @@
 
 为什么是两个进程：前端是 Node/Next，后端是 Python/FastAPI，两个不同运行时；开发期各跑各的开发服务器，生产期由反向代理按路径分流。
 
-页面用 `http://localhost:3000` 或 `http://127.0.0.1:3000` 打开都可以——浏览器把它们当成**两个不同的 Origin**，所以 `FRONTEND_ORIGIN` 里两个都列了；`next.config.ts` 的 `allowedDevOrigins` 同理放行了两者，避免 dev 资源被当成跨域。
+页面用 `http://localhost:3000`、`http://127.0.0.1:3000` 或 `http://<本机IP>:3000` 打开都可以——浏览器把它们当成**不同的 Origin**，所以 `FRONTEND_ORIGIN` 里都列了，后端还额外用 `allow_origin_regex` 放行私有网段；`next.config.ts` 的 `allowedDevOrigins` 同理放行，避免 dev 资源被当成跨域。前端没有配 `NEXT_PUBLIC_API_BASE_URL` 时按「页面主机名 + 8000」推导后端地址，换 IP 不用改配置。
 左下角那个圆形图标是 **Next.js 自己的调试指示器**，不是 MiraForge 的界面元素：点开能看到编译状态、当前路由是静态还是动态。它只在 `npm run dev` 时出现，`npm run build && npm start` 里没有。它停在左下角，正好压住侧边栏底部的版本号，所以侧边栏 footer 留了 `pb-10`，让 `v0.1` 浮在它上方（曾试过挪到右下角，但窄窗口下会压住创作框，已还原）；想彻底去掉就写 `devIndicators: false`。
 
 ## 测试
@@ -80,8 +80,8 @@ npx tsc --noEmit
 | `MAX_GENERATION_COUNT` | `8` | 单次请求上限 |
 | `WORKER_CONCURRENCY` | `1` | 保持 1，单卡串行 |
 | `WORKER_ENABLED` | `true` | 是否随应用启动生成 Worker（测试/调试置 `false`） |
-| `APP_HOST` / `APP_PORT` | `127.0.0.1` / `8000` | |
-| `FRONTEND_ORIGIN` | `http://127.0.0.1:3000,http://localhost:3000` | CORS 白名单（逗号分隔；localhost 与 127.0.0.1 是两个 Origin，都要列） |
+| `APP_HOST` / `APP_PORT` | `127.0.0.1` / `8000` | 想让手机 / 另一台电脑访问就把 `APP_HOST` 改成 `0.0.0.0`（`start-backend.ps1` 默认就是这个） |
+| `FRONTEND_ORIGIN` | `http://127.0.0.1:3000,http://localhost:3000` | CORS 白名单（逗号分隔；localhost 与 127.0.0.1 是两个 Origin，都要列）。另外 `allow_origin_regex` 自动放行本机与私有网段，所以用局域网 IP 打开不用改这里 |
 | `AUTO_MIGRATE` | `true` | 启动时自动 `alembic upgrade head` |
 
 `frontend/.env.local`：`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/v1`。

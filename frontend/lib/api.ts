@@ -14,8 +14,25 @@ import type {
   WorkspaceClearResponse,
 } from "@/types/api";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1";
+/**
+ * 后端地址。
+ *
+ * 没有配 `NEXT_PUBLIC_API_BASE_URL` 时按「当前页面的主机名 + 8000 端口」推导：
+ * 这样用 127.0.0.1 打开就走 127.0.0.1，用局域网 IP（如 10.236.134.52）打开就走同一个 IP，
+ * 不用为每台机器改环境变量。配了这个变量则以它为准（例如把后端放到另一台机器）。
+ */
+function resolveApiBase(): string {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (configured) {
+    return configured;
+  }
+  if (typeof window !== "undefined") {
+    return `http://${window.location.hostname}:8000/api/v1`;
+  }
+  return "http://127.0.0.1:8000/api/v1";
+}
+
+const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   constructor(
@@ -353,10 +370,8 @@ export function retryTask(taskId: number): Promise<TaskRead> {
   return request<TaskRead>(`/tasks/${taskId}/retry`, { method: "POST" });
 }
 
-/** WS 事件地址：把 http(s) 换成 ws(s)，用于任务状态实时推送。 */
-export const TASK_EVENTS_URL = `${(
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api/v1"
-).replace(/^http/, "ws")}/ws/tasks`;
+/** WS 事件地址：与 `API_BASE` 同一套推导规则，只把 http(s) 换成 ws(s)。 */
+export const TASK_EVENTS_URL = `${API_BASE.replace(/^http/, "ws")}/ws/tasks`;
 
 export function fetchProjects(): Promise<ProjectListResponse> {
   return request<ProjectListResponse>("/projects");
