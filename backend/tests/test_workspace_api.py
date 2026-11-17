@@ -7,6 +7,8 @@ import base64
 from fastapi.testclient import TestClient
 
 from app.models.database import SessionLocal
+from app.models.generation import Generation, GenerationStatus
+from app.models.task import TaskStatus
 from app.services.image_service import store_image
 
 API = "/api/v1"
@@ -132,3 +134,42 @@ def test_date_filter_excludes_old_rows(client: TestClient) -> None:
     assert client.get(f"{API}/generations", params={"date_from": future}).json()["items"] == []
     past = "2000-01-01T00:00:00Z"
     assert client.get(f"{API}/generations", params={"date_to": past}).json()["items"] == []
+
+def test_has_products_skips_batches_whose_files_were_deleted(client):
+    """只剩空壳的批次（图片被删）不该出现在首页「最近作品」里，但生成中的批次要留着。"""
+    empty = client.post(f"{API}/generations", json={"prompt": "empty shell", "model": "qwen_image_21"})
+    assert empty.status_code == 201, empty.text
+    empty_id = empty.json()["id"]
+    # 测试里不启 worker，新建批次会一直 pending；这里手动收尾成「已完成、但一张产物都没有」
+    with SessionLocal() as session:
+        generation = session.get(Generation, empty_id)
+        generation.status = GenerationStatus.COMPLETED
+        for task in generation.tasks:
+            task.status = TaskStatus.COMPLETED
+        session.commit()
+
+    filled = client.post(f"{API}/generations", json={"prompt": "kept one", "model": "qwen_image_21"})
+    assert filled.status_code == 201, filled.text
+    filled_body = filled.json()
+    task_id = filled_body["tasks"][0]["id"]
+    with SessionLocal() as session:
+        store_image(
+            session,
+            content=TINY_PNG,
+            generation_id=filled_body["id"],
+            task_id=task_id,
+            index=0,
+            width=1,
+            height=1,
+        )
+        session.commit()
+
+    with_products = client.get(f"{API}/generations", params={"has_products": True, "limit": 50})
+    assert with_products.status_code == 200, with_products.text
+    ids = [item["id"] for item in with_products.json()["items"]]
+    assert filled_body["id"] in ids
+    assert empty_id not in ids
+
+    # 不带这个参数时，空壳批次仍然可以查到（批次详情页还要能打开）
+    without = client.get(f"{API}/generations", params={"limit": 50})
+    assert empty_id in [item["id"] for item in without.json()["items"]]

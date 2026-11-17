@@ -311,6 +311,10 @@ def list_generations(
     model: str | None = Query(default=None, description="模型 id，多个用逗号分隔"),
     media: str | None = Query(default=None, description="image / video / asset，只取该类别"),
     favorite: bool = Query(default=False, description="只看含收藏图片的批次"),
+    has_products: bool = Query(
+        default=False,
+        description="只取有产物（或有任务在排队/生成）的批次，跳过只剩空壳的批次",
+    ),
     date_from: str | None = Query(default=None, description="ISO 时间，含"),
     date_to: str | None = Query(default=None, description="ISO 时间，含"),
     db: Session = Depends(get_db),
@@ -327,6 +331,7 @@ def list_generations(
         models=models,
         types=_types_for_media(media),
         favorites_only=favorite,
+        with_products=has_products,
         date_from=_parse_datetime(date_from, "date_from"),
         date_to=_parse_datetime(date_to, "date_to"),
     )

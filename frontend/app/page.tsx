@@ -130,7 +130,7 @@ export default function HomePage() {
 
   const recentQuery = useQuery({
     queryKey: ["generations", "home-recent"],
-    queryFn: () => fetchGenerations({ limit: 8 }),
+    queryFn: () => fetchGenerations({ limit: 12, hasImages: true }),
     staleTime: 5_000,
   });
 
@@ -142,12 +142,12 @@ export default function HomePage() {
   });
   const imageCount = useQuery({
     queryKey: ["generations", "home-count-image"],
-    queryFn: () => fetchGenerations({ limit: 1, media: "image" }),
+    queryFn: () => fetchGenerations({ limit: 1, media: "image", hasImages: true }),
     staleTime: 10_000,
   });
   const videoCount = useQuery({
     queryKey: ["generations", "home-count-video"],
-    queryFn: () => fetchGenerations({ limit: 1, media: "video" }),
+    queryFn: () => fetchGenerations({ limit: 1, media: "video", hasImages: true }),
     staleTime: 10_000,
   });
 

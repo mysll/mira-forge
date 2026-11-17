@@ -59,6 +59,7 @@ export default function WorkspacePage() {
         q: query.trim() || undefined,
         model: modelFilter ?? undefined,
         media: "image",
+    hasImages: true,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
         dateTo: range.to,

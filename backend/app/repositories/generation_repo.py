@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Integer, Select, cast, func, select
+from sqlalchemy import Integer, Select, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.generation import Generation
+from app.models.generation import Generation, GenerationStatus
 from app.models.image import Image
 
 
@@ -30,6 +30,7 @@ class GenerationRepository:
         models: list[str] | None = None,
         types: list[str] | None = None,
         favorites_only: bool = False,
+        with_products: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> Select[tuple[Generation]]:
@@ -47,6 +48,19 @@ class GenerationRepository:
                     select(Image.generation_id).where(Image.is_favorite.is_(True))
                 )
             )
+        if with_products:
+            # 「有东西可看」= 已经有产物，或者还在排队/生成（此时卡片是占位图）。
+            # 只删掉图片的批次、失败且没产物的批次都不该出现在首页和作品流里。
+            busy = Generation.status.in_(
+                (
+                    GenerationStatus.PENDING,
+                    GenerationStatus.QUEUED,
+                    GenerationStatus.RUNNING,
+                )
+            )
+            stmt = stmt.where(
+                or_(Generation.id.in_(select(Image.generation_id)), busy)
+            )
         if date_from is not None:
             stmt = stmt.where(_epoch(Generation.created_at) >= int(date_from.timestamp()))
         if date_to is not None:
@@ -62,6 +76,7 @@ class GenerationRepository:
         models: list[str] | None = None,
         types: list[str] | None = None,
         favorites_only: bool = False,
+        with_products: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> tuple[list[Generation], int]:
@@ -70,6 +85,7 @@ class GenerationRepository:
             models=models,
             types=types,
             favorites_only=favorites_only,
+            with_products=with_products,
             date_from=date_from,
             date_to=date_to,
         )

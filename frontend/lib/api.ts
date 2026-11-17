@@ -94,6 +94,8 @@ export function fetchGenerations(params?: {
   model?: string | null;
   media?: "image" | "video" | "asset";
   favorite?: boolean;
+  /** 只取「有产物或有任务在跑」的批次，跳过只剩空壳的批次 */
+  hasImages?: boolean;
   dateFrom?: string;
   dateTo?: string;
 }): Promise<GenerationListResponse> {
@@ -110,6 +112,9 @@ export function fetchGenerations(params?: {
   }
   if (params?.media) {
     search.set("media", params.media);
+  }
+  if (params?.hasImages) {
+    search.set("has_products", "true");
   }
   if (params?.favorite) {
     search.set("favorite", "true");

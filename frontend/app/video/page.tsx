@@ -65,6 +65,7 @@ export default function VideoPage() {
         q: query.trim() || undefined,
         // 视频页永远只捞视频，类型过滤比枚举模型 id 更可靠
         media: "video",
+    hasImages: true,
         model: modelFilter ?? undefined,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,

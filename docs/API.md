@@ -245,6 +245,7 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 | `model` | 模型 id，多个用逗号分隔 |
 | `media` | `image` / `video` / `asset`：只要图片批次、视频批次或素材批次；其它值 422（`media 只能是 image、video 或 asset`）。创作页固定传 `image`，视频页固定传 `video`，资产页按用户筛选传 |
 | `favorite` | `true` 时只返回「批次内至少有一张被收藏」的记录 |
+| `has_products` | `true` 时只返回「已经有产物」或「有任务在 pending/queued/running」的批次，跳过只剩空壳的批次（图被删光、失败且没产物）。首页「最近作品」与图片/视频计数用的就是这条 |
 | `date_from` / `date_to` | ISO 时间，按 epoch 比较（避开 SQLite 时区字符差异）；非法值 422 |
 
 ```json
