@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -542,8 +543,13 @@ function AssetCard({
             <StarIcon filled={image.is_favorite} />
           </CellAction>
           {isVideo ? null : (
-            <CellAction label="继续编辑" onClick={onEdit}>
+            <CellAction label="继续编辑（AI）" onClick={onEdit}>
               <EditIcon />
+            </CellAction>
+          )}
+          {isVideo ? null : (
+            <CellAction label="本地编辑（抠底 / 画布）" href={`/tools/editor?image=${image.id}`}>
+              <CropIcon />
             </CellAction>
           )}
           <CellAction label="下载" onClick={onDownload}>
@@ -561,31 +567,56 @@ function AssetCard({
 function CellAction({
   label,
   onClick,
+  href,
   children,
   active = false,
   danger = false,
 }: {
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: string;
   children: React.ReactNode;
   active?: boolean;
   danger?: boolean;
 }) {
+  const className = [
+    "flex h-6 w-6 items-center justify-center rounded-md bg-black/45 backdrop-blur transition hover:bg-black/65",
+    active ? "text-warn" : danger ? "text-white/85 hover:text-bad" : "text-white/85 hover:text-white",
+  ].join(" ");
+
+  if (href) {
+    return (
+      <Link href={href} title={label} className={className} onClick={(event) => event.stopPropagation()}>
+        {children}
+      </Link>
+    );
+  }
+
   return (
     <button
       type="button"
       title={label}
       onClick={(event) => {
         event.stopPropagation();
-        onClick();
+        onClick?.();
       }}
-      className={[
-        "flex h-6 w-6 items-center justify-center rounded-md bg-black/45 backdrop-blur transition hover:bg-black/65",
-        active ? "text-warn" : danger ? "text-white/85 hover:text-bad" : "text-white/85 hover:text-white",
-      ].join(" ")}
+      className={className}
     >
       {children}
     </button>
+  );
+}
+
+function CropIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+      <path
+        d="M7 3v13a1 1 0 0 0 1 1h13M3 7h13a1 1 0 0 1 1 1v13"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 

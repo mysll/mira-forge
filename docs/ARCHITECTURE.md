@@ -124,7 +124,7 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 
 ## 前端结构
 
-一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航五项：首页 `/`（落地页，两个创作入口）、资产 `/gallery`、图片 `/compose`（默认文生图，框内可切图片编辑）、视频 `/video`、设置 `/settings`。详细设计见 [FRONTEND.md](FRONTEND.md)。
+一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航六项：首页 `/`（落地页，两个创作入口）、资产 `/gallery`、工具 `/tools`（本地处理，不吃 GPU）、图片 `/compose`（默认文生图，框内可切图片编辑）、视频 `/video`、设置 `/settings`。详细设计见 [FRONTEND.md](FRONTEND.md)。
 
 | 位置 | 作用 |
 | --- | --- |
@@ -133,6 +133,9 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 | `app/compose/page.tsx` | 创作页：筛选状态、`GET /generations` 拉取、扁平化为 `FeedSlot`（每个任务一格，未出图为占位卡）、各类操作的 Toast |
 | `app/settings/page.tsx` | 系统状态（后端版本、SQLite、ComfyUI、GPU、存储路径） |
 | `app/gallery/page.tsx` | 资产页：图片级平铺网格，按日期分组、按 `image.created_at` 倒序，不带批次分组 |
+| `app/tools/page.tsx` | 工具目录：卡片网格，第一张是图片编辑器，其余为「计划中」占位 |
+| `app/tools/editor/page.tsx` | 本地图片编辑器：抠背景、改画布、等比放置、导出 PNG（`?image=<id>` 从资产带图进来） |
+| `components/editor/*` · `lib/editor.ts` · `stores/editor.ts` | 画布舞台、右侧参数面板、纯几何放置算法、撤销栈 |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用 |
 | `components/Composer.tsx` | 底部创作框：模式、提示词、参考图、参数 pill、高级面板、提交 |
 | `components/Feed.tsx` / `FeedCard.tsx` | 按日期分组的作品流与单张卡片 |
@@ -200,3 +203,15 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 视频只有一条产物：`count` 必须是 1（一次请求一条），所以 Worker 的「每任务一张图」逻辑不需要改，只是扩展名变成 `.mp4`、落盘时多写几个 metadata 字段。
 
 二期（视频）已落地；参考视频（r2v）与视频编辑仍不在范围内。
+
+## 本地编辑器：为什么不在 ComfyUI 里
+
+`/editor/*` 是唯一一条**不经过 ComfyUI** 的图片处理链路，理由是它要解决的问题不需要生成模型：
+
+- 「抠纯色背景」「按主体裁边」「把主体放进指定画布」都是确定的像素运算，用 AI 反而会引入不可控的重绘（主体会被悄悄改掉五官或衣服花纹），而这个工具的价值恰恰是**一个像素都不动主体**。
+- 它跑在 FastAPI 进程的 CPU 上（numpy + scipy + Pillow），不占那 16 GB 显存，也不跟生成任务抢 GPU；1024×1024 一张抠底约 1.3 秒，足够交互。
+- 它不写 `images` 表、不产生生成记录，产物由浏览器直接下载。因为它是「修图」，不是「生成」——把编辑器产物混进作品流会让「哪些是模型生成的」这件事变得模糊。
+
+算法只有两条路径，都作用在 alpha 通道上：`edge` 先用 `scipy.ndimage.label` 做连通域标记，只把接触画布边缘的同色区抠掉（保住主体内部的白衬衫、白眼睛）；`color` 直接按颜色距离删所有同色像素（用来清主体内部残留的封闭背景块）。颜色距离可选 `max` / `mean` / `luma`，底色默认取边框像素的中位数（渐变背景也不会只挑到一个色）。
+
+放置永远等比：`placementFor()` 只按「画布高度 × 高度百分比」算高度，宽度由原图 `naturalWidth / naturalHeight` 推出来，因此不可能变形；`bottom` 是主体底边到画布底边的最小间距，`offsetX` 是相对画布中心线的水平偏移。

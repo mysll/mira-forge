@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 
 import { imageFileUrl, imageThumbnailUrl, referenceImageUrl } from "@/lib/api";
@@ -209,8 +210,13 @@ export default function ImageDetail({
             {/* 视频没有「继续编辑成图片」这条路，按钮直接不出现 */}
             {image.media_type === "video" ? null : (
               <button type="button" onClick={() => onEdit(item)} className="btn-ghost">
-                继续编辑
+                AI 编辑
               </button>
+            )}
+            {image.media_type === "video" ? null : (
+              <Link href={`/tools/editor?image=${image.id}`} onClick={onClose} className="btn-ghost">
+                本地编辑
+              </Link>
             )}
             <button type="button" onClick={() => onRegenerate(item)} className="btn-ghost">
               重新生成

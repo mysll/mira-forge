@@ -173,6 +173,85 @@ export function fetchImages(params?: {
   return request<ImageListResponse>(`/images?${search.toString()}`);
 }
 
+/* ---------------------------------------------------------------- 本地编辑器 */
+
+export type EditorAnalysis = {
+  width: number;
+  height: number;
+  /** 边框像素估计出的背景色，[r, g, b] */
+  background: number[];
+  has_alpha: boolean;
+  /** 建议容差下，「背景色」占画布的比例，用来提示这张图适不适合直接抠 */
+  background_share: number;
+  suggested_tolerance: number;
+};
+
+export type RemoveBackgroundOptions = {
+  mode?: "edge" | "color";
+  tolerance?: number;
+  feather?: number;
+  /** #rrggbb；不给就让后端按边框估 */
+  color?: string;
+  channel?: "max" | "mean" | "luma";
+};
+
+async function postImage(path: string, form: FormData): Promise<{ blob: Blob; headers: Headers }> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: form,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body: unknown = await response.json();
+      if (body && typeof body === "object" && "detail" in body) {
+        const raw = (body as { detail: unknown }).detail;
+        detail = typeof raw === "string" ? raw : JSON.stringify(raw);
+      }
+    } catch {
+      // 保留默认文本
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return { blob: await response.blob(), headers: response.headers };
+}
+
+/** 读尺寸、估背景色与建议容差。 */
+export async function analyzeForEditor(file: Blob | File): Promise<EditorAnalysis> {
+  const form = new FormData();
+  form.append("image", file, file instanceof File ? file.name : "image.png");
+  const { blob } = await postImage("/editor/analyze", form);
+  return JSON.parse(await blob.text()) as EditorAnalysis;
+}
+
+/** 抠底：返回带透明通道的 PNG。 */
+export async function removeBackgroundFromImage(
+  file: Blob | File,
+  options: RemoveBackgroundOptions = {},
+): Promise<Blob> {
+  const form = new FormData();
+  form.append("image", file, file instanceof File ? file.name : "image.png");
+  form.append("mode", options.mode ?? "edge");
+  form.append("tolerance", String(options.tolerance ?? 22));
+  form.append("feather", String(options.feather ?? 1));
+  form.append("channel", options.channel ?? "max");
+  if (options.color) {
+    form.append("color", options.color);
+  }
+  const { blob } = await postImage("/editor/remove-background", form);
+  return blob;
+}
+
+/** 裁掉透明边，返回新 PNG（bbox 在响应头里，这里只关心图）。 */
+export async function trimTransparentImage(file: Blob | File, padding = 0): Promise<Blob> {
+  const form = new FormData();
+  form.append("image", file, file instanceof File ? file.name : "image.png");
+  form.append("padding", String(padding));
+  const { blob } = await postImage("/editor/trim", form);
+  return blob;
+}
+
 /** 图片原始文件的绝对地址，用于 <img src>。 */
 /**
  * 图片地址带上版本号：SQLite 会复用被删除行的最大 id，而缩略图响应是 immutable 缓存，

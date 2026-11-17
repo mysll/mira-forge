@@ -10,6 +10,7 @@
 - **工作台**：左侧 72px 图标导航（首页 / 资产 ‖ 图片 / 视频 ‖ 设置），右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部悬浮创作框。没有第三栏、没有把参数平铺一屏。
 - **多项目**：每个项目一个独立文件夹（`data/projects/<id>/`，各自一套 SQLite 与图片目录），顶栏左侧的下拉可切换、新建、改名、删除；新建项目的入口就在下拉里。切换即换库，作品与任务各看各的。
 - **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除；点「管理」可勾选批量删除，或清空整个工作区（危险操作，二次确认）。
+- **本地图片编辑器**：`/tools` 工具页里第一张卡，纯 CPU 跑（不占显存、不产生新作品、不改原图）。抠背景（只删边缘连通 / 删所有同色，可调容差与羽化）、按主体裁掉透明边、把画布指定成任意尺寸（如 256×256）、主体**等比**缩放并指定底边留白（如距底 20px）与水平偏移，导出 PNG。资产页与详情弹窗都有「本地编辑」直达入口，和调用 ComfyUI 的「AI 编辑」分开。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），10 种比例（含自定义）× 4 档分辨率（480/720/1K/2K，默认 1:1 · 1K），一次 1–8 张（默认 4 张），每张独立 seed、串行执行。
 - **参考图生成（图生图）**：在「图片生成」里可选加 1–2 张参考图——有图就参考构图/材质出图，无图就是普通文生图；参考图不改变输出比例，尺寸仍按右下角的设置（实测同一句提示词，加参考图后画面构图明显跟随参考图）。
 - **视频（MiniMax H3）**：独立 `/video` 工作台（左侧栏切换）。写一句镜头描述就是文生视频；首帧 / 尾帧可以直接从资产库里挑已生成的图（也能上传本机文件、拖入），给了就变成图生视频（两张都不给自动退回文生视频）。尺寸按「比例 × 480p / 720p / 1080p」选，时长 3 / 5 / 8 / 10 秒快捷档或 1–15 秒滑块自定，一次最多 4 条（默认 1 条，串行出），24fps、音视频一起出；卡片带时长与播放角标，详情里直接播放。
@@ -69,7 +70,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health | ConvertTo-Json -Depth 5
 
 ```
 backend/            FastAPI 应用
-  app/api/          HTTP 端点（health / models / workflows / generations / tasks / images）
+  app/api/          HTTP 端点（health / models / workflows / generations / tasks / images / projects / editor）
   app/core/         配置、WebSocket 广播、Alembic 迁移入口
   app/models/       SQLAlchemy 模型（workflows / generations / generation_tasks / images）
   app/schemas/      Pydantic 响应与请求模型
@@ -79,12 +80,13 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ settings（系统状态）
+  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ tools（工具目录）/ tools/editor（本地图片编辑器）/ settings（系统状态）
   components/       Sidebar · TopBar · ProjectSwitcher · Feed · FeedCard · ImageDetail
                     · Composer · VideoComposer · Popover · ConfirmDialog · ToastStack
+                    · editor/EditorCanvas · editor/EditorPanel
   hooks/            useImageActions（收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用）
-  stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）
-  lib/              api · size（比例与分辨率）· date（日期分组与筛选）
+  stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）· editor（编辑器参数与撤销栈）
+  lib/              api · size（比例与分辨率）· date（日期分组与筛选）· editor（几何与导出）
 storage/            旧布局的产物目录（首次启动后被搬进 data/projects/default/storage）
 data/projects/      每个项目一个文件夹：<id>/app.db + <id>/storage/{images,videos,thumbnails,uploads}
                     catalog.json 是项目清单
@@ -113,7 +115,8 @@ docs/               架构、API、工作流映射、开发说明
 | P7 | 前端重构为两栏创作工作台（作品流 / 创作框 / 详情弹窗 / 设置页），后端补生成参数落库、收藏与筛选 | ✅ 完成 |
 | P8 | 参考图生成（图生图）：1–2 张参考图只参考构图、尺寸仍生效，独立工作流与绑定配置 | ✅ 完成 |
 | P9 | 视频二期（MiniMax H3）：文生视频 / 图生视频（首帧 + 尾帧），独立 `/video` 工作台、音视频同出、封面帧与播放 | ✅ 完成 |
+| P10 | 本地图片编辑器：`/tools` 工具页 + 抠背景 / 改画布 / 等比缩放 / 底边留白 / 导出 PNG（纯 CPU，不占显存） | ✅ 完成 |
 
 > 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）与视频的生成（二期第一批）都已跑通；视频编辑、参考视频等留待后续。
 > `POST /generations` 返回 `pending` 后由 Worker 接手：图片约 3–12 秒写进 `storage/images/`，视频约 30–160 秒写进 `storage/videos/`（`.mp4`，封面帧在 `thumbnails/`），都能通过 `GET /api/v1/images/{id}/file` 访问。
-> 界面在 `http://127.0.0.1:3000`（`/` 首页、`/compose` 图片创作、`/video` 视频、`/gallery` 资产库、`/settings` 系统状态）。
+> 界面在 `http://127.0.0.1:3000`（`/` 首页、`/compose` 图片创作、`/video` 视频、`/gallery` 资产库、`/tools` 工具、`/settings` 系统状态）。

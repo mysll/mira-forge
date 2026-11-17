@@ -494,3 +494,56 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 | `GET /images?media_type=video` | 未实现（前端的视频页用 `model=minimax_h3` 过滤） |
 
 已知边界：视频一次最多 4 条（`count` 1–4，默认 1，串行逐条出）、参考视频（r2v）与视频编辑尚未开放。
+
+## 本地编辑器
+
+图片编辑器完全跑在后端进程的 CPU 上（numpy + scipy + Pillow），**不经过 ComfyUI、不占显存、不写入 `images` 表**，只做「进来一张图、出去一张图」的像素运算。上传上限 40 MB，支持 PNG / JPEG / WebP。
+
+| 端点 | 说明 |
+| --- | --- |
+| `POST /editor/analyze` | 读图片尺寸、边框主色、是否已有透明通道、背景占比、建议容差 |
+| `POST /editor/remove-background` | 抠背景，返回 PNG（带透明通道） |
+| `POST /editor/trim` | 按 alpha>0 的包围盒裁掉透明边，返回 PNG |
+| `POST /editor/decode` | 只校验能不能读，返回尺寸（前端放图失败时的兜底） |
+
+### POST /editor/analyze
+
+`multipart/form-data`，字段 `file`。响应：
+
+```json
+{
+  "width": 1024,
+  "height": 1024,
+  "background": [34, 56, 36],
+  "has_alpha": true,
+  "background_share": 0.8996,
+  "suggested_tolerance": 4
+}
+```
+
+`background` 取的是图片边框像素的中位数（比众数稳：渐变背景也不会只挑到一个色）。`suggested_tolerance` 是从 `[4, 8, 16, 24, 32, 48]` 里挑最小的、能让至少 60% 像素落入的值——直接用它通常就能抠干净纯色底。
+
+### POST /editor/remove-background
+
+`multipart/form-data`：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `file` | 必填 | 源图 |
+| `mode` | `edge` | `edge` 只删与画布边缘连通的同色区（保留主体内部的白衣服、白眼睛）；`color` 删所有同色像素（连主体内部的封闭背景块一起清） |
+| `tolerance` | `22` | 0–120，颜色距离阈值 |
+| `channel` | `max` | 颜色距离算法：`max`（三通道取最大差）/ `mean` / `luma` |
+| `feather` | `1` | 0–8，对 alpha 做高斯模糊的半径，边缘更软 |
+| `color` | 自动 | `#rrggbb`，不传时用边框主色 |
+
+返回 `image/png` 字节流，附三个响应头：
+
+- `X-Background-Color: #223824` —— 实际用的底色
+- `X-Removed-Ratio: 0.8995` —— 变成透明的像素占比
+- `X-Image-Width` / `X-Image-Height`
+
+超过 40 MB 或不是图片 → 422；`mode` 非法 → 422 `mode 只能是 edge 或 color`。
+
+### POST /editor/trim
+
+`multipart/form-data`：`file` + `padding`（0–256，向外留白的像素）。返回裁剪后的 PNG，头里带 `X-Content-Box: left,top,right,bottom`（相对原图的包围盒）。

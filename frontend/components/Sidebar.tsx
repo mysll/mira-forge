@@ -66,6 +66,18 @@ const VideoIcon = (
   </svg>
 );
 
+const ToolsIcon = (
+  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
+    <path
+      d="M14.7 4.6a4.2 4.2 0 0 0-5.3 5.3L4.2 15a2 2 0 1 0 2.8 2.8l5.1-5.2a4.2 4.2 0 0 0 5.3-5.3l-2.2 2.2-2.1-.6-.6-2.1 2.2-2.2Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path d="m16.4 15.6 4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+);
+
 const SettingsIcon = (
   <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
     <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.6" />
@@ -81,6 +93,8 @@ const SettingsIcon = (
 const ITEMS: NavItem[] = [
   { label: "首页", href: "/", icon: HomeIcon },
   { label: "资产", href: "/gallery", icon: GalleryIcon },
+  // 工具是本地编辑器入口，和生成没有关系，所以紧挨着资产放
+  { label: "工具", href: "/tools", icon: ToolsIcon, hint: "本地图片工具" },
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
   { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },

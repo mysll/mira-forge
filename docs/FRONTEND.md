@@ -2,12 +2,14 @@
 
 一期前端只有一个目的：**让「看图 → 改图 → 再生成」这件事不离开同一个屏幕**。因此它不是表单页 + 画廊页的组合，而是一个两栏工作台：左边一条 72px 的图标导航，右边是内容区。
 
-导航五项，用两条细分隔线分成三组：**首页 / 资产 ‖ 图片 / 视频 ‖ 设置**，默认落地页是首页。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。视频是独立的一页，而不是图片创作框的第三个 Tab：它的参数面（首帧 / 尾帧、时长、画幅档、音频）和图片几乎不重叠，混在一起会让那个框变成四组条件分支。
+导航六项，用两条细分隔线分成三组：**首页 / 资产 / 工具 ‖ 图片 / 视频 ‖ 设置**，默认落地页是首页。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。视频是独立的一页，而不是图片创作框的第三个 Tab：它的参数面（首帧 / 尾帧、时长、画幅档、音频）和图片几乎不重叠，混在一起会让那个框变成四组条件分支。工具是**不吃 GPU 的本地处理**，与生成流程完全分开。
 
 | 页面 | 路径 | 做什么 |
 | --- | --- | --- |
 | 首页 | `/` | 落地页：两个创作入口（生成图片 / 生成视频）、本机设备与显存状态、最近作品、模型卡、灵感提示词 |
-| 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧 |
+| 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧；hover 里有「本地编辑」直达编辑器 |
+| 工具 | `/tools` | 工具目录：卡片网格，目前只有「图片编辑器」，其余是计划中的占位卡 |
+| 图片编辑器 | `/tools/editor` | 本地图片编辑器：抠背景、改画布尺寸、主体等比缩放、指定底边留白，导出 PNG |
 | 图片 | `/compose` | 创作：批次流的作品 + 底部悬浮创作框（默认文生图，可在框内切编辑） |
 | 视频 | `/video` | 视频工作台：只显示视频作品，底部是视频创作框（首帧 / 尾帧、时长、画幅） |
 | 设置 | `/settings` | 系统状态 |
@@ -61,10 +63,16 @@
 | `app/page.tsx` | 首页：两个创作入口、本机状态（设备 / 显存 / 项目）、最近作品、模型卡与灵感提示词；点提示词会写进创作框再跳 `/compose`。「显存占用」卡片右上角有个圆形按钮，调 `POST /comfyui/unload` 让 ComfyUI 卸掉模型腾显存——**只要有 pending/queued/running 的任务就禁用**（卸模型会把生成中的任务连锅端），显存占用 > 85% 时按钮转成琥珀色 |
 | `app/compose/page.tsx` | 创作页：筛选状态、数据拉取、批次扁平化、Toast，把五个图片操作交给 `hooks/useImageActions` |
 | `app/video/page.tsx` | 视频工作台：与创作页同构，但模型只取 `capabilities.media === "video"`、查询固定 `media=video`、卡片宽度 340、单位用「条」 |
-| `app/gallery/page.tsx` | 资产页：把 `/generations` 里的 `images` 摊平成一个图片流，按 `image.created_at` 倒序、按日期分节、响应式网格 |
+| `app/gallery/page.tsx` | 资产页：把 `/generations` 里的 `images` 摊平成一个图片流，按 `image.created_at` 倒序、按日期分节、响应式网格；hover 操作里有「AI 编辑」与「本地编辑」（后者直接带图进 `tools/editor`） |
 | `app/settings/page.tsx` | 系统状态：后端版本、SQLite、ComfyUI 版本/连接/GPU、存储路径、生成上限 |
+| `app/tools/page.tsx` | 工具目录：卡片网格（第一张是编辑器，其余是「计划中」占位卡）+ 三条使用提示 |
+| `app/tools/editor/page.tsx` | 编辑器页：从 `window.location.search` 读 `?image=<id>`（不用 `useSearchParams`，避开静态预渲染 bailout）、四个动作（抠底 / 裁边 / 贴合主体 / 导出）、空态与 Toast |
+| `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条 |
+| `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景 / 导出四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
+| `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene()`、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
+| `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、撤销重做栈（只记参数，抠底有独立「还原」） |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |
-| `components/Sidebar.tsx` | 图标导航：首页 `/` / 资产 `/gallery` / 图片 `/compose` / 视频 `/video` / 设置 `/settings`，`divider: true` 的项上方画一条细线 |
+| `components/Sidebar.tsx` | 图标导航：首页 `/` / 资产 `/gallery` / 工具 `/tools` / 图片 `/compose` / 视频 `/video` / 设置 `/settings`，`divider: true` 的项上方画一条细线 |
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
 | `components/TopBar.tsx` | 标题与计数（`title` / `countText`）、搜索、日期、模型、仅收藏、网格/列表切换（`viewToggle={false}` 时隐藏）、右侧插槽 `actions`（管理按钮） |
 | `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多 |
