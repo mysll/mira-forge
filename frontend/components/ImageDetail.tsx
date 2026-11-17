@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { imageFileUrl, imageThumbnailUrl, referenceImageUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
@@ -42,6 +42,9 @@ export default function ImageDetail({
 }: Props) {
   const { image, generation, seed } = item;
 
+  // 参考图点开看大图：详情里的缩略图只有 64px，想确认构图细节就得放大。
+  const [previewRef, setPreviewRef] = useState<number | null>(null);
+
   const isVideo = image.media_type === "video";
   const isAsset = image.media_type === "asset";
   const isLocalEdit = generation.generation_type === "local_edit";
@@ -71,13 +74,19 @@ export default function ImageDetail({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
+      if (event.key !== "Escape") {
+        return;
       }
+      // 大图打开时 Esc 先关大图，再按一次才关详情。
+      if (previewRef !== null) {
+        setPreviewRef(null);
+        return;
+      }
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, previewRef]);
 
   const copy = async (text: string, label: string) => {
     try {
@@ -93,6 +102,7 @@ export default function ImageDetail({
   const isRasterAsset = !assetSuffix || /^(png|jpe?g|webp|gif)$/.test(assetSuffix);
 
   return (
+    <>
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
       onClick={onClose}
@@ -177,13 +187,20 @@ export default function ImageDetail({
                 </p>
                 <div className="flex gap-1.5">
                   {generation.reference_images.map((_, index) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <button
                       key={index}
-                      src={referenceImageUrl(generation.id, generation.created_at, index)}
-                      alt={`参考图 ${index + 1}`}
-                      className="h-16 w-16 rounded-lg border border-edge object-cover"
-                    />
+                      type="button"
+                      onClick={() => setPreviewRef(index)}
+                      title="点击看大图"
+                      className="relative overflow-hidden rounded-lg border border-edge transition hover:border-accent/60 focus-visible:border-accent/60"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={referenceImageUrl(generation.id, generation.created_at, index)}
+                        alt={`参考图 ${index + 1}`}
+                        className="h-16 w-16 cursor-zoom-in object-cover transition hover:scale-[1.04]"
+                      />
+                    </button>
                   ))}
                 </div>
               </div>
@@ -269,5 +286,27 @@ export default function ImageDetail({
         </div>
       </div>
     </div>
+
+    {previewRef !== null ? (
+      <div
+        className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/90 p-8"
+        onClick={() => setPreviewRef(null)}
+        role="presentation"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={referenceImageUrl(generation.id, generation.created_at, previewRef)}
+          alt={`参考图 ${previewRef + 1}`}
+          className="max-h-[82vh] max-w-full rounded-lg object-contain shadow-pop"
+        />
+        <p className="text-[11px] text-white/60">
+          参考图 {previewRef + 1}
+          {generation.reference_images && generation.reference_images.length > 1
+            ? ` / ${generation.reference_images.length}`
+            : ""} · 点任意处关闭
+        </p>
+      </div>
+    ) : null}
+    </>
   );
 }
