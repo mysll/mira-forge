@@ -126,7 +126,7 @@ function ActionBar({
   ];
 
   return (
-    <div className="absolute right-2 top-2 flex gap-1 rounded-lg bg-black/55 p-1 opacity-0 backdrop-blur transition group-hover:opacity-100">
+    <div className="absolute right-2 top-2 flex gap-1 rounded-lg bg-black/55 p-1 opacity-0 backdrop-blur transition group-hover/card:opacity-100">
       {buttons.map((button) => (
         <button
           key={button.key}
@@ -383,7 +383,7 @@ export default function FeedCard(props: Props) {
       tabIndex={0}
       onClick={() => props.onOpen(filled)}
       onKeyDown={(event) => event.key === "Enter" && props.onOpen(filled)}
-      className="group relative cursor-pointer overflow-hidden rounded-xl border border-edge/60 bg-surface2 transition hover:border-accent/40 hover:shadow-pop"
+      className="group/card relative cursor-pointer overflow-hidden rounded-xl border border-edge/60 bg-surface2 transition hover:border-accent/40 hover:shadow-pop"
     >
       <div className={`relative overflow-hidden ${image.media_type === "video" ? "aspect-video" : "aspect-square"}`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -391,7 +391,7 @@ export default function FeedCard(props: Props) {
           src={imageThumbnailUrl(image)}
           alt={generation.prompt}
           loading="lazy"
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+          className="h-full w-full object-cover transition duration-500 group-hover/card:scale-[1.03]"
         />
 
         <div className="absolute left-2 top-2 flex items-center gap-1">
@@ -424,7 +424,7 @@ export default function FeedCard(props: Props) {
             </div>
           </div>
         ) : (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent p-2.5 opacity-0 transition group-hover:translate-y-0 group-hover:opacity-100">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent p-2.5 opacity-0 transition group-hover/card:translate-y-0 group-hover/card:opacity-100">
             <p className="line-clamp-2 text-[11px] leading-snug text-white/90">{generation.prompt}</p>
           </div>
         )}

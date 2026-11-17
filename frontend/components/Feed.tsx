@@ -94,7 +94,7 @@ function BatchHeader({
             onClick={() => onDeleteBatch(generation)}
             title="删除这个批次（连同它的所有产物）"
             aria-label="删除这个批次"
-            className="shrink-0 rounded p-1 text-muted/40 opacity-0 transition hover:bg-surface hover:text-bad group-hover:opacity-100 focus-visible:opacity-100"
+            className="shrink-0 rounded p-1 text-muted/40 opacity-0 transition hover:bg-surface hover:text-bad group-hover/batch:opacity-100 focus-visible:opacity-100"
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
               <path d="M4.5 6.5h15M9.5 6.5V4.8h5v1.7M7 6.5l.8 12a1.6 1.6 0 0 0 1.6 1.5h5.2a1.6 1.6 0 0 0 1.6-1.5l.8-12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -156,7 +156,7 @@ export default function Feed({
           {view === "list" ? (
             <div className="flex flex-col gap-4">
               {group.batches.map((batch) => (
-                <div key={batch.generation.id} className="group flex flex-col gap-0.5 px-2">
+                <div key={batch.generation.id} className="group/batch flex flex-col gap-0.5 px-2">
                   <BatchHeader batch={batch} unit={unit} onDeleteBatch={actions.onDeleteBatch} />
                   {batch.items.map((item) => (
                     <FeedCard key={item.key} item={item} view="list" modelLabels={modelLabels} {...actions} />
@@ -167,7 +167,7 @@ export default function Feed({
           ) : (
             <div className="flex flex-col gap-5">
               {group.batches.map((batch) => (
-                <div key={batch.generation.id} className="group flex flex-col gap-2">
+                <div key={batch.generation.id} className="group/batch flex flex-col gap-2">
                   <BatchHeader batch={batch} unit={unit} onDeleteBatch={actions.onDeleteBatch} />
                   <div className="flex flex-wrap gap-3">
                     {batch.items.map((item) => (
