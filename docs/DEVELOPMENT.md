@@ -176,22 +176,17 @@ cd backend
 
 `alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0003_workspace`（给 `generations` 加了 `negative_prompt/steps/cfg/sampler`，给 `images` 加了 `is_favorite`）。
 
-## 序列帧工坊（SpriteForge）的同步
+## 序列帧工坊（SpriteForge）的维护
 
-工坊不是我们重写的：`frontend/public/tools/spriteforge/` 是上游 `D:\AI\SpriteForge` 的 Vendor 副本，`frontend/app/tools/spriteforge/page.tsx` 把它原样挂进同一文档（不是 iframe）。三条规则：
+工坊不是我们重写的，也不是 iframe：`frontend/public/tools/spriteforge/` 是上游 `D:\AI\SpriteForge` 的 Vendor 副本，**并且已经就地改过**（上游项目不再演进，所以不再保同步，直接维护这份）。`frontend/app/tools/spriteforge/page.tsx` 把它挂进同一文档。三条规则：
 
-1. **不要手改 vendor 文件**。上游改了，重跑同步：
-   ```powershell
-   .\tools\sync-spriteforge.mjs            # 复制三件套 + 生成作用域化的 tool.css
-   .\tools\sync-spriteforge.mjs --check    # 只比对 index.html / app.js 的 SHA256，不一致退出 1
-   ```
-   `styles.css` 会被加上 `.sf-app` 前缀（`:root` / `html` / `body` 映射到容器，`body::before` 丢弃），并在末尾追加一段「容器内 `.workspace` 高度跟随容器」的覆盖样式。这些都写在脚本里，别在 `tool.css` 上手工打补丁。
-2. **宿主只加两条通路**：`#videoInput` / `#atlasInput` 用 `DataTransfer` 喂「本机文件或资产文件」；「保存到资产」点原版「导出图集」→ 弹层「下载 ZIP」，在 `<a download>` 点击的瞬间截 blob 交给 `POST /assets`。原版其它按钮一律保持原样。
+1. **改之前先读 `frontend/public/tools/spriteforge/README.md`**，那里列着相对上游的全部改动：启动改由 `MiraSpriteForge.boot()` 触发（在文件里直接 `init()` 会踩 TDZ）、四个导入入口走 `requestImport()`（先问「本机 / 资产」）、导出弹层多「保存到资产」。改完必须 `node --check app.js`。
+2. **样式只改 `tool.css`**：它是 `styles.css` 加了 `.sf-app` 前缀的版本（`:root` / `html` / `body` 映射到容器，`body::before` 丢弃，末尾追加「容器内 `.workspace` 高度跟随容器」）。不要直接引用上游的 `styles.css`，否则会污染整个应用。
 3. **改了桥接就跑端到端**：
    ```powershell
    node tools/e2e_spriteforge_1to1.mjs
    ```
-   它验证「挂载 → 载视频 → 抽帧 → 进轨道 → 播放 → 导出 ZIP → 保存到资产 → 用 `?asset=` 重新导入」整条链路，最后打印每个环节的实测值。
+   它验证「挂载 → 从本机/资产导入视频 → 抽帧 → 进轨道 → 播放 → 追加到图集 → 导出 ZIP → 保存到资产 → 用 `?asset=` 重新导入」整条链路，最后打印每个环节的实测值。注意顺序：**播放要放在「追加到图集」之前**，追加会清空轨道。
 
 ## 代码约定
 

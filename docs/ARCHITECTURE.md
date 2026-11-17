@@ -229,21 +229,23 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 编辑器导出的是「已经完成的字节」，没有采样过程，但用户希望它在资产库里和生成图一样能看、能收藏、能删。所以保存时后端不建新表，而是补一条最小的 `generations` 行（`generation_type = local_edit`、`model_name = local_editor`、`status = completed`）+ 一条 `generation_tasks` 行（`progress = 100`、`seed` 为空）+ 一张 `images` 行，产物照常落在 `storage/images/{generation_id}/`。
 
 这样做的好处是资产页、详情弹窗、收藏、下载、删除、`GET /generations?media=image` 全都不用改；代价是 `generation_tasks.seed` 必须可空（迁移 `0006_local_edit`），以及前端类型标签要认识 `local_edit`。带原图保存时，`images.original_image_id` 与 `generations.reference_image_path` 记录来源，详情弹窗里就能看到「来自图 #N」。
-## 序列帧工坊：把原版挂进同一文档
+## 序列帧工坊：原版就地改造后内嵌
 
-工坊这条线绕了两圈，值得记下来，因为它解释了「为什么不是重写」。
+工坊这条线绕了三圈，值得记下来，因为它解释了「为什么最后是改上游源码」。
 
 1. **第一版：同源 iframe**。原版是三件套静态文件（`index.html` / `app.js` / `styles.css`，无构建、无依赖、无网络），放进 `public/` 再用 `<iframe>` 套起来最省事。代价是壳和工具是两份文档：工具自己的「导入视频 / 导入图集」永远只开本机文件框，壳上挂「从资产导入」只能拿 `DataTransfer` 伪造一次 `change`；导出要靠「覆写 `HTMLAnchorElement.prototype.click` 截 blob」，还得轮询 iframe 的 `readyState` 才挂得上钩子。
 2. **第二版：自己重写**。照它写了一个原生 React 三栏页，输入走「本机 / 资产」两条同构路径，导出直接 `saveAsset()`。但功能上丢了原版的序列帧轨道、播放预览、多序列、分页弹窗、取色与透明度——**重写等于把上游每个细节都重新实现一遍，还永远追不上**。
-3. **现在：原版原样，同一文档内挂载**。`frontend/public/tools/spriteforge/` 放原版三件套（由 `tools/sync-spriteforge.mjs` 从 `D:\AI\SpriteForge` 同步；`styles.css` 在同步时被加上 `.sf-app` 前缀），`frontend/app/tools/spriteforge/page.tsx` 在挂载时：
+3. **现在：原版就地改造，同一文档内挂载**。上游 `D:\AI\SpriteForge` 是我们自己的项目、不会再动，所以直接改 vendor 副本而不是在运行期打补丁。
 
-- `fetch` 三件套，用 `DOMParser` 取出 body 标记注入 `.sf-app` 容器（去掉 `<script>`）；
-- 注入已加前缀的 `tool.css`，原版样式只作用于容器内，不会污染其它页面；
-- `(0, eval)` 执行 `app.js`，**执行前临时接管 `document.addEventListener`**，把它的 `DOMContentLoaded` 回调抓出来立刻调用（原版代码一行不改，也不会因为文档已经就绪而永远不启动），同时记录它注册的全局监听，卸载时逐个摘掉。
+`frontend/public/tools/spriteforge/` 三件套相对上游只有三处改动（详见该目录的 `README.md`）：
 
-只额外加两条通路：`#videoInput` / `#atlasInput` 收到的是「本机文件」或「资产文件」（同一个 `DataTransfer` 注入，工具无感）；「保存到资产」走原版「导出图集」→ 弹层「下载 ZIP」，在 `<a download>` 被点击的那一瞬截下 blob 交给 `POST /assets`。
+- **启动时机**：末尾暴露 `window.MiraSpriteForge = { boot, destroy, importFile, snapshot }`，页面在 `(0, eval)` 之后再调 `boot()`。不能在这个文件里直接 `init()`——`init()` 会同步走到 `renderFrameGrid` → `hideFramePeek`，而 `framePeekShowTimer` 等几个 `let` 声明在它后面，直接调用会踩 TDZ（`Cannot access 'framePeekShowTimer' before initialization`，表现为「视频载入失败」）。
+- **导入来源**：四个导入入口（顶栏两个 + 左栏两个）统一走 `requestImport(kind, anchor)`，先问 `window.MiraForgeToolBridge.chooseSource()` 弹「从本机上传 / 从资产选」；没有宿主桥接时自动回落到原版文件框。选资产时页面用 `DataTransfer` 把文件塞进 `#videoInput` / `#atlasInput` 并派发 `change`，工具无感。
+- **保存到资产**：`exportAtlasZip()` 拆成 `buildAtlasZip()`（拿 blob）+ `exportAtlasZip()`（下载）+ `saveAtlasZip()`（交给 `bridge.saveAsset`）；导出弹层因此多一个「保存到资产」按钮，点击后走 `POST /assets`，不再经手 `<a download>`。
 
-结果是 1:1 的界面与行为由上游负责，我们只管把「资产」这一层接进去；上游更新时重跑同步脚本即可。
+另外把全局监听统一登记到 `hostListeners`（`destroy()` 时逐个摘掉），并给 `loadVideoFile()` 加了 `videoLoadToken`：连续导入两支视频时，晚到的旧一次 `loadedmetadata` 不会覆盖新的那支。
+
+页面侧 `frontend/app/tools/spriteforge/page.tsx` 只负责：`fetch` 三件套 → `DOMParser` 注入 body 标记 → 挂 `tool.css`（选择器都加了 `.sf-app` 前缀，样式不会外泄）→ `(0, eval)` → `boot()`；同时提供 `window.MiraForgeToolBridge`（`chooseSource` / `saveAsset`）与 `?video=` / `?asset=` 两条深链。顶栏不再叠标题——工具自己有品牌条，左侧栏也有「工具」入口。
 
 ## 素材（assets）：为什么复用 `images` 表
 

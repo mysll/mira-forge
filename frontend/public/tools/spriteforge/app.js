@@ -60,11 +60,34 @@
 
   let els = {};
   let dragDepth = 0;
+  // MiraForge: 连续导入两支视频时，晚到的旧一次载入不能覆盖新的那支。
+  let videoLoadToken = 0;
   let crcTable = null;
   const zipEncoder = new TextEncoder();
   const zipDecoder = new TextDecoder('utf-8');
 
-  document.addEventListener('DOMContentLoaded', init);
+  /* ---- MiraForge 宿主桥接 ----------------------------------------------
+     宿主页面在 window 上挂 window.MiraForgeToolBridge：
+       chooseSource(kind, anchor) -> Promise<{ action: 'local' } | { action: 'asset', file } | null>
+       saveAsset(blob, name)      -> Promise<unknown>
+     没有宿主时，导入仍走原版的文件选择框，保存仍走浏览器下载。
+     ---------------------------------------------------------------------- */
+  const hostListeners = [];
+
+  function onGlobal(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    hostListeners.push([target, type, handler, options]);
+  }
+
+  function readBridge() {
+    return (typeof window !== 'undefined' && window.MiraForgeToolBridge) || null;
+  }
+
+  // MiraForge: 宿主页面在注入标记之后调用 window.MiraSpriteForge.boot()，那时整个 IIFE 已经执行完，
+  // 后面的 let 声明都已初始化；单独打开这个文件时仍走 DOMContentLoaded。
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  }
 
   function init() {
     cacheElements();
@@ -111,22 +134,51 @@
     for (const id of ids) els[id] = document.getElementById(id);
   }
 
+  const INPUT_BY_KIND = { video: 'videoInput', atlas: 'atlasInput' };
+
+  function pickLocal(kind) {
+    if (kind === 'video') return triggerVideoInput();
+    if (state.extracting) return showToast('请先等待当前提取结束，或取消提取。', 'warn');
+    if (state.busy.active) return;
+    els.atlasInput.click();
+  }
+
+  function injectFile(kind, file) {
+    const id = INPUT_BY_KIND[kind];
+    const input = (id && (els[id] || document.getElementById(id))) || null;
+    if (!input || !file) return false;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
+  async function requestImport(kind, anchor) {
+    const bridge = readBridge();
+    if (!bridge || typeof bridge.chooseSource !== 'function') return pickLocal(kind);
+    let choice = null;
+    try {
+      choice = await bridge.chooseSource(kind, anchor || null);
+    } catch (error) {
+      console.error(error);
+      return;
+    }
+    if (!choice) return;
+    if (choice.action === 'local') return pickLocal(kind);
+    if (choice.action === 'asset' && choice.file) injectFile(kind, choice.file);
+  }
+
   function bindEvents() {
-    els.importVideoBtnTop.addEventListener('click', () => triggerVideoInput());
-    els.importVideoBtn.addEventListener('click', () => triggerVideoInput());
+    // MiraForge: 四个导入入口都先问「本机还是资产」，没有宿主时自动回落到本机文件框。
+    [['importVideoBtnTop', 'video'], ['importVideoBtn', 'video'], ['importAtlasBtn', 'atlas'], ['importAtlasBtn2', 'atlas']]
+      .forEach(([id, kind]) => els[id].addEventListener('click', (event) => requestImport(kind, event.currentTarget)));
     els.videoInput.addEventListener('change', (event) => {
       const file = event.target.files && event.target.files[0];
       event.target.value = '';
       if (file) loadVideoFile(file);
     });
 
-    const openAtlasPicker = () => {
-      if (state.extracting) return toast('请先等待当前提取结束，或取消提取。', 'warn');
-      if (state.busy.active) return;
-      els.atlasInput.click();
-    };
-    els.importAtlasBtn.addEventListener('click', openAtlasPicker);
-    els.importAtlasBtn2.addEventListener('click', openAtlasPicker);
     els.atlasInput.addEventListener('change', (event) => {
       const files = Array.from(event.target.files || []);
       event.target.value = '';
@@ -282,21 +334,21 @@
       if (cancel) cancel();
     });
 
-    document.addEventListener('keydown', onGlobalKeyDown);
-    document.addEventListener('visibilitychange', () => {
+    onGlobal(document, 'keydown', onGlobalKeyDown);
+    onGlobal(document, 'visibilitychange', () => {
       if (document.hidden) stopPlayback();
     });
-    window.addEventListener('resize', schedulePreviewDraw);
-    window.addEventListener('resize', () => hideFramePeek(true));
-    window.addEventListener('scroll', () => hideFramePeek(true), true);
-    window.addEventListener('keydown', (event) => {
+    onGlobal(window, 'resize', schedulePreviewDraw);
+    onGlobal(window, 'resize', () => hideFramePeek(true));
+    onGlobal(window, 'scroll', () => hideFramePeek(true), true);
+    onGlobal(window, 'keydown', (event) => {
       if (event.key === 'Escape') hideFramePeek(true);
     });
 
-    window.addEventListener('dragenter', onWindowDragEnter);
-    window.addEventListener('dragover', onWindowDragOver);
-    window.addEventListener('dragleave', onWindowDragLeave);
-    window.addEventListener('drop', onWindowDrop);
+    onGlobal(window, 'dragenter', onWindowDragEnter);
+    onGlobal(window, 'dragover', onWindowDragOver);
+    onGlobal(window, 'dragleave', onWindowDragLeave);
+    onGlobal(window, 'drop', onWindowDrop);
   }
 
   function setupResizeObserver() {
@@ -546,6 +598,7 @@
     }
 
     stopPlayback();
+    const token = ++videoLoadToken;
     const url = URL.createObjectURL(file);
     const probe = document.createElement('video');
     probe.muted = true;
@@ -555,6 +608,10 @@
 
     try {
       await waitForVideoMetadata(probe);
+      if (token !== videoLoadToken) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       if (!probe.videoWidth || !probe.videoHeight || !Number.isFinite(probe.duration)) {
         throw new Error('视频没有可用的画面或时长信息。');
       }
@@ -2558,6 +2615,10 @@
       footer: `
         <button class="btn btn-ghost" type="button" data-close>关闭</button>
         <button class="btn btn-ghost" type="button" id="downloadJsonBtn">仅 JSON</button>
+        ${readBridge() && typeof readBridge().saveAsset === 'function' ? `
+        <button class="btn btn-ghost" type="button" id="saveAssetBtn">
+          <svg class="icon"><use href="#i-upload"/></svg><span>保存到资产</span>
+        </button>` : ''}
         <button class="btn btn-primary" type="button" id="downloadZipBtn">
           <svg class="icon"><use href="#i-download"/></svg><span>下载 ZIP</span>
         </button>`
@@ -2572,6 +2633,13 @@
       modal.close();
       exportAtlasZip(json);
     });
+    const saveBtn = modal.root.querySelector('#saveAssetBtn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        modal.close();
+        await saveAtlasZip(json);
+      });
+    }
   }
 
   async function canvasToBlob(canvas) {
@@ -2605,33 +2673,61 @@
     }
   }
 
+  // MiraForge: 打包与「怎么处理这个 zip」拆开，宿主可以把同一个 blob 存进资产库。
+  async function buildAtlasZip(json, progressLabel) {
+    if (!state.atlas.pages.length) return null;
+    const entries = [];
+    const pageCount = state.atlas.pages.length;
+    const stem = atlasFileStem(json.atlas && json.atlas.name);
+    for (let index = 0; index < pageCount; index++) {
+      setBusyProgress((index / pageCount) * 82, `${progressLabel || '正在编码 PNG'} ${index + 1} / ${pageCount}`);
+      const blob = await canvasToBlob(state.atlas.pages[index].canvas);
+      const buffer = await blob.arrayBuffer();
+      const filename = (json.pages[index] && json.pages[index].file) || `${stem}_${pad2(index + 1)}.png`;
+      entries.push({ name: filename, data: new Uint8Array(buffer) });
+      await nextFrame();
+    }
+    const jsonData = zipEncoder.encode(JSON.stringify(json, null, 2));
+    entries.push({ name: `${stem}.json`, data: jsonData });
+    setBusyProgress(90, '正在生成 ZIP…');
+    await nextFrame();
+    const zip = buildZip(entries);
+    setBusyProgress(100, '完成');
+    const zipBase = normalizeAtlasName(json.atlas && json.atlas.name) ? stem : 'sprite_atlas';
+    return { blob: new Blob([zip], { type: 'application/zip' }), name: `${zipBase}_${timestampForName()}.zip`, stem, pageCount };
+  }
+
   async function exportAtlasZip(json) {
     if (!state.atlas.pages.length) return;
     showBusy('正在打包图集', '准备 PNG 页面…');
     try {
-      const entries = [];
-      const pageCount = state.atlas.pages.length;
-      const stem = atlasFileStem(json.atlas && json.atlas.name);
-      for (let index = 0; index < pageCount; index++) {
-        setBusyProgress((index / pageCount) * 82, `正在编码 PNG ${index + 1} / ${pageCount}`);
-        const blob = await canvasToBlob(state.atlas.pages[index].canvas);
-        const buffer = await blob.arrayBuffer();
-        const filename = (json.pages[index] && json.pages[index].file) || `${stem}_${pad2(index + 1)}.png`;
-        entries.push({ name: filename, data: new Uint8Array(buffer) });
-        await nextFrame();
-      }
-      const jsonData = zipEncoder.encode(JSON.stringify(json, null, 2));
-      entries.push({ name: `${stem}.json`, data: jsonData });
-      setBusyProgress(90, '正在生成 ZIP…');
-      await nextFrame();
-      const zip = buildZip(entries);
-      setBusyProgress(100, '完成');
-      const zipBase = normalizeAtlasName(json.atlas && json.atlas.name) ? stem : 'sprite_atlas';
-      downloadBlob(new Blob([zip], { type: 'application/zip' }), `${zipBase}_${timestampForName()}.zip`);
-      showToast(`已导出 ${pageCount} 张 PNG 与 ${stem}.json`, 'ok', 4000);
+      const built = await buildAtlasZip(json);
+      if (!built) return;
+      downloadBlob(built.blob, built.name);
+      showToast(`已导出 ${built.pageCount} 张 PNG 与 ${built.stem}.json`, 'ok', 4000);
     } catch (error) {
       console.error(error);
       showToast(`导出失败：${error.message || '未知错误'}`, 'error', 4500);
+    } finally {
+      hideBusy();
+    }
+  }
+
+  async function saveAtlasZip(json) {
+    const bridge = readBridge();
+    if (!bridge || typeof bridge.saveAsset !== 'function') {
+      return showToast('当前页面没有接入资产库。', 'warn');
+    }
+    if (!state.atlas.pages.length) return;
+    showBusy('正在保存到资产', '准备 PNG 页面…');
+    try {
+      const built = await buildAtlasZip(json, '正在编码 PNG');
+      if (!built) return;
+      await bridge.saveAsset(built.blob, built.name);
+      showToast(`已保存到资产：${built.name}`, 'ok', 4000);
+    } catch (error) {
+      console.error(error);
+      showToast(`保存失败：${error.message || '未知错误'}`, 'error', 4500);
     } finally {
       hideBusy();
     }
@@ -3116,7 +3212,7 @@
       }
     }
     root.querySelectorAll('[data-close]').forEach((node) => node.addEventListener('click', close));
-    document.addEventListener('keydown', onKeyDown);
+    onGlobal(document, 'keydown', onKeyDown);
     setTimeout(() => {
       const focusTarget = root.querySelector('input, .modal-foot .btn-primary, .modal-foot .btn, .modal-close');
       if (focusTarget) focusTarget.focus();
@@ -3318,4 +3414,33 @@
       removeTrackAt(state.current);
     }
   }
+  window.MiraSpriteForge = {
+    boot: init,
+    destroy() {
+      try {
+        stopPlayback();
+      } catch (error) {
+        console.error(error);
+      }
+      for (const [target, type, handler, options] of hostListeners.splice(0)) {
+        target.removeEventListener(type, handler, options);
+      }
+    },
+    importFile(kind, file) {
+      return injectFile(kind, file);
+    },
+    // 给自动化和排查用：一眼看到载入状态（不影响界面）。
+    snapshot() {
+      return {
+        duration: state.duration,
+        videoName: state.videoFile ? state.videoFile.name : null,
+        frames: state.frames.length,
+        track: state.track.length,
+        playing: state.playing,
+        current: state.current,
+        atlasPages: state.atlas.pages.length,
+        atlasCells: state.atlas.pages.reduce((total, page) => total + (page.used || 0), 0),
+      };
+    },
+  };
 })();
