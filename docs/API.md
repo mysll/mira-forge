@@ -446,6 +446,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 收藏 / 取消收藏，body `{"favorite": true}`，返回更新后的 `ImageRead`。不存在 `404`。
 
+### `DELETE /generations/{id}`
+
+删掉一整个批次：名下的任务、产物文件、`images` 行、批次记录一起清掉。返回
+`{"generation_id": 12, "images": 4, "tasks": 4}`。
+
+- 一次生成 4 张图时，一次请求就能把这一批连同它的 4 条任务清干净，
+  不用逐张删（对应前端的「删除这个批次」）。
+- 批次里只要有 `queued` / `running` 的任务就返回
+  `409 {"detail": "批次里还有 2 个任务在执行，先取消再删除"}`，
+  避免把正在写盘的结果删掉。
+- 不存在返回 `404 {"detail": "generation 12 不存在"}`。
+
 ### `DELETE /images/{id}`
 
 删除原图与缩略图（磁盘文件 + 数据库行），返回 `204`。不存在返回 `404`。已删除的图片若是某次生成的唯一产物，生成记录本身保留。

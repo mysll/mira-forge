@@ -403,6 +403,13 @@ export async function deleteImage(imageId: number): Promise<void> {
 export type TaskDeleted = { task_id: number; generation_deleted: boolean };
 
 /** 删掉一个任务（连同它名下的产物）；批次里没有别的任务时，批次也会被删掉。 */
+export type GenerationDeleted = { generation_id: number; images: number; tasks: number };
+
+/** 删掉一整个批次：名下任务、产物文件、记录一起清掉 */
+export function deleteGeneration(generationId: number): Promise<GenerationDeleted> {
+  return request<GenerationDeleted>(`/generations/${generationId}`, { method: "DELETE" });
+}
+
 export function deleteTask(taskId: number): Promise<TaskDeleted> {
   return request<TaskDeleted>(`/tasks/${taskId}`, { method: "DELETE" });
 }

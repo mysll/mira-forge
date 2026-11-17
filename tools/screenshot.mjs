@@ -3,7 +3,8 @@
 // 用法：
 //   node tools/screenshot.mjs --url http://127.0.0.1:3000 --out data/ui.png \
 //        [--width 1500] [--height 1250] [--click "文字"] [--prompt "文字"] \
-//        [--file 路径] [--submit "文字"] [--eval "JS"] [--wait 1500]
+//        [--file 路径] [--submit "文字"] [--eval "JS"] [--wait 1500] \
+//        [--hover-selector CSS]
 //
 // 存在理由：这个项目每阶段都要"能运行、能看到"，而 headless 的 --screenshot
 // 无法点击、无法等待异步数据，只能靠 CDP 注入。
@@ -31,6 +32,7 @@ const prompt = arg("prompt", "");
 const file = arg("file", "");
 const fileSelector = arg("selector", "input[type=file]");
 const clickSelector = arg("click-selector", "");
+const hoverSelector = arg("hover-selector", "");
 const submit = arg("submit", "");
 const evaluate = arg("eval", "");
 const wait = Number(arg("wait", "2500"));
@@ -113,6 +115,33 @@ try {
   });
   await send("Page.navigate", { url });
   await sleep(wait);
+
+  // 真实的指针移动：CSS 的 :hover 只认真实输入，派发 mouseover 不算，所以用 CDP 发鼠标移动。
+  if (hoverSelector) {
+    const box = await send("Runtime.evaluate", {
+      expression: `(() => {
+        const el = document.querySelector(${JSON.stringify(hoverSelector)});
+        if (!el) return null;
+        el.scrollIntoView({ block: "center" });
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      })()`,
+      returnByValue: true,
+    });
+    const point = box.result?.value;
+    if (point) {
+      await send("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: point.x,
+        y: point.y,
+        button: "none",
+      });
+      console.log(`hover ${hoverSelector}: ${Math.round(point.x)},${Math.round(point.y)}`);
+      await sleep(600);
+    } else {
+      console.log(`hover ${hoverSelector}: not-found`);
+    }
+  }
 
   if (click) {
     const expression = `(() => {

@@ -196,3 +196,49 @@ def test_delete_running_task_is_refused(client: TestClient) -> None:
         db.commit()
     finally:
         db.close()
+
+
+def test_delete_generation_wipes_tasks_files_and_the_batch(client: TestClient) -> None:
+    generation_id = _create(client, count=2)
+    first = _register_image(generation_id, 0)
+    second = _register_image(generation_id, 1)
+
+    storage = active_project().storage_path
+    files = sorted(storage.glob("images/**/*.png"))
+    assert len(files) == 2
+
+    response = client.delete(f"/api/v1/generations/{generation_id}")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"generation_id": generation_id, "images": 2, "tasks": 2}
+
+    assert not any(path.is_file() for path in files)
+    assert client.get(f"/api/v1/generations/{generation_id}").status_code == 404
+    assert client.get(f"/api/v1/images/{first}").status_code == 404
+    assert client.get(f"/api/v1/images/{second}").status_code == 404
+
+
+def test_delete_generation_is_refused_while_a_task_runs(client: TestClient) -> None:
+    generation_id = _create(client, count=1)
+    task_id = client.get(f"/api/v1/generations/{generation_id}").json()["tasks"][0]["id"]
+
+    db = SessionLocal()
+    try:
+        task = db.get(GenerationTask, task_id)
+        assert task is not None
+        task.status = TaskStatus.RUNNING
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.delete(f"/api/v1/generations/{generation_id}")
+    assert response.status_code == 409, response.text
+    assert "先取消" in response.json()["detail"]
+
+    db = SessionLocal()
+    try:
+        task = db.get(GenerationTask, task_id)
+        if task is not None:
+            task.status = TaskStatus.PENDING
+        db.commit()
+    finally:
+        db.close()

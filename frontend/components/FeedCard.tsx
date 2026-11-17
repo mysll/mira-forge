@@ -28,9 +28,9 @@ type Props = {
   onFavorite: (item: FeedSlot) => void;
   onDownload: (item: FeedSlot) => void;
   onDelete: (item: FeedSlot) => void;
-  onEdit: (item: FeedSlot) => void;
-  /** 只有「没有产物的任务」会用到：把这条任务从批次里删掉 */
+  /** 连产物一起删掉这条任务（详情弹窗与卡片操作栏都用它） */
   onDeleteTask?: (item: FeedSlot) => void;
+  onEdit: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
 };
 
@@ -56,6 +56,16 @@ function IconDownload() {
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
       <path d="M12 4v10m0 0 3.6-3.6M12 14l-3.6-3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M5 17.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconTrashTask() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+      <path d="M4 7.5h16M10 4.5h4M6.5 7.5 7.4 19a1.5 1.5 0 0 0 1.5 1.4h6.2a1.5 1.5 0 0 0 1.5-1.4l.9-11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M9.8 11v5.6M14.2 11v5.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".75" />
     </svg>
   );
 }
@@ -112,7 +122,7 @@ function ActionBar({
     },
     { key: "edit", title: "继续编辑", icon: <IconEdit />, run: () => onEdit(item) },
     { key: "download", title: "下载", icon: <IconDownload />, run: () => onDownload(item) },
-    { key: "delete", title: "删除", icon: <IconTrash />, run: () => onDelete(item) },
+    { key: "delete", title: "只删这张图", icon: <IconTrash />, run: () => onDelete(item) },
   ];
 
   return (

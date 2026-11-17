@@ -145,6 +145,8 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/v1/tasks/$($g.tasks[0].
 ```powershell
 node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui.png --width 1500 --height 1300
 node tools\screenshot.mjs --url http://127.0.0.1:3000 --out data\ui-detail.png --click "详情" --wait 2500
+# 验证「悬浮才出现」的控件：真实鼠标移动（派发 mouseover 不算）
+node tools\screenshot.mjs --url http://127.0.0.1:3000/compose --out data\ui-hover.png --hover-selector "div.group > div:first-child"
 ```
 
 参数：`--click <文字>` 点第一个文本匹配的按钮 · `--prompt <文字>` 写进文本框 · `--file <路径>` 塞给 `input[type=file]` · `--submit <文字>` 点提交 · `--wait <毫秒>`。

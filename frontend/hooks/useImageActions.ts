@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import { deleteImage, imageFileUrl, setImageFavorite } from "@/lib/api";
+import { deleteGeneration, deleteImage, deleteTask, imageFileUrl, setImageFavorite } from "@/lib/api";
 import { useComposerStore } from "@/stores/composer";
 import { useReferenceStore } from "@/stores/reference";
 import type { GenerationRead, ImageBrief } from "@/types/api";
@@ -91,6 +91,50 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     [onDeleted, onToast, refresh],
   );
 
+  /** 整条任务连产物一起删：格子上的「删除任务」和详情里的同名按钮都走这里 */
+  const removeTask = useCallback(
+    async (generation: GenerationRead, taskId: number) => {
+      const count = generation.images.filter((image) => image.task_id === taskId).length;
+      const message =
+        count > 0
+          ? `删除这个任务和它名下的 ${count} 件产物？文件会从磁盘移除。`
+          : "删除这个任务？";
+      if (!window.confirm(message)) {
+        return;
+      }
+      try {
+        const result = await deleteTask(taskId);
+        refresh();
+        onToast(result.generation_deleted ? "任务已删除，批次也空了，一并清掉" : "任务已删除");
+      } catch (error) {
+        onToast((error as Error).message || "删除任务失败");
+      }
+    },
+    [onToast, refresh],
+  );
+
+  /** 整批删除：这次生成的所有任务与产物一起清掉 */
+  const removeBatch = useCallback(
+    async (generation: GenerationRead) => {
+      const count = generation.images.length;
+      const message =
+        count > 0
+          ? `删除批次 #${generation.id} 和它名下的 ${count} 件产物？文件会从磁盘移除。`
+          : `删除批次 #${generation.id}？`;
+      if (!window.confirm(message)) {
+        return;
+      }
+      try {
+        await deleteGeneration(generation.id);
+        refresh();
+        onToast("批次已删除");
+      } catch (error) {
+        onToast((error as Error).message || "删除批次失败");
+      }
+    },
+    [onToast, refresh],
+  );
+
   const edit = useCallback(
     (item: AssetRef) => {
       onEdited?.();
@@ -120,5 +164,5 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     [goCompose, onEdited, onToast],
   );
 
-  return { favorite, download, remove, edit, regenerate, refresh };
+  return { favorite, download, remove, removeTask, removeBatch, edit, regenerate, refresh };
 }

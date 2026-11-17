@@ -6,9 +6,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.image import Image
+from app.models.task import TaskStatus
 from app.services.image_service import storage_root_for
 from app.models.database import get_db
 from app.repositories.generation_repo import GenerationRepository
@@ -26,6 +29,7 @@ from app.services.image_service import (
     MAX_UPLOAD_BYTES,
     ImageStoreError,
     detect_image_extension,
+    remove_files,
     store_upload,
 )
 
@@ -351,3 +355,38 @@ def get_generation(generation_id: int, db: Session = Depends(get_db)) -> Generat
             status_code=status.HTTP_404_NOT_FOUND, detail=f"generation {generation_id} 不存在"
         )
     return _to_read(generation)
+
+@router.delete("/{generation_id}")
+def delete_generation(generation_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
+    """删掉一整个批次：名下任务、产物文件、记录一起清掉。
+
+    和「清空工作区」的区别只在范围；批次里还有任务在排队/生成时拒绝，避免把正在跑的结果写丢。
+    """
+    generation = GenerationRepository(db).get(generation_id)
+    if generation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"generation {generation_id} 不存在"
+        )
+
+    busy = [
+        task
+        for task in generation.tasks
+        if task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING)
+    ]
+    if busy:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"批次里还有 {len(busy)} 个任务在执行，先取消再删除",
+        )
+
+    images = list(db.scalars(select(Image).where(Image.generation_id == generation_id)).all())
+    for image in images:
+        remove_files(image)
+        db.delete(image)
+    db.flush()
+
+    task_count = len(generation.tasks)
+
+    db.delete(generation)
+    db.commit()
+    return {"generation_id": generation_id, "images": len(images), "tasks": task_count}
