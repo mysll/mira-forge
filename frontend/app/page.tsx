@@ -13,6 +13,85 @@ import { useComposerStore } from "@/stores/composer";
 import type { GenerationRead, ImageBrief, ModelInfo } from "@/types/api";
 
 /**
+ * 「最近作品」里的一格。
+ *
+ * 素材（.zip / .json）不一定有缩略图——ZIP 里没有 PNG、或者干脆是纯 JSON 时，
+ * `/images/{id}/thumbnail` 会 404，直接 <img> 就是一张碎图。这里统一兜底成
+ * 文件牌，避免首页出现裂图。
+ */
+function RecentCard({ image }: { image: ImageBrief }) {
+  const [broken, setBroken] = useState(false);
+  const asset = image.media_type === "asset";
+  const suffix = (image.file_path.split(".").pop() ?? "").toUpperCase();
+  // ZIP 素材只要里面有 PNG，服务端就会抽一张当封面；只有抽不出来
+  // （空 ZIP、纯 JSON）时 /thumbnail 才 404，这里再退回文件牌。
+  const showFile = broken;
+
+  const meta =
+    image.media_type === "video"
+      ? `${image.duration_seconds?.toFixed(1) ?? "?"} 秒`
+      : asset
+        ? `素材 · ${suffix || "文件"}`
+        : `${image.width}×${image.height}`;
+
+  return (
+    <Link
+      href="/gallery"
+      title={asset ? `素材 · ${suffix || "文件"}` : `${image.width}×${image.height}${image.media_type === "video" ? ` · ${meta}` : ""}`}
+      className="group relative aspect-square overflow-hidden rounded-lg border border-edge/60 bg-surface2"
+    >
+      {showFile ? (
+        <span className="flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5 text-muted/70"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden
+          >
+            <path d="M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Z" />
+            <path d="M13 3v6h6" />
+          </svg>
+          <span className="text-[10px] font-medium text-muted/80">{suffix || "文件"}</span>
+        </span>
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={imageThumbnailUrl(image)}
+          alt=""
+          className="h-full w-full object-cover transition group-hover:scale-[1.03]"
+          loading="lazy"
+          onError={() => setBroken(true)}
+        />
+      )}
+
+      {image.media_type === "video" ? (
+        <>
+          <span className="absolute inset-0 flex items-center justify-center">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 ring-1 ring-white/25">
+              <svg viewBox="0 0 24 24" className="ml-0.5 h-3 w-3 text-white" fill="currentColor" aria-hidden>
+                <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+              </svg>
+            </span>
+          </span>
+          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white/90">
+            {meta}
+          </span>
+        </>
+      ) : null}
+
+      {asset ? (
+        <span className="absolute left-1 top-1 rounded bg-accent/20 px-1 py-0.5 text-[10px] text-accentSoft">
+          素材
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
+
+/**
  * 首页：进来先看到「能做什么」和「做过什么」。
  *
  * 不在这里塞创作框——创作界面有自己的两个页面（图片 / 视频），
@@ -293,34 +372,7 @@ export default function HomePage() {
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
               {recent.map((image) => (
-                <Link
-                  key={image.id}
-                  href="/gallery"
-                  title={`${image.width}×${image.height}${image.media_type === "video" ? ` · ${image.duration_seconds?.toFixed(1) ?? "?"} 秒` : ""}`}
-                  className="group relative aspect-square overflow-hidden rounded-lg border border-edge/60 bg-surface2"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={imageThumbnailUrl(image)}
-                    alt=""
-                    className="h-full w-full object-cover transition group-hover:scale-[1.03]"
-                    loading="lazy"
-                  />
-                  {image.media_type === "video" ? (
-                    <>
-                      <span className="absolute inset-0 flex items-center justify-center">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 ring-1 ring-white/25">
-                          <svg viewBox="0 0 24 24" className="ml-0.5 h-3 w-3 text-white" fill="currentColor" aria-hidden>
-                            <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-                          </svg>
-                        </span>
-                      </span>
-                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white/90">
-                        {image.duration_seconds?.toFixed(1) ?? "?"} 秒
-                      </span>
-                    </>
-                  ) : null}
-                </Link>
+                <RecentCard key={image.id} image={image} />
               ))}
             </div>
           )}
