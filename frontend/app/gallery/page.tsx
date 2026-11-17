@@ -12,6 +12,7 @@ import { useImageActions, type AssetRef } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
 import { clearWorkspace, deleteImages, fetchGenerations, fetchModels, imageThumbnailUrl } from "@/lib/api";
 import { bucketOf, dateRangeFor, formatTime, parseIso, type DateBucket, type DateFilter } from "@/lib/date";
+import { modelLabel } from "@/lib/models";
 import type { FeedItem, GenerationRead, ImageBrief } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
@@ -343,7 +344,7 @@ export default function GalleryPage() {
                   <AssetCard
                     key={asset.image.id}
                     asset={asset}
-                    modelLabel={modelLabels[asset.generation.model_name]}
+                    modelLabel={modelLabel(asset.generation.model_name, modelLabels)}
                     selectable={managing}
                     selected={selected.has(asset.image.id)}
                     onToggle={() => toggleOne(asset.image.id)}
