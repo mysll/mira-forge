@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 
 import { exportSize, placementFor, rgbToHex, upscaleRatio, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT } from "@/lib/editor";
-import type { EditorAnalysis } from "@/lib/api";
+import type { EditorAnalysis, LocalEditSaved } from "@/lib/api";
 import { useEditorStore } from "@/stores/editor";
 
 type Props = {
@@ -15,6 +15,9 @@ type Props = {
   onFitCanvas: () => void;
   onCenter: () => void;
   onExport: () => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: LocalEditSaved | null;
   onReplace: () => void;
 };
 
@@ -110,6 +113,9 @@ export default function EditorPanel({
   onFitCanvas,
   onCenter,
   onExport,
+  onSave,
+  saving,
+  saved,
   onReplace,
 }: Props) {
   const {
@@ -384,6 +390,22 @@ export default function EditorPanel({
         <button type="button" className="btn-primary w-full py-2 text-[12px]" onClick={onExport} disabled={!subject}>
           导出 PNG · {output.width}×{output.height}
         </button>
+        <button
+          type="button"
+          className="btn-ghost w-full py-1.5 text-[11px]"
+          onClick={onSave}
+          disabled={!subject || saving}
+        >
+          {saving ? "正在保存…" : `保存到资产 · ${output.width}×${output.height}`}
+        </button>
+        <p className="text-[10px] leading-relaxed text-muted/70">
+          保存会在资产库生成一条「本地编辑」记录，和生成图一样能收藏、下载、删除；原图不受影响。
+        </p>
+        {saved ? (
+          <p className="rounded-md border border-ok/40 bg-ok/10 px-2 py-1.5 text-[11px] leading-relaxed text-ok">
+            已保存为批次 #{saved.generation_id} · 图 #{saved.image_id}（{saved.width}×{saved.height}）
+          </p>
+        ) : null}
         <button type="button" className="btn-ghost w-full py-1.5 text-[11px]" onClick={onReplace}>
           换一张图
         </button>

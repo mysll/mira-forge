@@ -549,3 +549,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 ### POST /editor/trim
 
 `multipart/form-data`：`file` + `padding`（0–256，向外留白的像素）。返回裁剪后的 PNG，头里带 `X-Content-Box: left,top,right,bottom`（相对原图的包围盒）。
+### POST /editor/save
+
+`multipart/form-data`：`image`（导出的 PNG）+ 可选 `source_image_id`、`prompt`。
+
+把编辑器成品存进资产库。后端不起任务、不碰 ComfyUI，直接建一条 `local_edit` 记录：
+一个已完成的 `generations` 行、一个已完成的 `generation_tasks` 行（`seed` 为空，迁移 `0006_local_edit` 起允许）和一张 `images` 行。
+
+```json
+{"generation_id": 15, "image_id": 31, "width": 512, "height": 512, "file_size": 134402}
+```
+
+- 带 `source_image_id` 时，`prompt` 默认记成 `本地编辑 · 来自图 #29`，并把原图写进 `original_image_id` 与 `reference_image_path`
+- 不带时 `prompt` 默认 `本地编辑`
+- 产物与生成的图完全同构：出现在资产库、作品流、收藏、下载与删除里；`GET /generations?media=image` 能查到
+- 40 MB 上限、非图片 422（与其它 editor 端点一致）

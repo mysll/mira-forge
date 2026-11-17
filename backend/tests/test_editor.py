@@ -170,3 +170,80 @@ def test_denoise_fills_small_holes_but_keeps_big_ones(client: TestClient) -> Non
     assert before[50, 50] == 0  # 小孔原本是透明的
     assert after[50, 50] == 255  # 去杂点后填上了
     assert after[80, 80] == 0  # 大孔（封闭背景）仍然是透明的
+
+
+def test_save_edited_image_lands_in_assets(client: TestClient) -> None:
+    saved = client.post(
+        f"{API}/editor/save",
+        files={"image": ("edited.png", _sprite(), "image/png")},
+        data={"prompt": "本地编辑 · 测试"},
+    )
+    assert saved.status_code == 201, saved.text
+    body = saved.json()
+    assert body["width"] == 120 and body["height"] == 120
+    assert body["file_size"] > 0
+
+    generation = client.get(f"{API}/generations/{body['generation_id']}")
+    assert generation.status_code == 200
+    payload = generation.json()
+    assert payload["generation_type"] == "local_edit"
+    assert payload["status"] == "completed"
+    assert payload["prompt"] == "本地编辑 · 测试"
+    assert len(payload["images"]) == 1
+
+    # 出现在图片列表与「图片」筛选里，能被资产页看到
+    listed = client.get(f"{API}/images", params={"generation_id": body["generation_id"]})
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    images = client.get(f"{API}/generations", params={"media": "image", "q": "本地编辑"})
+    assert images.status_code == 200
+    assert images.json()["total"] == 1
+
+    served = client.get(f"{API}/images/{body['image_id']}/file")
+    assert served.status_code == 200
+    assert served.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_save_edited_image_links_back_to_source(client: TestClient) -> None:
+    created = client.post(
+        f"{API}/generations",
+        json={"prompt": "a teacup", "model": "qwen_image_21_turbo", "count": 1},
+    )
+    assert created.status_code == 201, created.text
+    generation_id = created.json()["id"]
+
+    # 直接落一张图当「原图」，模拟资产里已有的作品
+    from app.models.database import session_for
+    from app.core.projects import active_project
+    from app.services.image_service import store_image
+    from app.models.image import Image
+    from app.models.task import GenerationTask
+    from sqlalchemy import select
+
+    session = session_for(active_project())
+    try:
+        task = session.scalar(
+            select(GenerationTask).where(GenerationTask.generation_id == generation_id)
+        )
+        assert task is not None
+        source = store_image(
+            session,
+            content=_sprite(),
+            generation_id=generation_id,
+            task_id=task.id,
+            index=0,
+        )
+        session.commit()
+        source_id = source.id
+    finally:
+        session.close()
+
+    saved = client.post(
+        f"{API}/editor/save",
+        files={"image": ("edited.png", _sprite(), "image/png")},
+        data={"source_image_id": str(source_id)},
+    )
+    assert saved.status_code == 201, saved.text
+    detail = client.get(f"{API}/generations/{saved.json()['generation_id']}").json()
+    assert detail["prompt"] == f"本地编辑 · 来自图 #{source_id}"
+    assert detail["reference_images"], detail

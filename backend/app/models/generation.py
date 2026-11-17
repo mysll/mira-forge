@@ -31,6 +31,8 @@ class GenerationType(StrEnum):
     # 参考图引导：参考图只进条件，潜空间仍按 width/height 新开一张
     IMAGE_TO_IMAGE = "image_to_image"
     IMAGE_EDIT = "image_edit"
+    # 本地编辑器保存的成品：不用模型、不排队，直接是一条已完成记录
+    LOCAL_EDIT = "local_edit"
     # 视频（二期）：首帧 / 尾帧都可选，两张都不给就是纯文生视频
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"

@@ -5,6 +5,7 @@ import { useEffect } from "react";
 
 import { imageFileUrl, imageThumbnailUrl, referenceImageUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
+import { modelLabel } from "@/lib/models";
 import type { FeedItem } from "@/types/api";
 
 type Props = {
@@ -146,7 +147,7 @@ export default function ImageDetail({
             ) : null}
 
             <div className="mt-3">
-              <Row label="模型" value={modelLabels?.[generation.model_name] ?? generation.model_name} />
+              <Row label="模型" value={modelLabel(generation.model_name, modelLabels)} />
               <Row
                 label="类型"
                 value={
@@ -154,11 +155,13 @@ export default function ImageDetail({
                     ? "图片编辑"
                     : generation.generation_type === "image_to_image"
                       ? "参考图生成"
-                      : generation.generation_type === "text_to_video"
-                        ? "文生视频"
-                        : generation.generation_type === "image_to_video"
-                          ? "图生视频"
-                          : "文生图"
+                      : generation.generation_type === "local_edit"
+                        ? "本地编辑"
+                        : generation.generation_type === "text_to_video"
+                          ? "文生视频"
+                          : generation.generation_type === "image_to_video"
+                            ? "图生视频"
+                            : "文生图"
                 }
               />
               <Row

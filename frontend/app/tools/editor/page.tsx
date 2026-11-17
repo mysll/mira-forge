@@ -11,8 +11,10 @@ import {
   analyzeForEditor,
   imageAsFile,
   removeBackgroundFromImage,
+  saveEditedImage,
   trimTransparentImage,
   type EditorAnalysis,
+  type LocalEditSaved,
 } from "@/lib/api";
 import {
   baseName,
@@ -33,6 +35,10 @@ export default function EditorPage() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<LocalEditSaved | null>(null);
+  /** 从资产带进来的那张图，保存时用作「来源」 */
+  const [sourceImageId, setSourceImageId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const toast = useCallback((text: string) => {
@@ -41,7 +47,7 @@ export default function EditorPage() {
   }, []);
 
   const adopt = useCallback(
-    async (file: File, options?: { quiet?: boolean }) => {
+    async (file: File, options?: { quiet?: boolean; sourceImageId?: number | null }) => {
       setLoading(true);
       try {
         const [image, info] = await Promise.all([
@@ -49,6 +55,8 @@ export default function EditorPage() {
           analyzeForEditor(file).catch(() => null),
         ]);
         setAnalysis(info);
+        setSaved(null);
+        setSourceImageId(options?.sourceImageId ?? null);
         store.load({
           name: file.name,
           image,
@@ -80,7 +88,7 @@ export default function EditorPage() {
     imageAsFile(id)
       .then((file) => {
         if (!cancelled) {
-          void adopt(file, { quiet: true });
+          void adopt(file, { quiet: true, sourceImageId: id });
         }
       })
       .catch((error: unknown) => {
@@ -167,9 +175,10 @@ export default function EditorPage() {
     toast("画布已贴合主体尺寸");
   }, [store, subject, toast]);
 
-  const onExport = useCallback(async () => {
+  /** 按当前参数与导出倍率画一张离屏 canvas（导出与保存共用）。 */
+  const renderCanvas = useCallback((): HTMLCanvasElement | null => {
     if (!store.subject) {
-      return;
+      return null;
     }
     const output = exportSize(
       { canvasWidth: store.canvasWidth, canvasHeight: store.canvasHeight },
@@ -180,18 +189,33 @@ export default function EditorPage() {
     canvas.height = output.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
+      return null;
+    }
+    drawScene(
+      ctx,
+      {
+        canvasWidth: store.canvasWidth,
+        canvasHeight: store.canvasHeight,
+        background: store.background,
+        subject: store.subject,
+        heightPct: store.heightPct,
+        bottom: store.bottom,
+        offsetX: store.offsetX,
+      },
+      store.exportScale,
+    );
+    return canvas;
+  }, [store]);
+
+  const onExport = useCallback(async () => {
+    if (!store.subject) {
+      return;
+    }
+    const canvas = renderCanvas();
+    if (!canvas) {
       toast("导出失败：拿不到画布");
       return;
     }
-    drawScene(ctx, {
-      canvasWidth: store.canvasWidth,
-      canvasHeight: store.canvasHeight,
-      background: store.background,
-      subject: store.subject,
-      heightPct: store.heightPct,
-      bottom: store.bottom,
-      offsetX: store.offsetX,
-    }, store.exportScale);
     try {
       const blob = await canvasToBlob(canvas, "image/png");
       downloadBlob(blob, `${baseName(store.subjectName || "miraforge")}-${canvas.width}x${canvas.height}.png`);
@@ -199,7 +223,31 @@ export default function EditorPage() {
     } catch (error) {
       toast(error instanceof Error ? error.message : "导出失败");
     }
-  }, [store, toast]);
+  }, [renderCanvas, store.subject, store.subjectName, toast]);
+
+  const onSave = useCallback(async () => {
+    if (!store.subject) {
+      return;
+    }
+    const canvas = renderCanvas();
+    if (!canvas) {
+      toast("保存失败：拿不到画布");
+      return;
+    }
+    setSaving(true);
+    try {
+      const blob = await canvasToBlob(canvas, "image/png");
+      const result = await saveEditedImage(blob, {
+        sourceImageId: sourceImageId ?? undefined,
+      });
+      setSaved(result);
+      toast(`已保存到资产（批次 #${result.generation_id} · ${result.width}×${result.height}）`);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }, [renderCanvas, sourceImageId, store.subject, toast]);
 
   const onPickAsset = useCallback(
     async (image: { id: number }) => {
@@ -207,7 +255,7 @@ export default function EditorPage() {
       setLoading(true);
       try {
         const file = await imageAsFile(image.id);
-        await adopt(file);
+        await adopt(file, { sourceImageId: image.id });
       } catch (error) {
         toast(error instanceof Error ? error.message : "资产图片读取失败");
       } finally {
@@ -280,6 +328,9 @@ export default function EditorPage() {
             onFitCanvas={onFitCanvas}
             onCenter={() => store.setParams({ offsetX: 0 })}
             onExport={onExport}
+            onSave={onSave}
+            saving={saving}
+            saved={saved}
             onReplace={() => setPicking(true)}
           />
         </div>

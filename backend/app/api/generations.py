@@ -32,7 +32,7 @@ from app.services.image_service import (
 router = APIRouter(prefix="/generations", tags=["generations"])
 
 _VIDEO_TYPES = ("text_to_video", "image_to_video")
-_IMAGE_TYPES = ("text_to_image", "image_to_image", "image_edit")
+_IMAGE_TYPES = ("text_to_image", "image_to_image", "image_edit", "local_edit")
 
 
 def _types_for_media(media: str | None) -> list[str] | None:

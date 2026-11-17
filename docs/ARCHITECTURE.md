@@ -224,3 +224,8 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 3. **物理上限**：把主体高度百分比拖到超过 100%、或画布大于原图，就是在要求插值补细节，一定发软。面板在 `upscaleRatio() > 1.02` 时直接给出黄色警告，指向倍率而不是拖大。
 
 顺带把「大幅缩小」这一路也做干净了：`drawScene` 在目标小于源图一半时先按 1/2 逐级降采样再落笔（最多 5 级），1024 → 230 这种 4 倍以上缩小不会因为一次性重采样而边缘发虚。
+### 保存成品：一条 `local_edit` 记录，而不是新表
+
+编辑器导出的是「已经完成的字节」，没有采样过程，但用户希望它在资产库里和生成图一样能看、能收藏、能删。所以保存时后端不建新表，而是补一条最小的 `generations` 行（`generation_type = local_edit`、`model_name = local_editor`、`status = completed`）+ 一条 `generation_tasks` 行（`progress = 100`、`seed` 为空）+ 一张 `images` 行，产物照常落在 `storage/images/{generation_id}/`。
+
+这样做的好处是资产页、详情弹窗、收藏、下载、删除、`GET /generations?media=image` 全都不用改；代价是 `generation_tasks.seed` 必须可空（迁移 `0006_local_edit`），以及前端类型标签要认识 `local_edit`。带原图保存时，`images.original_image_id` 与 `generations.reference_image_path` 记录来源，详情弹窗里就能看到「来自图 #N」。

@@ -2,6 +2,7 @@
 
 import { imageThumbnailUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
+import { modelLabel } from "@/lib/models";
 import type { FeedSlot, ImageBrief } from "@/types/api";
 
 export const ACTIVE_STATUS = new Set(["pending", "queued", "running"]);
@@ -269,7 +270,7 @@ export default function FeedCard(props: Props) {
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-ink/90">
-            第 {position} {props.item.image?.media_type === "video" ? "条" : "张"} · {props.modelLabels?.[generation.model_name] ?? generation.model_name}
+            第 {position} {props.item.image?.media_type === "video" ? "条" : "张"} · {modelLabel(generation.model_name, props.modelLabels)}
           </p>
           <p className="mt-0.5 truncate text-[11px] text-muted">
             {image.width}×{image.height} · {formatBytes(image.file_size)} · {formatTime(image.created_at)}

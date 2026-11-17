@@ -36,7 +36,8 @@ class GenerationCreate(BaseModel):
 class TaskRead(TimestampedModel):
     id: int
     generation_id: int
-    seed: int
+    # 本地编辑不采样，所以 seed 可能为空
+    seed: int | None = None
     status: str
     comfy_prompt_id: str | None = None
     progress: int

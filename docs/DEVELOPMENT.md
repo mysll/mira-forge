@@ -37,7 +37,7 @@
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest        # 112 项，约 6 秒
+.\.venv\Scripts\python.exe -m pytest        # 117 项，约 6 秒
 ```
 
 测试使用独立的临时库 `backend/.pytest-tmp/test.db`（在 `conftest.py` 里于 import app 之前设定 `DATABASE_URL`），**不会污染** `data/app.db`。
