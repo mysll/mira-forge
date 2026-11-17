@@ -400,6 +400,13 @@ export async function deleteImage(imageId: number): Promise<void> {
   }
 }
 
+export type TaskDeleted = { task_id: number; generation_deleted: boolean };
+
+/** 删掉一个任务（连同它名下的产物）；批次里没有别的任务时，批次也会被删掉。 */
+export function deleteTask(taskId: number): Promise<TaskDeleted> {
+  return request<TaskDeleted>(`/tasks/${taskId}`, { method: "DELETE" });
+}
+
 export function setImageFavorite(imageId: number, favorite: boolean): Promise<ImageRead> {
   return request<ImageRead>(`/images/${imageId}/favorite`, {
     method: "POST",

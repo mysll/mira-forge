@@ -97,3 +97,10 @@ class GenerationListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class TaskDeleted(BaseModel):
+    """删除单个任务的结果。批次里一个任务都不剩时，批次也一起清掉。"""
+
+    task_id: int
+    generation_deleted: bool = False

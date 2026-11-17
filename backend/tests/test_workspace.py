@@ -139,3 +139,60 @@ def test_clear_workspace_refuses_while_a_task_is_active(client: TestClient) -> N
         db.commit()
     finally:
         db.close()
+
+def test_delete_task_removes_its_products_and_keeps_the_batch(client: TestClient) -> None:
+    generation_id = _create(client, count=2)
+    first = _register_image(generation_id, 0)
+    second = _register_image(generation_id, 1)
+
+    detail = client.get(f"/api/v1/generations/{generation_id}").json()
+    task_id = detail["tasks"][0]["id"]
+
+    response = client.delete(f"/api/v1/tasks/{task_id}")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"task_id": task_id, "generation_deleted": False}
+
+    # 这个任务名下的产物跟着没了，另一个任务不受影响
+    assert client.get(f"/api/v1/images/{first}").status_code == 404
+    assert client.get(f"/api/v1/images/{second}").status_code == 200
+    after = client.get(f"/api/v1/generations/{generation_id}").json()
+    assert len(after["tasks"]) == 1
+
+
+def test_delete_last_task_removes_the_empty_batch(client: TestClient) -> None:
+    generation_id = _create(client, count=1)
+    image_id = _register_image(generation_id, 0)
+    task_id = client.get(f"/api/v1/generations/{generation_id}").json()["tasks"][0]["id"]
+
+    response = client.delete(f"/api/v1/tasks/{task_id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["generation_deleted"] is True
+    assert client.get(f"/api/v1/generations/{generation_id}").status_code == 404
+    assert client.get(f"/api/v1/images/{image_id}").status_code == 404
+
+
+def test_delete_running_task_is_refused(client: TestClient) -> None:
+    generation_id = _create(client, count=1)
+    task_id = client.get(f"/api/v1/generations/{generation_id}").json()["tasks"][0]["id"]
+
+    db = SessionLocal()
+    try:
+        task = db.get(GenerationTask, task_id)
+        assert task is not None
+        task.status = TaskStatus.RUNNING
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.delete(f"/api/v1/tasks/{task_id}")
+    assert response.status_code == 409, response.text
+    assert "先取消" in response.json()["detail"]
+
+    db = SessionLocal()
+    try:
+        task = db.get(GenerationTask, task_id)
+        if task is not None:
+            task.status = TaskStatus.PENDING
+        db.commit()
+    finally:
+        db.close()

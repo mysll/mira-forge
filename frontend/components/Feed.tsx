@@ -20,6 +20,8 @@ type Props = {
   onDownload: (item: FeedSlot) => void;
   onDelete: (item: FeedSlot) => void;
   onEdit: (item: FeedSlot) => void;
+  /** 没有产物的任务：把这条任务删掉（批次空了连带删批次） */
+  onDeleteTask?: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
   emptyHint?: string;
   /** 网格卡宽度（视频比图片宽，留出 16:9 的空间） */

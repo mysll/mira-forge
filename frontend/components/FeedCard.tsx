@@ -29,6 +29,8 @@ type Props = {
   onDownload: (item: FeedSlot) => void;
   onDelete: (item: FeedSlot) => void;
   onEdit: (item: FeedSlot) => void;
+  /** 只有「没有产物的任务」会用到：把这条任务从批次里删掉 */
+  onDeleteTask?: (item: FeedSlot) => void;
   modelLabels?: Record<string, string>;
 };
 
@@ -175,16 +177,32 @@ function toneOf(status: string): string {
 }
 
 /** 还没有产物的格子：排队中直接说排队，生成中给进度条，失败给原因。 */
-function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) {
+function Placeholder({
+  item,
+  view,
+  onDeleteTask,
+}: {
+  item: FeedSlot;
+  view: "grid" | "list";
+  onDeleteTask?: (item: FeedSlot) => void;
+}) {
   const { generation, task, index, total } = item;
   const status = task?.status ?? generation.status;
   const progress = task?.progress ?? 0;
   const running = status === "running";
   const failed = status === "failed";
   const reason = task?.error_message ?? null;
-  // 对用户来说「还没轮到我」就是排队，不必区分 pending 与 queued
-  const label = status === "pending" ? "排队中" : statusLabel(status);
-  const tone = toneOf(status);
+  // 任务还在排队/生成时才叫「排队中」；已经结束却没有产物就是「无产物」——
+  // 这种格子给一个删除按钮，否则图删光了任务还会一直占着一格。
+  const active = status === "pending" || status === "queued" || running;
+  const empty = !active;
+  const label = empty ? "无产物" : status === "pending" ? "排队中" : statusLabel(status);
+  const tone = empty ? "text-muted/70" : toneOf(status);
+  const deletable = empty && Boolean(task) && Boolean(onDeleteTask);
+  const remove = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    onDeleteTask?.(item);
+  };
 
   const isVideo =
     generation.generation_type === "text_to_video" || generation.generation_type === "image_to_video";
@@ -201,18 +219,46 @@ function Placeholder({ item, view }: { item: FeedSlot; view: "grid" | "list" }) 
           <p className="mt-0.5 truncate text-[11px] text-muted/70">{reason ?? (running ? `${label} ${progress}%` : label)}</p>
         </div>
         <span className={`shrink-0 text-[11px] ${tone}`}>{label}</span>
+        {deletable ? (
+          <button
+            type="button"
+            onClick={remove}
+            title="删除这个任务"
+            aria-label="删除这个任务"
+            className="shrink-0 rounded-md border border-edge/70 p-1 text-muted/70 transition hover:border-bad/50 hover:text-bad"
+          >
+            <IconTrash />
+          </button>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="relative flex flex-col overflow-hidden rounded-xl border border-dashed border-edge/70 bg-surface/30">
+      {deletable ? (
+        <button
+          type="button"
+          onClick={remove}
+          title="删除这个任务"
+          aria-label="删除这个任务"
+          className="absolute right-2 top-2 z-10 rounded-md border border-edge/70 bg-bg/80 p-1 text-muted/70 transition hover:border-bad/50 hover:text-bad"
+        >
+          <IconTrash />
+        </button>
+      ) : null}
       <div
         className={`relative flex flex-col items-center justify-center gap-2 text-[11px] ${
           isVideo ? "aspect-video" : "aspect-square"
         }`}
       >
-        {running ? <Spinner className="h-5 w-5" /> : <span className="h-5 w-5 rounded-full border border-dashed border-muted/30" />}
+        {running ? (
+          <Spinner className="h-5 w-5" />
+        ) : empty ? (
+          <span className="text-[10px] text-muted/40">图已被删除</span>
+        ) : (
+          <span className="h-5 w-5 rounded-full border border-dashed border-muted/30" />
+        )}
         <span className={tone}>{running ? `${label} ${progress}%` : label}</span>
         {failed && reason ? (
           <p className="line-clamp-2 px-3 text-center text-[10px] leading-snug text-bad/70">{reason}</p>
@@ -237,7 +283,7 @@ export default function FeedCard(props: Props) {
   const { image, generation, task } = item;
 
   if (!image) {
-    return <Placeholder item={item} view={view} />;
+    return <Placeholder item={item} view={view} onDeleteTask={props.onDeleteTask} />;
   }
 
   const filled: FilledSlot = { ...item, image };

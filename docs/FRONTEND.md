@@ -79,7 +79,7 @@
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
 | `components/TopBar.tsx` | 标题与计数（`title` / `countText`）、搜索、日期、模型、仅收藏、网格/列表切换（`viewToggle={false}` 时隐藏）、右侧插槽 `actions`（管理按钮） |
 | `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多 |
-| `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9 |
+| `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 五项操作、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9。产物被删光、任务已结束的格子显示「图已被删除 / 无产物」，右上角有垃圾桶按钮（`onDeleteTask`），点它会 `DELETE /tasks/{id}`，批次空了就一起消失 |
 | `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器；视频换成 `<video controls>` 播放器 + 时长 / 帧数。**按钮按产物类型算**：生成图 = 下载 / 收藏 / AI 编辑 / 本地编辑 / 重新生成 / 删除；本地编辑的图 = 去掉 AI 编辑与重新生成；视频 = 下载 / 收藏 / 在序列帧工坊打开 / 重新生成 / 删除；素材 = 下载 / 收藏 / 在序列帧工坊打开 / 删除 |
 | `components/CountMenu.tsx` | 数量菜单（一列数字 + 选中勾），图片 1–8 张与视频 1–4 条共用 |
 | `components/Composer.tsx` | 图片创作框：模式、提示词、参考图（点格子先弹「从本机上传 / 从资产选」两项菜单；编辑模式两个槽——第 1 张定结构、第 2 张可选，生成模式最多 2 张）、参数 pill、高级面板、提交 |

@@ -391,6 +391,17 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 - 新 seed 不会与该生成记录下已有任务的 seed 重复。
 - 接口是同步的；图片仍然由 Worker 异步产出。
 
+### `DELETE /tasks/{id}`
+
+删掉一个任务，连同它名下的产物（文件 + `images` 行）。返回
+`{"task_id": 7, "generation_deleted": false}`。
+
+- 为什么需要它：图删光之后，任务仍然占着作品流的一格（显示成「无产物」），
+  用户在这里决定要不要把这一格清掉。
+- `queued` / `running` 的任务返回 `409 {"detail": "task 7 还在执行，先取消再删除"}`。
+- 批次里**一个任务都不剩**时，批次本身也一起删掉，`generation_deleted` 为 `true`，
+  避免留下点进去是空的壳；批次还有别的任务就只删这一个。
+
 ## 图片
 
 ### `GET /images?limit=20&offset=0&generation_id=3&favorite=true`

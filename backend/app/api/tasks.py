@@ -5,14 +5,17 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.database import get_db
 from app.models.generation import Generation, GenerationStatus
 from app.models.task import GenerationTask, TaskStatus
+from app.models.image import Image
 from app.models.workflow import utcnow
-from app.schemas.generation import TaskRead
+from app.schemas.generation import TaskDeleted, TaskRead
 from app.services.comfyui_client import ComfyUIClient, ComfyUIError
+from app.services.image_service import remove_files
 from app.services.generation_service import new_seed, sync_generation_status
 
 logger = logging.getLogger("miraforge.tasks")
@@ -92,3 +95,41 @@ def retry_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
     db.commit()
     db.refresh(attempt)
     return TaskRead.model_validate(attempt)
+
+@router.delete("/{task_id}", response_model=TaskDeleted)
+def delete_task(task_id: int, db: Session = Depends(get_db)) -> TaskDeleted:
+    """删除一个任务（连同它名下的产物）。
+
+    产物被删光之后，任务会留下来占一格——用户在这里把它清掉。批次里再没有
+    其它任务时，批次本身也一起删掉，避免留下点进去是空的壳。
+    """
+    task = _get_task(db, task_id)
+    if task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"task {task_id} 还在执行，先取消再删除",
+        )
+
+    generation_id = task.generation_id
+    images = list(db.scalars(select(Image).where(Image.task_id == task_id)).all())
+    for image in images:
+        remove_files(image)
+        db.delete(image)
+
+    db.delete(task)
+    db.flush()
+
+    generation_deleted = False
+    remaining = db.scalar(
+        select(func.count())
+        .select_from(GenerationTask)
+        .where(GenerationTask.generation_id == generation_id)
+    )
+    if not remaining:
+        generation = db.get(Generation, generation_id)
+        if generation is not None:
+            db.delete(generation)
+            generation_deleted = True
+
+    db.commit()
+    return TaskDeleted(task_id=task_id, generation_deleted=generation_deleted)

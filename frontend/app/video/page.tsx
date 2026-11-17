@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import Feed from "@/components/Feed";
@@ -10,7 +10,7 @@ import TopBar from "@/components/TopBar";
 import VideoComposer from "@/components/VideoComposer";
 import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { fetchGenerations, fetchModels } from "@/lib/api";
+import { deleteTask, fetchGenerations, fetchModels } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
 import type { FeedItem, FeedSlot, GenerationRead } from "@/types/api";
 
@@ -28,6 +28,18 @@ export default function VideoPage() {
   const [view, setView] = useState<"grid" | "list">("grid");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [detail, setDetail] = useState<FeedItem | null>(null);
+  const queryClient = useQueryClient();
+  // 没有产物的任务会留在流里占一格，这里让用户能把它清掉；批次空了就一起消失
+  const deleteTaskMutation = useMutation({
+    mutationFn: (taskId: number) => deleteTask(taskId),
+    onSuccess: (result) => {
+      toast(result.generation_deleted ? "任务已删除，这个批次也空了，一并清掉" : "任务已删除");
+      void queryClient.invalidateQueries({ queryKey: ["generations"] });
+      void queryClient.invalidateQueries({ queryKey: ["images"] });
+    },
+    onError: (error: Error) => toast(error.message || "删除任务失败"),
+  });
+
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const toast = useCallback((text: string) => {
@@ -65,7 +77,6 @@ export default function VideoPage() {
         q: query.trim() || undefined,
         // 视频页永远只捞视频，类型过滤比枚举模型 id 更可靠
         media: "video",
-    hasImages: true,
         model: modelFilter ?? undefined,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
@@ -91,9 +102,7 @@ export default function VideoPage() {
       const imageByTask = new Map(generation.images.map((image) => [image.task_id, image]));
       tasks.forEach((task, position) => {
         const image = imageByTask.get(task.id) ?? null;
-        if (!image && task.status === "completed") {
-          return;
-        }
+        // 图被删掉的任务不跳过：它会在流里占一格「无产物」，由用户自己决定要不要删掉这个任务
         flat.push({
           key: `${generation.id}-t${task.id}`,
           generation,
@@ -200,6 +209,9 @@ export default function VideoPage() {
           }}
           onDelete={(slot) => {
             if (slot.image) void actions.remove({ image: slot.image, generation: slot.generation });
+          }}
+          onDeleteTask={(slot) => {
+            if (slot.task) deleteTaskMutation.mutate(slot.task.id);
           }}
           onEdit={() => notEditable()}
           modelLabels={modelLabels}
