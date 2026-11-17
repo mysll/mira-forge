@@ -42,6 +42,33 @@ export default function ImageDetail({
 }: Props) {
   const { image, generation, seed } = item;
 
+  const isVideo = image.media_type === "video";
+  const isAsset = image.media_type === "asset";
+  const isLocalEdit = generation.generation_type === "local_edit";
+  // 一张图能做什么，取决于它是谁生的：AI 编辑要重新走 ComfyUI，本地编辑只要浏览器，
+  // 素材与视频则只有「拿去序列帧工坊」这一条下游动作。
+  const canAiEdit = !isVideo && !isAsset && !isLocalEdit;
+  const canLocalEdit = !isVideo && !isAsset;
+  const canRegenerate = !isAsset && !isLocalEdit;
+  const studioHref = isAsset
+    ? `/tools/spriteforge?asset=${image.id}`
+    : isVideo
+      ? `/tools/spriteforge?video=${image.id}`
+      : null;
+  const typeLabel = isAsset
+    ? "素材"
+    : isVideo
+      ? generation.generation_type === "text_to_video"
+        ? "文生视频"
+        : "图生视频"
+      : generation.generation_type === "image_edit"
+        ? "图片编辑"
+        : generation.generation_type === "image_to_image"
+          ? "参考图生成"
+          : generation.generation_type === "local_edit"
+            ? "本地编辑"
+            : "文生图";
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -164,22 +191,7 @@ export default function ImageDetail({
 
             <div className="mt-3">
               <Row label="模型" value={modelLabel(generation.model_name, modelLabels)} />
-              <Row
-                label="类型"
-                value={
-                  generation.generation_type === "image_edit"
-                    ? "图片编辑"
-                    : generation.generation_type === "image_to_image"
-                      ? "参考图生成"
-                      : generation.generation_type === "local_edit"
-                        ? "本地编辑"
-                        : generation.generation_type === "text_to_video"
-                          ? "文生视频"
-                          : generation.generation_type === "image_to_video"
-                            ? "图生视频"
-                            : "文生图"
-                }
-              />
+              <Row label="类型" value={typeLabel} />
               <Row
                 label="Seed"
                 value={
@@ -226,26 +238,32 @@ export default function ImageDetail({
             <button type="button" onClick={() => onFavorite(item)} className="btn-ghost">
               {image.is_favorite ? "取消收藏" : "收藏"}
             </button>
-            {/* 视频没有「继续编辑成图片」这条路，按钮直接不出现 */}
-            {image.media_type === "video" ? null : (
+            {studioHref ? (
+              <Link href={studioHref} onClick={onClose} className="btn-ghost">
+                在序列帧工坊打开
+              </Link>
+            ) : null}
+            {canAiEdit ? (
               <button type="button" onClick={() => onEdit(item)} className="btn-ghost">
                 AI 编辑
               </button>
-            )}
-            {image.media_type === "video" ? null : (
+            ) : null}
+            {canLocalEdit ? (
               <Link href={`/tools/editor?image=${image.id}`} onClick={onClose} className="btn-ghost">
                 本地编辑
               </Link>
-            )}
-            <button type="button" onClick={() => onRegenerate(item)} className="btn-ghost">
-              重新生成
-            </button>
+            ) : null}
+            {canRegenerate ? (
+              <button type="button" onClick={() => onRegenerate(item)} className="btn-ghost">
+                重新生成
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => onDelete(item)}
               className="btn-ghost col-span-2 !text-bad hover:!border-bad/50"
             >
-              {image.media_type === "video" ? "删除这条视频" : image.media_type === "asset" ? "删除这个素材" : "删除这张图"}
+              {isVideo ? "删除这条视频" : isAsset ? "删除这个素材" : "删除这张图"}
             </button>
           </div>
         </div>

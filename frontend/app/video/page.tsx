@@ -178,6 +178,11 @@ export default function VideoPage() {
           view={view}
           loading={generationsQuery.isLoading}
           hasMore={generations.length < total}
+          emptyHint={
+            generations.length > 0
+              ? `这些批次的文件已经被删除（共 ${generations.length} 个），可以到资产页清空工作区，或者直接重新生成。`
+              : undefined
+          }
           onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
           cardWidth={340}
           unit="条"
