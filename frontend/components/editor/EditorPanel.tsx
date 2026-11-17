@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import { rgbToHex, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT } from "@/lib/editor";
+import { exportSize, placementFor, rgbToHex, upscaleRatio, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT } from "@/lib/editor";
 import { useEditorStore } from "@/stores/editor";
 
 type Props = {
@@ -18,6 +18,7 @@ type Props = {
 };
 
 const PRESETS = [256, 512, 1024, 2048];
+const EXPORT_SCALES = [1, 2, 4];
 
 function Section({ id, title, children, hint }: { id?: string; title: string; children: ReactNode; hint?: string }) {
   return (
@@ -120,10 +121,12 @@ export default function EditorPanel({
     mode,
     tolerance,
     feather,
+    exportScale,
     cut,
     subject,
     setCanvas,
     setParams,
+    setExportScale,
     reset,
     undo,
     redo,
@@ -132,6 +135,11 @@ export default function EditorPanel({
   } = useEditorStore();
 
   const estimatedColor = rgbToHex(analysis?.background);
+  const output = exportSize({ canvasWidth, canvasHeight }, exportScale);
+  const upscale = upscaleRatio(
+    placementFor({ canvasWidth, canvasHeight, background, subject, heightPct, bottom, offsetX }),
+    subject,
+  );
   const square = canvasWidth === canvasHeight;
 
   return (
@@ -317,8 +325,36 @@ export default function EditorPanel({
       </Section>
 
       <Section id="editor-export" title="导出" hint="PNG 保留透明">
+        <Row label="倍率">
+          <div className="flex gap-1">
+            {EXPORT_SCALES.map((scale) => (
+              <button
+                key={scale}
+                type="button"
+                className={[
+                  "rounded-md border px-2 py-1 text-[11px] tabular-nums transition",
+                  exportScale === scale
+                    ? "border-accent/60 bg-accent/15 text-accentSoft"
+                    : "border-edge text-muted hover:border-accent/40 hover:text-ink",
+                ].join(" ")}
+                onClick={() => setExportScale(scale)}
+                title={scale === 1 ? "按画布尺寸原样导出" : "构图不变，只提高输出像素"}
+              >
+                {scale}×
+              </button>
+            ))}
+          </div>
+        </Row>
+        <p className="text-[11px] leading-relaxed text-muted">
+          输出 {output.width} × {output.height}
+        </p>
+        {upscale > 1.02 ? (
+          <p className="rounded-md border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] leading-relaxed text-warn">
+            主体被放大了 {Math.round((upscale - 1) * 100)}%，已超出原图像素——插值放大一定发软。想要更大的成品请用上面的「倍率」，而不是把主体拖大。
+          </p>
+        ) : null}
         <button type="button" className="btn-primary w-full py-2 text-[12px]" onClick={onExport} disabled={!subject}>
-          导出 PNG · {canvasWidth}×{canvasHeight}
+          导出 PNG · {output.width}×{output.height}
         </button>
         <button type="button" className="btn-ghost w-full py-1.5 text-[11px]" onClick={onReplace}>
           换一张图

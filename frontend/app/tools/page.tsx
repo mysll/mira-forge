@@ -66,7 +66,7 @@ export default function ToolsPage() {
         <ul className="mt-2 flex flex-col gap-1.5 text-[11.5px] leading-relaxed text-muted">
           <li>· 抠背景对纯色背景最准。容差调大一点会多删，调小会保留更多边缘，建议先点「采用」用估计值。</li>
           <li>· 主体只能按高度百分比等比缩放，宽度自动跟着比例走，所以永远不会变形。</li>
-          <li>· 导出永远是当前画布尺寸（透明区域保留 alpha），不会覆盖作品库里的原图。</li>
+          <li>· 导出永远是当前画布尺寸（透明区域保留 alpha），需要更大像素就用导出面板里的 1× / 2× / 4× 倍率，而不是把主体拖大。</li>
         </ul>
       </section>
     </div>

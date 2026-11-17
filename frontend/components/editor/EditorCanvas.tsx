@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { drawScene, placementFor } from "@/lib/editor";
+import { drawScene, exportSize, placementFor } from "@/lib/editor";
 import { useEditorStore } from "@/stores/editor";
 
 /** 透明区域的棋盘格：用 CSS 渐变画，不额外加请求。 */
@@ -21,6 +21,7 @@ export default function EditorCanvas() {
   const heightPct = useEditorStore((state) => state.heightPct);
   const bottom = useEditorStore((state) => state.bottom);
   const offsetX = useEditorStore((state) => state.offsetX);
+  const exportScale = useEditorStore((state) => state.exportScale);
   const setParams = useEditorStore((state) => state.setParams);
 
   const [zoom, setZoom] = useState(1);
@@ -57,30 +58,40 @@ export default function EditorCanvas() {
     return () => observer.disconnect();
   }, [fit, recomputeFit]);
 
-  /** 每次参数变化重绘。画布像素尺寸 = 导出的像素尺寸，所以所见即所得。 */
+  /** 预览的像素密度：把画布按「当前缩放 × 屏幕像素比」重绘，
+   *  这样放大查看时是在用原图的细节重画，而不是把 256px 的成品放大成糊块。
+   *  导出仍按画布（× 倍率）出真尺寸，状态条里写明两者数值。 */
+  const renderScale = Math.max(1, Math.min(4, zoom * (typeof window === "undefined" ? 1 : window.devicePixelRatio || 1)));
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
       return;
     }
-    if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
-      canvas.width = canvasWidth;
-      canvas.height = canvasHeight;
+    const targetWidth = Math.round(canvasWidth * renderScale);
+    const targetHeight = Math.round(canvasHeight * renderScale);
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
     }
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       return;
     }
-    drawScene(ctx, {
-      canvasWidth,
-      canvasHeight,
-      background,
-      subject,
-      heightPct,
-      bottom,
-      offsetX,
-    });
-  }, [background, bottom, canvasHeight, canvasWidth, heightPct, offsetX, subject]);
+    drawScene(
+      ctx,
+      {
+        canvasWidth,
+        canvasHeight,
+        background,
+        subject,
+        heightPct,
+        bottom,
+        offsetX,
+      },
+      renderScale,
+    );
+  }, [background, bottom, canvasHeight, canvasWidth, heightPct, offsetX, renderScale, subject]);
 
   /** 拖拽 = 改「底部留白」与「水平偏移」，单位是画布像素而不是屏幕像素。 */
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -113,6 +124,7 @@ export default function EditorCanvas() {
     state.setParams({ offsetX: state.offsetX, bottom: state.bottom });
   };
 
+  const output = exportSize({ canvasWidth, canvasHeight }, exportScale);
   const placement = placementFor({
     canvasWidth,
     canvasHeight,
@@ -128,6 +140,9 @@ export default function EditorCanvas() {
       <div className="flex items-center gap-2 border-b border-edge/60 px-4 py-1.5 text-[11px] text-muted">
         <span className="rounded bg-surface2 px-1.5 py-0.5 text-ink">
           {Math.round(canvasWidth)} × {Math.round(canvasHeight)}
+        </span>
+        <span className="rounded border border-edge px-1.5 py-0.5 tabular-nums" title="导出文件的实际像素">
+          导出 {output.width} × {output.height}
         </span>
         {placement ? (
           <span className="truncate">
@@ -188,7 +203,7 @@ export default function EditorCanvas() {
       </div>
 
       <p className="border-t border-edge/60 px-4 py-1.5 text-[11px] text-muted/70">
-        拖动画面可以调整主体位置；缩放在右侧「主体」里按高度百分比调节，宽度按原比例自动算，不会变形。
+        拖动画面可以调整主体位置；缩放在右侧「主体」里按高度百分比调节，宽度按原比例自动算，不会变形。放大查看时预览按原图细节重绘，导出像素看顶部「导出」。
       </p>
     </div>
   );

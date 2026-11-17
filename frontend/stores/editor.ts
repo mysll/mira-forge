@@ -47,6 +47,8 @@ type EditorState = {
   mode: RemovalMode;
   tolerance: number;
   feather: number;
+  /** 导出倍率：1 / 2 / 4，只影响输出像素密度，不改构图（不进撤销栈） */
+  exportScale: number;
 
   past: EditorParams[];
   future: EditorParams[];
@@ -58,6 +60,7 @@ type EditorState = {
 
   setCanvas: (width: number, height: number, options?: { quiet?: boolean }) => void;
   setParams: (patch: Partial<EditorParams>, options?: { quiet?: boolean }) => void;
+  setExportScale: (scale: number) => void;
   undo: () => void;
   redo: () => void;
   reset: () => void;
@@ -100,6 +103,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   mode: "edge",
   tolerance: DEFAULT_TOLERANCE,
   feather: DEFAULT_FEATHER,
+  exportScale: 1,
 
   past: [],
   future: [],
@@ -192,6 +196,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         : { past: [...state.past, snapshot(state)].slice(-HISTORY_LIMIT), future: [] as EditorParams[] };
       return { ...next, ...history };
     }),
+
+  setExportScale: (scale) =>
+    set({ exportScale: clamp(Math.round(scale) || 1, 1, 8) }),
 
   undo: () => {
     const state = get();

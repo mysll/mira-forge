@@ -19,6 +19,7 @@ import {
   canvasToBlob,
   downloadBlob,
   drawScene,
+  exportSize,
   loadImageElement,
 } from "@/lib/editor";
 import { useEditorStore } from "@/stores/editor";
@@ -169,9 +170,13 @@ export default function EditorPage() {
     if (!store.subject) {
       return;
     }
+    const output = exportSize(
+      { canvasWidth: store.canvasWidth, canvasHeight: store.canvasHeight },
+      store.exportScale,
+    );
     const canvas = document.createElement("canvas");
-    canvas.width = store.canvasWidth;
-    canvas.height = store.canvasHeight;
+    canvas.width = output.width;
+    canvas.height = output.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
       toast("导出失败：拿不到画布");
@@ -185,7 +190,7 @@ export default function EditorPage() {
       heightPct: store.heightPct,
       bottom: store.bottom,
       offsetX: store.offsetX,
-    });
+    }, store.exportScale);
     try {
       const blob = await canvasToBlob(canvas, "image/png");
       downloadBlob(blob, `${baseName(store.subjectName || "miraforge")}-${canvas.width}x${canvas.height}.png`);

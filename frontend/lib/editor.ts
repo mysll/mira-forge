@@ -22,6 +22,7 @@ export type SceneInput = {
 };
 
 export const MIN_SUBJECT_PCT = 5;
+export const MAX_EXPORT_EDGE = 8192;
 export const MAX_SUBJECT_PCT = 200;
 
 export function clamp(value: number, low: number, high: number): number {
@@ -67,24 +68,101 @@ export function fitHeightPct(canvasWidth: number, canvasHeight: number, subjectW
   return clamp(Math.min(byHeight, byWidth) * 100, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT);
 }
 
-/** 把 src 画成一张新 canvas（导出与预览共用同一套绘制代码）。 */
-export function drawScene(ctx: CanvasRenderingContext2D, input: SceneInput): Placement | null {
+/** 把 src 画成一张新 canvas（导出与预览共用同一套绘制代码）。
+ *
+ *  `scale` 只影响输出像素密度：几何全部按画布坐标算，最后整体乘 scale，
+ *  所以 2× 导出和 1× 导出在构图上一模一样，只是像素翻倍。 */
+export function drawScene(ctx: CanvasRenderingContext2D, input: SceneInput, scale = 1): Placement | null {
   const placement = placementFor(input);
+  const ratio = Math.max(1, scale);
+  const width = Math.round(input.canvasWidth * ratio);
+  const height = Math.round(input.canvasHeight * ratio);
   ctx.save();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.clearRect(0, 0, input.canvasWidth, input.canvasHeight);
+  ctx.clearRect(0, 0, width, height);
 
   if (input.background !== "transparent") {
     ctx.fillStyle = input.background;
-    ctx.fillRect(0, 0, input.canvasWidth, input.canvasHeight);
+    ctx.fillRect(0, 0, width, height);
   }
 
   if (placement && input.subject) {
-    ctx.drawImage(input.subject, placement.x, placement.y, placement.width, placement.height);
+    drawSharply(
+      ctx,
+      input.subject,
+      placement.x * ratio,
+      placement.y * ratio,
+      placement.width * ratio,
+      placement.height * ratio,
+    );
   }
   ctx.restore();
   return placement;
+}
+
+/**
+ * 画主体，并在「大幅缩小」时分级降采样。
+ *
+ * 浏览器的一次性 `drawImage` 从 1024 缩到 230 会丢细节（边缘发软、细线断开）；
+ * 先按 1/2 逐级缩小到接近目标尺寸再落笔，边缘会明显更实。
+ * 放大的情况无法凭空造出细节，这里只保证不额外插值模糊。
+ */
+function drawSharply(
+  ctx: CanvasRenderingContext2D,
+  image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number; width?: number; height?: number },
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): void {
+  const sourceWidth = image.naturalWidth ?? image.width ?? width;
+  const sourceHeight = image.naturalHeight ?? image.height ?? height;
+  let source: CanvasImageSource = image;
+  let currentWidth = sourceWidth;
+  let currentHeight = sourceHeight;
+
+  // 目标不到源图的一半时才需要分级；最多降 5 级，避免超大图卡顿
+  let guard = 0;
+  while (currentWidth / 2 > width && guard < 5) {
+    const nextWidth = Math.max(1, Math.round(currentWidth / 2));
+    const nextHeight = Math.max(1, Math.round((currentHeight * nextWidth) / currentWidth));
+    const scratch = document.createElement("canvas");
+    scratch.width = nextWidth;
+    scratch.height = nextHeight;
+    const scratchContext = scratch.getContext("2d");
+    if (!scratchContext) {
+      break;
+    }
+    scratchContext.imageSmoothingEnabled = true;
+    scratchContext.imageSmoothingQuality = "high";
+    scratchContext.drawImage(source, 0, 0, nextWidth, nextHeight);
+    source = scratch;
+    currentWidth = nextWidth;
+    currentHeight = nextHeight;
+    guard += 1;
+  }
+
+  ctx.drawImage(source, x, y, width, height);
+}
+
+/** 导出尺寸 = 画布 × 倍率；超过 8192px 会等比压回，避免一次性申请几百 MB 的位图。 */
+export function exportSize(input: { canvasWidth: number; canvasHeight: number }, scale = 1): { width: number; height: number } {
+  const requested = Math.max(1, scale);
+  const longest = Math.max(input.canvasWidth, input.canvasHeight) * requested;
+  const ratio = longest > MAX_EXPORT_EDGE ? (requested * MAX_EXPORT_EDGE) / longest : requested;
+  return { width: Math.round(input.canvasWidth * ratio), height: Math.round(input.canvasHeight * ratio) };
+}
+
+/** 主体相对原图像素的放大倍数；>1 表示已经在「无中生有」地放大。 */
+export function upscaleRatio(
+  placement: Placement | null,
+  subject: { naturalWidth: number; naturalHeight: number } | null,
+): number {
+  if (!placement || !subject || !subject.naturalWidth || !subject.naturalHeight) {
+    return 1;
+  }
+  return Math.max(placement.width / subject.naturalWidth, placement.height / subject.naturalHeight);
 }
 
 export function canvasToBlob(canvas: HTMLCanvasElement, type = "image/png"): Promise<Blob> {
