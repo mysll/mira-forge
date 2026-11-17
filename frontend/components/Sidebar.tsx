@@ -78,6 +78,25 @@ const ToolsIcon = (
   </svg>
 );
 
+const TrashIcon = (
+  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
+    <path
+      d="M4.5 7h15M9.5 7V5.4c0-.5.4-.9.9-.9h3.2c.5 0 .9.4.9.9V7"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M6.5 7l.8 11.2c0 .7.6 1.3 1.3 1.3h6.8c.7 0 1.3-.6 1.3-1.3L17.5 7"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path d="M10.2 10.6v5.6M13.8 10.6v5.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
+);
+
 const SettingsIcon = (
   <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
     <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.6" />
@@ -95,6 +114,7 @@ const ITEMS: NavItem[] = [
   { label: "资产", href: "/gallery", icon: GalleryIcon },
   // 工具是本地编辑器入口，和生成没有关系，所以紧挨着资产放
   { label: "工具", href: "/tools", icon: ToolsIcon, hint: "本地图片工具" },
+  { label: "回收站", href: "/trash", icon: TrashIcon, hint: "删除的产物，30 天内可恢复" },
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
   { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },

@@ -15,7 +15,7 @@ from app.models.image import Image
 from app.models.workflow import utcnow
 from app.schemas.generation import TaskDeleted, TaskRead
 from app.services.comfyui_client import ComfyUIClient, ComfyUIError
-from app.services.image_service import remove_files
+from app.services.recycle_service import soft_delete_images
 from app.services.generation_service import new_seed, sync_generation_status
 
 logger = logging.getLogger("miraforge.tasks")
@@ -27,7 +27,7 @@ _FINISHED = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
 
 def _get_task(db: Session, task_id: int) -> GenerationTask:
     task = db.get(GenerationTask, task_id)
-    if task is None:
+    if task is None or task.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"task {task_id} 不存在")
     return task
 
@@ -98,10 +98,10 @@ def retry_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
 
 @router.delete("/{task_id}", response_model=TaskDeleted)
 def delete_task(task_id: int, db: Session = Depends(get_db)) -> TaskDeleted:
-    """删除一个任务（连同它名下的产物）。
+    """删除一个任务（连同它名下的产物），产物进回收站。
 
     产物被删光之后，任务会留下来占一格——用户在这里把它清掉。批次里再没有
-    其它任务时，批次本身也一起删掉，避免留下点进去是空的壳。
+    其它任务时，批次本身也一起进回收站，避免留下点进去是空的壳。
     """
     task = _get_task(db, task_id)
     if task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING):
@@ -111,24 +111,31 @@ def delete_task(task_id: int, db: Session = Depends(get_db)) -> TaskDeleted:
         )
 
     generation_id = task.generation_id
-    images = list(db.scalars(select(Image).where(Image.task_id == task_id)).all())
-    for image in images:
-        remove_files(image)
-        db.delete(image)
+    images = list(
+        db.scalars(
+            select(Image).where(Image.task_id == task_id, Image.deleted_at.is_(None))
+        ).all()
+    )
+    soft_delete_images(db, images)
 
-    db.delete(task)
+    stamp = utcnow()
+    if task.deleted_at is None:
+        task.deleted_at = stamp
     db.flush()
 
     generation_deleted = False
     remaining = db.scalar(
         select(func.count())
         .select_from(GenerationTask)
-        .where(GenerationTask.generation_id == generation_id)
+        .where(
+            GenerationTask.generation_id == generation_id,
+            GenerationTask.deleted_at.is_(None),
+        )
     )
     if not remaining:
         generation = db.get(Generation, generation_id)
-        if generation is not None:
-            db.delete(generation)
+        if generation is not None and generation.deleted_at is None:
+            generation.deleted_at = stamp
             generation_deleted = True
 
     db.commit()

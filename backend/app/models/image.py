@@ -46,5 +46,9 @@ class Image(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow, index=True
     )
+    # 回收站：非空即「已被删除」，文件还留在磁盘上，30 天内可以恢复
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     generation: Mapped["Generation | None"] = relationship(back_populates="images")

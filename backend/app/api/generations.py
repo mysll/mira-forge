@@ -6,11 +6,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.image import Image
 from app.models.task import TaskStatus
 from app.services.image_service import storage_root_for
 from app.models.database import get_db
@@ -29,9 +27,9 @@ from app.services.image_service import (
     MAX_UPLOAD_BYTES,
     ImageStoreError,
     detect_image_extension,
-    remove_files,
     store_upload,
 )
+from app.services.recycle_service import soft_delete_generation
 
 router = APIRouter(prefix="/generations", tags=["generations"])
 
@@ -60,7 +58,13 @@ def _overall_progress(tasks) -> int:
 
 def _to_read(generation) -> GenerationRead:
     payload = GenerationRead.model_validate(generation)
-    payload.progress = _overall_progress(generation.tasks)
+    # 进了回收站的产物与任务不在作品流里出现，但仍是这一批的成员（恢复后原样回来）
+    live_images = {image.id for image in generation.images if image.deleted_at is None}
+    live_tasks = [task for task in generation.tasks if task.deleted_at is None]
+    live_task_ids = {task.id for task in live_tasks}
+    payload.images = [image for image in payload.images if image.id in live_images]
+    payload.tasks = [task for task in payload.tasks if task.id in live_task_ids]
+    payload.progress = _overall_progress(live_tasks)
     payload.reference_images = decode_reference_paths(
         generation.reference_image_paths, generation.reference_image_path
     )
@@ -358,7 +362,7 @@ def get_generation(generation_id: int, db: Session = Depends(get_db)) -> Generat
 
 @router.delete("/{generation_id}")
 def delete_generation(generation_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
-    """删掉一整个批次：名下任务、产物文件、记录一起清掉。
+    """删掉一整个批次：任务、产物一起进回收站，30 天内可恢复。
 
     和「清空工作区」的区别只在范围；批次里还有任务在排队/生成时拒绝，避免把正在跑的结果写丢。
     """
@@ -371,7 +375,8 @@ def delete_generation(generation_id: int, db: Session = Depends(get_db)) -> dict
     busy = [
         task
         for task in generation.tasks
-        if task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING)
+        if task.deleted_at is None
+        and task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING)
     ]
     if busy:
         raise HTTPException(
@@ -379,14 +384,6 @@ def delete_generation(generation_id: int, db: Session = Depends(get_db)) -> dict
             detail=f"批次里还有 {len(busy)} 个任务在执行，先取消再删除",
         )
 
-    images = list(db.scalars(select(Image).where(Image.generation_id == generation_id)).all())
-    for image in images:
-        remove_files(image)
-        db.delete(image)
-    db.flush()
-
-    task_count = len(generation.tasks)
-
-    db.delete(generation)
-    db.commit()
-    return {"generation_id": generation_id, "images": len(images), "tasks": task_count}
+    task_count = len([task for task in generation.tasks if task.deleted_at is None])
+    images = soft_delete_generation(db, generation)
+    return {"generation_id": generation_id, "images": images, "tasks": task_count}

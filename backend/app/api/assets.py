@@ -143,7 +143,7 @@ async def replace_asset(
 ) -> AssetSaved:
     """覆盖已有素材：同一个批次里换掉产物，资产库不会因此多出一条。"""
     image = db.get(Image, image_id)
-    if image is None or image.media_type != "asset":
+    if image is None or image.deleted_at is not None or image.media_type != "asset":
         raise HTTPException(status_code=404, detail=f"没有 id 为 {image_id} 的素材")
 
     payload = await _prepare_upload(file)

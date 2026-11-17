@@ -231,7 +231,11 @@ def remove_files(image: Image, storage_root: Path | None = None) -> None:
 
 
 def delete_image(db: Session, image: Image, storage_root: Path | None = None) -> None:
-    """删库 + 删盘（原图与缩略图都清掉），文件缺失不认为是错误。"""
+    """删库 + 删盘（原图与缩略图都清掉），文件缺失不认为是错误。
+
+    注意：这是**彻底删除**，只给回收站的「立即删除」与过期清理用；
+    普通删除走 `recycle_service.soft_delete_images`。
+    """
     remove_files(image, storage_root)
     db.delete(image)
     db.commit()
@@ -268,7 +272,7 @@ def list_images(
 ) -> tuple[list[Image], int]:
     from sqlalchemy import func
 
-    conditions = []
+    conditions = [Image.deleted_at.is_(None)]
     if generation_id is not None:
         conditions.append(Image.generation_id == generation_id)
     if favorites_only:

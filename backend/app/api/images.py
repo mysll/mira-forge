@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.database import get_db
@@ -20,12 +21,11 @@ from app.schemas.image import (
 from app.services.image_service import (
     ImageStoreError,
     absolute_path,
-    delete_image,
-    delete_images,
     ensure_thumbnail,
     list_images,
     set_favorite,
 )
+from app.services.recycle_service import soft_delete_images
 from app.services.workspace_service import WorkspaceBusyError, clear_workspace
 
 router = APIRouter(prefix="/images", tags=["images"])
@@ -57,7 +57,7 @@ def list_all(
 @router.get("/{image_id}", response_model=ImageRead)
 def get_image(image_id: int, db: Session = Depends(get_db)) -> ImageRead:
     image = db.get(Image, image_id)
-    if image is None:
+    if image is None or image.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
         )
@@ -140,12 +140,13 @@ def set_image_favorite(
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_image(image_id: int, db: Session = Depends(get_db)) -> Response:
+    """删除一张图：进回收站（软删除），30 天内可恢复。"""
     image = db.get(Image, image_id)
-    if image is None:
+    if image is None or image.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
         )
-    delete_image(db, image)
+    soft_delete_images(db, [image])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -154,9 +155,20 @@ def remove_images(
     payload: ImageBatchDeleteRequest,
     db: Session = Depends(get_db),
 ) -> ImageBatchDeleteResponse:
-    """批量删除。已不存在的 id 放进 missing 而不是整批失败——多标签页同时删是常态。"""
-    deleted, missing = delete_images(db, payload.ids)
-    return ImageBatchDeleteResponse(deleted=deleted, missing=missing)
+    """批量删除（进回收站）。已不存在的 id 放进 missing 而不是整批失败——多标签页同时删是常态。"""
+    wanted = list(dict.fromkeys(int(image_id) for image_id in payload.ids))
+    if not wanted:
+        return ImageBatchDeleteResponse(deleted=[], missing=[])
+
+    rows = list(
+        db.scalars(
+            select(Image).where(Image.id.in_(wanted), Image.deleted_at.is_(None))
+        ).all()
+    )
+    deleted = soft_delete_images(db, rows)
+    return ImageBatchDeleteResponse(
+        deleted=deleted, missing=sorted(set(wanted) - set(deleted))
+    )
 
 
 @router.post("/clear", response_model=WorkspaceClearResponse)

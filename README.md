@@ -7,9 +7,10 @@
 ## 能做什么
 
 - **首页**：默认落地页。两个大按钮直接进创作（生成图片 / 生成视频），旁边是本机设备、显存占用与当前项目；下面是最近作品、三张模型卡和六个灵感提示词（点一下就把提示词带进创作框）。「显存占用」右上角的圆钮可以随时让 ComfyUI 卸载模型腾显存——有任务在跑时自动禁用，避免打断生成。
-- **工作台**：左侧 72px 图标导航（首页 / 资产 ‖ 图片 / 视频 ‖ 设置），右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部悬浮创作框。没有第三栏、没有把参数平铺一屏。
+- **工作台**：左侧 72px 图标导航（首页 / 资产 / 工具 / 回收站 ‖ 图片 / 视频 ‖ 设置），右侧一条完整创作链路——顶部筛选工具条、中间按「今天 / 昨天 / 更早」分组的作品流、底部悬浮创作框。没有第三栏、没有把参数平铺一屏。
+- **回收站**：所有删除都只是打上删除时间、文件留在磁盘上，所以删错的图、删空的批次、清空的工作区都能在 **30 天内**从侧栏「回收站」里恢复；每件显示「还剩 N 天」，恢复时连所属任务与批次一起解冻。也可以单件「彻底删除」或一次性「清空回收站」，那才是真删文件；超过 30 天的条目由后端在启动和列表请求时自动清理，不需要定时任务。
 - **多项目**：每个项目一个独立文件夹（`data/projects/<id>/`，各自一套 SQLite 与图片目录），顶栏左侧的下拉可切换、新建、改名、删除；新建项目的入口就在下拉里。切换即换库，作品与任务各看各的。
-- **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除；点「管理」可勾选批量删除，或清空整个工作区（危险操作，二次确认）。
+- **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除；点「管理」可勾选批量删除，或清空整个工作区（危险操作，二次确认；删掉的东西进回收站，30 天内可恢复）。
 - **本地图片编辑器**：`/tools` 工具页里第一张卡，纯 CPU 跑（不占显存、不产生新作品、不改原图）。抠背景（只删边缘连通 / 删所有同色，可调容差、羽化与去杂点；主体内部被包住的同色块用「删所有同色」一并清掉）、按主体裁掉透明边、把画布指定成任意尺寸（如 256×256）、主体**等比**缩放并指定底边留白（如距底 20px）与水平偏移，导出 PNG（需要更大像素时用导出面板的 1× / 2× / 4× 倍率，别把主体拖大）。资产页与详情弹窗都有「本地编辑」直达入口，和调用 ComfyUI 的「AI 编辑」分开；成品可以「保存到资产」，在资产库里作为一条「本地编辑」记录出现，能收藏、下载、删除。
 - **序列帧工坊**：`/tools/spriteforge`，原版 SpriteForge 就地改造后内嵌（序列帧预览、编辑轨道、多序列、分页导出全都在），不重写、不用 iframe。把视频拆成序列帧、抠掉纯色背景、按行列打包成透明图集并导出 PNG + JSON + ZIP，全程在浏览器里跑（不经过后端、不占显存）。**工具自己的「导入视频 / 导入图集」现在都会先问「从本机上传」还是「从资产选」**；从资产打开的那份图集在导出时会变成「保存并覆盖 #id」——改完就更新原来那条素材，只有新建的才新增一条。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），10 种比例（含自定义）× 4 档分辨率（480/720/1K/2K，默认 1:1 · 1K），一次 1–8 张（默认 4 张），每张独立 seed、串行执行。
@@ -78,7 +79,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health | ConvertTo-Json -Depth 5
 
 ```
 backend/            FastAPI 应用
-  app/api/          HTTP 端点（health / models / workflows / generations / tasks / images / projects / editor）
+  app/api/          HTTP 端点（health / models / workflows / generations / tasks / images / assets / recycle-bin / projects / editor）
   app/core/         配置、WebSocket 广播、Alembic 迁移入口
   app/models/       SQLAlchemy 模型（workflows / generations / generation_tasks / images）
   app/schemas/      Pydantic 响应与请求模型
@@ -88,7 +89,7 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ tools（工具目录）/ tools/editor（本地图片编辑器）/ tools/spriteforge（序列帧工坊）/ settings（系统状态）
+  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ trash（回收站）/ tools（工具目录）/ tools/editor（本地图片编辑器）/ tools/spriteforge（序列帧工坊）/ settings（系统状态）
   components/       Sidebar · TopBar · ProjectSwitcher · Feed · FeedCard · ImageDetail
                     · Composer · VideoComposer · Popover · ConfirmDialog · ToastStack
                     · editor/EditorCanvas · editor/EditorPanel
@@ -128,4 +129,4 @@ docs/               架构、API、工作流映射、开发说明
 
 > 每个阶段结束时都必须能真实跑通并手动验证。一期（图片）与视频的生成（二期第一批）都已跑通；视频编辑、参考视频等留待后续。
 > `POST /generations` 返回 `pending` 后由 Worker 接手：图片约 3–12 秒写进 `storage/images/`，视频约 30–160 秒写进 `storage/videos/`（`.mp4`，封面帧在 `thumbnails/`），都能通过 `GET /api/v1/images/{id}/file` 访问。
-> 界面在 `http://127.0.0.1:3000`（`/` 首页、`/compose` 图片创作、`/video` 视频、`/gallery` 资产库、`/tools` 工具、`/settings` 系统状态）。
+> 界面在 `http://127.0.0.1:3000`（`/` 首页、`/compose` 图片创作、`/video` 视频、`/gallery` 资产库、`/trash` 回收站、`/tools` 工具、`/settings` 系统状态）。

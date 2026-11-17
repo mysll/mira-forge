@@ -21,7 +21,10 @@ class GenerationRepository:
         self.db = db
 
     def get(self, generation_id: int) -> Generation | None:
-        return self.db.get(Generation, generation_id)
+        generation = self.db.get(Generation, generation_id)
+        if generation is None or generation.deleted_at is not None:
+            return None
+        return generation
 
     def _filtered(
         self,
@@ -34,7 +37,8 @@ class GenerationRepository:
         date_from: datetime | None = None,
         date_to: datetime | None = None,
     ) -> Select[tuple[Generation]]:
-        stmt = select(Generation)
+        # 进了回收站的批次不出现在列表里
+        stmt = select(Generation).where(Generation.deleted_at.is_(None))
         if q:
             pattern = f"%{q.strip()}%"
             stmt = stmt.where(Generation.prompt.ilike(pattern))
@@ -45,7 +49,9 @@ class GenerationRepository:
         if favorites_only:
             stmt = stmt.where(
                 Generation.id.in_(
-                    select(Image.generation_id).where(Image.is_favorite.is_(True))
+                    select(Image.generation_id).where(
+                        Image.is_favorite.is_(True), Image.deleted_at.is_(None)
+                    )
                 )
             )
         if with_products:
@@ -59,7 +65,12 @@ class GenerationRepository:
                 )
             )
             stmt = stmt.where(
-                or_(Generation.id.in_(select(Image.generation_id)), busy)
+                or_(
+                    Generation.id.in_(
+                        select(Image.generation_id).where(Image.deleted_at.is_(None))
+                    ),
+                    busy,
+                )
             )
         if date_from is not None:
             stmt = stmt.where(_epoch(Generation.created_at) >= int(date_from.timestamp()))

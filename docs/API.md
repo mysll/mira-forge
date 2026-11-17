@@ -393,13 +393,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 ### `DELETE /tasks/{id}`
 
-删掉一个任务，连同它名下的产物（文件 + `images` 行）。返回
-`{"task_id": 7, "generation_deleted": false}`。
+删掉一个任务，连同它名下的产物。返回 `{"task_id": 7, "generation_deleted": false}`。
 
 - 为什么需要它：图删光之后，任务仍然占着作品流的一格（显示成「无产物」），
   用户在这里决定要不要把这一格清掉。
+- **删除是软删除**：产物打上 `deleted_at` 进回收站（文件留在磁盘，30 天内可恢复），
+  详见 [回收站](#回收站)。
 - `queued` / `running` 的任务返回 `409 {"detail": "task 7 还在执行，先取消再删除"}`。
-- 批次里**一个任务都不剩**时，批次本身也一起删掉，`generation_deleted` 为 `true`，
+- 批次里**一个任务都不剩**时，批次本身也一起进回收站，`generation_deleted` 为 `true`，
   避免留下点进去是空的壳；批次还有别的任务就只删这一个。
 
 ## 图片
@@ -448,44 +449,46 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 ### `DELETE /generations/{id}`
 
-删掉一整个批次：名下的任务、产物文件、`images` 行、批次记录一起清掉。返回
+删掉一整个批次：名下的任务与产物**一起进回收站**（软删除，30 天内可恢复）。返回
 `{"generation_id": 12, "images": 4, "tasks": 4}`。
 
-- 一次生成 4 张图时，一次请求就能把这一批连同它的 4 条任务清干净，
+- 一次生成 4 张图时，一次请求就能把这一批连同它的 4 条任务移出作品流，
   不用逐张删（对应前端的「删除这个批次」）。
 - 批次里只要有 `queued` / `running` 的任务就返回
   `409 {"detail": "批次里还有 2 个任务在执行，先取消再删除"}`，
   避免把正在写盘的结果删掉。
 - 不存在返回 `404 {"detail": "generation 12 不存在"}`。
+- 真正删文件只在「彻底删除 / 清空回收站 / 30 天过期」时发生，见 [回收站](#回收站)。
 
 ### `DELETE /images/{id}`
 
-删除原图与缩略图（磁盘文件 + 数据库行），返回 `204`。不存在返回 `404`。已删除的图片若是某次生成的唯一产物，生成记录本身保留。
+把这张图移进回收站（打 `deleted_at`，文件与缩略图留在磁盘），返回 `204`。不存在返回 `404`。
+已删除的图片若是某次生成的唯一产物，生成记录本身保留。
 
 ### `POST /images/batch-delete`
 
-批量删除，body `{"ids": [12, 14, 15]}`（最多 500 个）。
+批量移进回收站，body `{"ids": [12, 14, 15]}`（最多 500 个）。
 
 ```json
 { "deleted": [12, 14], "missing": [15] }
 ```
 
-本来就不存在的 id 进 `missing` 而不是整批失败——多标签页同时删是常态。删除是逐条 best-effort：某个文件删不掉只留日志，不会回滚其他记录。
+本来就不存在的 id 进 `missing` 而不是整批失败——多标签页同时删是常态。已经删过的 id 也算 `missing`，不会刷新它的删除时间。
 
 ### `POST /images/clear`
 
-清空工作区：删除**全部**图片与**全部**生成记录（含任务），并清掉 `storage/` 下的 `images`、`thumbnails`、`uploads` 三个目录。不可撤销，前端必须先让用户确认。
+清空工作区：把**全部**图片与**全部**生成记录（含任务）移进回收站。30 天内可以恢复，文件不会被当场删掉。
 
 ```json
 { "images": 70, "generations": 40 }
 ```
 
-- 响应 `409` 的条件：还有任务处于 `queued / running`——此时清空会把正在写的文件删掉一半，必须先等完成或取消：
+- 响应 `409` 的条件：还有任务处于 `queued / running`——此时清空会打断正在写的文件，必须先等完成或取消：
 
   ```json
   { "detail": "还有 1 个任务在排队或生成，清空会丢掉它们，请先等完成或取消" }
   ```
-- 不动的东西：模型注册表、工作流 JSON 与绑定配置、数据库文件本身。
+- 不动的东西：模型注册表、工作流 JSON 与绑定配置、数据库文件本身、`storage/uploads/` 里的参考图（恢复批次后详情页还要显示它们）。
 
 ### `POST /assets`
 
@@ -524,6 +527,65 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 ```
 
 **什么时候用哪条**：资产里点「在序列帧工坊打开」（`?asset=<id>`）或从工坊里「从资产选」图集 → 这条会话绑定该素材，导出弹层的按钮变成「保存并覆盖 #id」，走 `PUT`；本机导入、拖入文件、或从视频开始的新作品 → 未绑定，走 `POST` 新建一条（首次保存成功后也会自动绑定，同一次会话里再保存就是覆盖）。
+
+## 回收站
+
+所有「删除」都是软删除：给 `images` / `generation_tasks` / `generations` 打一个 `deleted_at`，文件留在磁盘上。这样删错的图、删空的批次、清空的工作区都能在 30 天内捞回来。**只有这三件事会真正删文件**：在回收站里点「彻底删除」、「清空回收站」、或者条目过期满 30 天。
+
+软删除的影响面：
+
+- 列表接口（`GET /generations`、`GET /images`、收藏）都看不到 `deleted_at` 非空的记录；`GET /images/{id}` 对已删的图也是 404。
+- `GET /images/{id}/file` 与 `/thumbnail` **不过滤**——回收站里的卡片要能预览，恢复后原来的 URL 也还成立。
+- 恢复一张图时，它所属的任务与批次会一起解冻（`deleted_at` 清空），否则图回来了却卡在被删批次里看不见。
+- 过期清理在服务启动时（每个项目跑一次）和每次 `GET /recycle-bin` 时都会执行，不需要背后的定时任务。
+
+### `GET /recycle-bin?limit=60&offset=0&media=image`
+
+按删除时间倒序返回回收站内容。`media` 可选 `image` / `video` / `asset`。
+
+```json
+{
+  "items": [
+    {
+      "id": 12, "generation_id": 5, "task_id": 9,
+      "file_path": "images/5/9_0.png", "thumbnail_path": "thumbnails/12.jpg",
+      "media_type": "image", "width": 1024, "height": 1024, "file_size": 1767626,
+      "duration_seconds": null, "fps": null, "frame_count": null,
+      "created_at": "2026-11-17T08:20:09Z", "deleted_at": "2026-11-17T09:41:00Z",
+      "expires_at": "2026-12-17T09:41:00Z", "days_left": 30,
+      "prompt": "一个穿风衣的侦探", "model_name": "qwen_image_21_turbo", "generation_type": "text_to_image"
+    }
+  ],
+  "total": 1, "limit": 60, "offset": 0, "retention_days": 30
+}
+```
+
+`days_left` 是 `expires_at` 剩下的整天数（向上取整，过期条目返回 0 且不会再出现在列表里）；`prompt` / `model_name` / `generation_type` 从所属批次带出来，前端不用再查一次。
+
+### `POST /recycle-bin/restore`
+
+body `{"ids": [12, 13]}`（最多 500 个）。恢复的图重新出现在作品流与资产库里，所属任务和批次一并解冻。
+
+```json
+{ "restored": [12], "missing": [13] }
+```
+
+不在回收站里的 id（从没删过、已经被彻底删除、或根本不存在）进 `missing`，不报错。
+
+### `DELETE /recycle-bin/{id}`
+
+从磁盘上**彻底**删掉这一件产物（原图 + 缩略图 + 数据库行）。返回 `200` + `{"deleted": 1}`（不是 204，前端要读计数）。
+
+- 条目不在回收站里 → `404 {"detail": "回收站里没有 id 为 3 的产物"}`。
+- 删完之后如果它所属的批次已经没有任何产物，批次与任务会一并清掉，不留空壳。
+
+### `POST /recycle-bin/clear`
+
+清空回收站，立即删文件。不带 body，**不区分当前筛选**，一次清掉全部类别。
+
+```json
+{ "deleted": 7 }
+```
 
 ## WebSocket
 

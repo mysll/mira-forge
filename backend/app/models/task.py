@@ -41,5 +41,9 @@ class GenerationTask(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 回收站：任务被删时打上时间戳，产物随之进回收站，恢复时一起复位
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     generation: Mapped["Generation"] = relationship(back_populates="tasks")

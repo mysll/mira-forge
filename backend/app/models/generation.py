@@ -74,6 +74,10 @@ class Generation(Base):
         DateTime(timezone=True), nullable=False, default=utcnow, index=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 回收站：整批被删时打上时间戳，批次从作品流与画廊里消失；恢复其中任一产物时清空
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     tasks: Mapped[list["GenerationTask"]] = relationship(
         back_populates="generation",

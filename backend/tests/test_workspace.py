@@ -19,9 +19,10 @@ PNG = (
 
 @pytest.fixture(autouse=True)
 def empty_workspace(client: TestClient) -> None:
-    """每个用例从空工作区开始，避免互相看见对方造的图。"""
+    """每个用例从空工作区开始，避免互相看见对方造的图（回收站也一起清掉）。"""
     response = client.post("/api/v1/images/clear")
     assert response.status_code == 200, response.text
+    assert client.post("/api/v1/recycle-bin/clear").status_code == 200
 
 
 def _create(client: TestClient, count: int = 2) -> int:
@@ -66,7 +67,7 @@ def _register_image(generation_id: int, slot: int = 0) -> int:
         db.close()
 
 
-def test_batch_delete_removes_rows_and_files(client: TestClient) -> None:
+def test_batch_delete_moves_rows_to_recycle_bin(client: TestClient) -> None:
     generation_id = _create(client, count=3)
     first = _register_image(generation_id, 0)
     second = _register_image(generation_id, 1)
@@ -81,9 +82,15 @@ def test_batch_delete_removes_rows_and_files(client: TestClient) -> None:
     assert payload["deleted"] == [first, second]
     assert payload["missing"] == [999999]
 
-    assert not any(path.is_file() for path in files)
+    # 文件留在磁盘上，30 天内可以从回收站恢复
+    assert all(path.is_file() for path in files)
     assert client.get(f"/api/v1/images/{first}").status_code == 404
     assert client.get("/api/v1/images").json()["total"] == 0
+
+    page = client.get("/api/v1/recycle-bin").json()
+    assert page["total"] == 2
+    assert {item["id"] for item in page["items"]} == {first, second}
+    assert page["retention_days"] == 30
 
 
 def test_batch_delete_empty_payload_is_noop(client: TestClient) -> None:
@@ -92,9 +99,9 @@ def test_batch_delete_empty_payload_is_noop(client: TestClient) -> None:
     assert response.json() == {"deleted": [], "missing": []}
 
 
-def test_clear_workspace_wipes_images_and_generations(client: TestClient) -> None:
+def test_clear_workspace_moves_everything_to_recycle_bin(client: TestClient) -> None:
     generation_id = _create(client, count=2)
-    _register_image(generation_id, 0)
+    image_id = _register_image(generation_id, 0)
 
     storage = active_project().storage_path
     (storage / "uploads").mkdir(parents=True, exist_ok=True)
@@ -109,10 +116,13 @@ def test_clear_workspace_wipes_images_and_generations(client: TestClient) -> Non
     assert payload["images"] == 1
     assert payload["generations"] == 1
 
+    # 工作区空了，但文件都还在，回收站里能看见它们
     assert client.get("/api/v1/generations").json()["total"] == 0
     assert client.get("/api/v1/images").json()["total"] == 0
-    assert not list((storage / "images").glob("**/*.png"))
-    assert not list((storage / "uploads").glob("**/*"))
+    assert list((storage / "images").glob("**/*.png"))
+    bin_page = client.get("/api/v1/recycle-bin").json()
+    assert bin_page["total"] == 1
+    assert bin_page["items"][0]["id"] == image_id
 
 
 def test_clear_workspace_refuses_while_a_task_is_active(client: TestClient) -> None:
@@ -198,7 +208,7 @@ def test_delete_running_task_is_refused(client: TestClient) -> None:
         db.close()
 
 
-def test_delete_generation_wipes_tasks_files_and_the_batch(client: TestClient) -> None:
+def test_delete_generation_moves_batch_to_recycle_bin(client: TestClient) -> None:
     generation_id = _create(client, count=2)
     first = _register_image(generation_id, 0)
     second = _register_image(generation_id, 1)
@@ -211,10 +221,16 @@ def test_delete_generation_wipes_tasks_files_and_the_batch(client: TestClient) -
     assert response.status_code == 200, response.text
     assert response.json() == {"generation_id": generation_id, "images": 2, "tasks": 2}
 
-    assert not any(path.is_file() for path in files)
+    # 批次从作品流消失，但文件还在，回收站里能看到两件产物
+    assert all(path.is_file() for path in files)
     assert client.get(f"/api/v1/generations/{generation_id}").status_code == 404
     assert client.get(f"/api/v1/images/{first}").status_code == 404
     assert client.get(f"/api/v1/images/{second}").status_code == 404
+    assert client.get("/api/v1/recycle-bin").json()["total"] == 2
+
+    # 清空回收站才真的删文件
+    assert client.post("/api/v1/recycle-bin/clear").json() == {"deleted": 2}
+    assert not any(path.is_file() for path in files)
 
 
 def test_delete_generation_is_refused_while_a_task_runs(client: TestClient) -> None:

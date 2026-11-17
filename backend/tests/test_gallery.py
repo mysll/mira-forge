@@ -54,7 +54,7 @@ def test_thumbnail_is_generated_and_cached(client: TestClient) -> None:
     assert detail["thumbnail_path"] and detail["thumbnail_path"].endswith(".jpg")
 
 
-def test_delete_removes_row_and_file(client: TestClient) -> None:
+def test_delete_moves_the_image_to_the_recycle_bin(client: TestClient) -> None:
     image_id, _ = _make_image(client)
 
     with SessionLocal() as db:
@@ -68,7 +68,9 @@ def test_delete_removes_row_and_file(client: TestClient) -> None:
     response = client.delete(f"{API}/images/{image_id}")
     assert response.status_code == 204
     assert client.get(f"{API}/images/{image_id}").status_code == 404
-    assert not original.is_file(), "删除必须同时清理磁盘文件"
+    # 删除只是打标记：文件还在，回收站里能恢复
+    assert original.is_file()
+    assert any(item["id"] == image_id for item in client.get(f"{API}/recycle-bin").json()["items"])
 
 
 def test_delete_unknown_image_is_404(client: TestClient) -> None:

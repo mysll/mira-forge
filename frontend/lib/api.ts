@@ -402,14 +402,15 @@ export async function deleteImage(imageId: number): Promise<void> {
 
 export type TaskDeleted = { task_id: number; generation_deleted: boolean };
 
-/** 删掉一个任务（连同它名下的产物）；批次里没有别的任务时，批次也会被删掉。 */
+/** 删掉一个批次后返回的计数：多少件产物、多少个任务一起进了回收站。 */
 export type GenerationDeleted = { generation_id: number; images: number; tasks: number };
 
-/** 删掉一整个批次：名下任务、产物文件、记录一起清掉 */
+/** 删掉一整个批次：名下任务与产物一起进回收站（30 天内可恢复） */
 export function deleteGeneration(generationId: number): Promise<GenerationDeleted> {
   return request<GenerationDeleted>(`/generations/${generationId}`, { method: "DELETE" });
 }
 
+/** 删掉一个任务（连同它名下的产物）；批次里没有别的任务时，批次也会一起进回收站。 */
 export function deleteTask(taskId: number): Promise<TaskDeleted> {
   return request<TaskDeleted>(`/tasks/${taskId}`, { method: "DELETE" });
 }
@@ -429,9 +430,78 @@ export function deleteImages(ids: number[]): Promise<ImageBatchDeleteResponse> {
   });
 }
 
-/** 清空工作区：删除全部图片与生成记录，不可撤销。 */
+/** 清空工作区：所有产物进回收站，30 天内可以恢复。 */
 export function clearWorkspace(): Promise<WorkspaceClearResponse> {
   return request<WorkspaceClearResponse>("/images/clear", { method: "POST" });
+}
+
+/* ---------------------------------------------------------------- 回收站 */
+
+export type RecycleItem = {
+  id: number;
+  generation_id: number | null;
+  task_id: number | null;
+  file_path: string;
+  thumbnail_path: string | null;
+  media_type: string;
+  width: number;
+  height: number;
+  file_size: number;
+  duration_seconds: number | null;
+  fps: number | null;
+  frame_count: number | null;
+  created_at: string;
+  deleted_at: string | null;
+  expires_at: string | null;
+  /** 还剩几天被自动彻底删除，0 表示已经过期 */
+  days_left: number;
+  prompt: string;
+  model_name: string;
+  generation_type: string;
+};
+
+export type RecycleListResponse = {
+  items: RecycleItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  /** 保留天数（后端 30） */
+  retention_days: number;
+};
+
+export type RecycleRestored = { restored: number[]; missing: number[] };
+export type RecycleCleared = { deleted: number };
+
+export function fetchRecycleBin(
+  params: { limit?: number; offset?: number; media?: "image" | "video" | "asset" } = {},
+): Promise<RecycleListResponse> {
+  const search = new URLSearchParams();
+  search.set("limit", String(params.limit ?? 60));
+  if (params.offset) {
+    search.set("offset", String(params.offset));
+  }
+  if (params.media) {
+    search.set("media", params.media);
+  }
+  return request<RecycleListResponse>(`/recycle-bin?${search.toString()}`);
+}
+
+/** 恢复：产物回到作品流，所属任务与批次一起解冻。 */
+export function restoreRecycleItems(ids: number[]): Promise<RecycleRestored> {
+  return request<RecycleRestored>("/recycle-bin/restore", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/** 彻底删除单件产物（删文件，不可恢复）。 */
+export function deleteRecycleItem(imageId: number): Promise<RecycleCleared> {
+  return request<RecycleCleared>(`/recycle-bin/${imageId}`, { method: "DELETE" });
+}
+
+/** 清空回收站：立刻删掉所有文件和记录。 */
+export function clearRecycleBin(): Promise<RecycleCleared> {
+  return request<RecycleCleared>("/recycle-bin/clear", { method: "POST" });
 }
 
 export function cancelTask(taskId: number): Promise<TaskRead> {

@@ -120,11 +120,11 @@ Derived：`Generation.status` 由子任务聚合（`aggregate_generation_status`
 
 产物流转：`GET /history` 的 `outputs[output_node]["images"]` 给出 `filename/subfolder/type` → `GET /view` 取字节 → 写 `<项目>/storage/{images|videos}/{generation_id}/{task_id}_{i}.{png|mp4}`（按 `media_type` 分目录，视频的封面帧另外压进 `thumbnails/`）→ 插 `images` 行（宽高优先用 ComfyUI 返回的 `metadata`，缺失时解析 PNG IHDR）。
 
-缩略图是**首次请求时生成**的：`GET /images/{id}/thumbnail` 若 `thumbnail_path` 为空就用 Pillow 转 480px JPEG 写盘并回填数据库，之后一直走磁盘缓存（响应带 immutable 的 `Cache-Control`）。删除图片时原图与缩略图一起删。
+缩略图是**首次请求时生成**的：`GET /images/{id}/thumbnail` 若 `thumbnail_path` 为空就用 Pillow 转 480px JPEG 写盘并回填数据库，之后一直走磁盘缓存（响应带 immutable 的 `Cache-Control`）。普通删除只打 `deleted_at`（文件与缩略图都留在磁盘上，30 天内可从回收站恢复）；只有彻底删除、清空回收站、过期清理这三条路才走 `remove_files`，把原图与缩略图一起移除。
 
 ## 前端结构
 
-一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航六项：首页 `/`（落地页，两个创作入口）、资产 `/gallery`、工具 `/tools`（本地处理，不吃 GPU）、图片 `/compose`（默认文生图，框内可切图片编辑）、视频 `/video`、设置 `/settings`。详细设计见 [FRONTEND.md](FRONTEND.md)。
+一期前端是「左窄导航 + 右创作工作区」的两栏工作台，没有第三栏。导航七项，用两条细分隔线分成三组：首页 `/`（落地页，两个创作入口）、资产 `/gallery`、工具 `/tools`（本地处理，不吃 GPU）、回收站 `/trash`、图片 `/compose`（默认文生图，框内可切图片编辑）、视频 `/video`、设置 `/settings`。详细设计见 [FRONTEND.md](FRONTEND.md)。
 
 | 位置 | 作用 |
 | --- | --- |
@@ -262,3 +262,26 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 - 抽帧结果在内存里是 `HTMLCanvasElement`，导出时才编码；抠背景作用在 canvas 上，所以「先抠色再打图集」与「先打图集再抠色」结果一致。
 - 图集是「按页」的：`cols × rows` 决定每页容量，超出自动开新页；`cellWidth/cellHeight` 是格子的像素尺寸，帧在格内等比缩放居中（`scale` 控制格内占比上限）。
 - 导入时按 `pages[].file` 的名字匹配 ZIP 里的 PNG（数值排序），再按 `sequences[].frames[]` 逐帧 `drawImage(page, x, y, width, height, ...)` 还原成独立 canvas——所以「导出 zip → 存进资产 → 从资产打开」能拿回一模一样的帧数（实测 73 帧 / 2 页 / 6912×2880）。
+
+## 回收站：删除为什么是打戳
+
+用户要的「删错了能捞回来」和「30 天后自动清掉」在存储上是两件互相拉扯的事：要能恢复，文件就不能在删除那一刻消失；要能自动清掉，就必须有人知道「什么时候删的」。最简单的做法是**就地把删除记成时间戳**，而不是把文件挪进 `.trash/` 目录、或者建一张 `deleted_images` 影子表：
+
+- 挪文件会让 `file_path` 在删除与恢复之间变化，缩略图缓存、`/images/{id}/file` 的 URL、工坊里打开的深链全部要跟着搬；打戳则文件原地不动，恢复只是把时间戳清掉，零拷贝。
+- 影子表要把 `images` 的每一列抄一遍，还得同步缩略图、素材、视频三种 `media_type` 的特殊字段；打戳只加一列。
+- 三张表都要标记：`images`、`generation_tasks`、`generations`（迁移 `0007_recycle_bin`，每张表加 `deleted_at` + 索引）。批次被整批删时三者一起打戳；只删了其中几张图时批次还在，只是那几格的产物不见了。
+
+写入侧只有一处入口：`app/services/recycle_service.py` 的 `soft_delete_images` / `soft_delete_task` / `soft_delete_generation`，`DELETE /images/{id}`、`POST /images/batch-delete`、`POST /images/clear`、`DELETE /tasks/{id}`、`DELETE /generations/{id}` 全部改调它们（`clear_workspace` 也是给全表打戳，不再 rmtree）。
+
+读取侧统一在查询里过滤：`list_images`、`GenerationRepository._filtered`、`_to_read`（过滤批次下的 `images` 与 `tasks`，`progress` 只按未删任务算）都带 `deleted_at.is_(None)`。**例外是 `/images/{id}/file` 与 `/images/{id}/thumbnail`**——回收站里的卡片要有预览，这两个端点故意不过滤。
+
+恢复不是「只把图放回来」：`restore_images` 在清掉产物的戳之后，还要把它的 `task` 与 `generation` 的 `deleted_at` 一起清掉。否则图回来了、所属批次却还在回收站里，作品流里根本看不见它，用户会以为恢复失败。
+
+真正删文件只发生在三处，都只删记录与文件、不做别的：`delete_forever`（回收站里点「彻底删除」）、`clear_bin`（「清空回收站」）、`purge_expired`（`deleted_at <= now - 30 天`）。`purge_expired` 在 **lifespan 启动时**与**每次 `GET /recycle-bin`** 时各跑一次，所以不需要定时任务或外部调度；`delete_forever` 之后还会调 `_drop_empty_generations`，把回收站里已经没有产物的批次连同任务一起清掉。
+
+```text
+删除 → soft_delete_*  只打 deleted_at（文件不动）
+恢复 → restore_images 清戳 + 解冻 task/generation
+彻底删除 / 清空 / 过期 → remove_files 才删原图与缩略图
+```
+

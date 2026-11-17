@@ -288,7 +288,7 @@ export default function GalleryPage() {
               type="button"
               onClick={() => setConfirm("all")}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-bad/40 bg-bad/10 px-2.5 text-xs text-bad transition hover:bg-bad/15"
-              title="删除全部图片与生成记录，不可恢复"
+              title="把全部产物移进回收站，30 天内可恢复"
             >
               <TrashIcon />
               清空工作区
@@ -402,8 +402,8 @@ export default function GalleryPage() {
         title={`删除选中的 ${selected.size} 张图片？`}
         description={
           <>
-            图片文件会从磁盘移除，数据库记录一并删除，<span className="text-bad">不可恢复</span>。
-            对应的批次会留在作品流里，只是少了几张图。
+            图片会从作品流移到<span className="text-ink">回收站</span>，30 天内都可以恢复；
+            过期或被清空回收站时才真正从磁盘删除。对应的批次会留在作品流里，只是少了几张图。
           </>
         }
         confirmLabel="删除"
@@ -418,8 +418,8 @@ export default function GalleryPage() {
         title="清空工作区？"
         description={
           <>
-            会删除全部图片与全部生成记录（当前视图里 {assets.length} 张 / {total} 个批次），
-            <span className="text-bad">文件从磁盘移除且无法恢复</span>。模型与工作流配置不受影响。
+            会把全部图片与生成记录移进<span className="text-ink">回收站</span>（当前视图里 {assets.length} 张 /{" "}
+            {total} 个批次），30 天内都能恢复；只有清空回收站才会真正删掉文件。模型与工作流配置不受影响。
           </>
         }
         confirmLabel="清空工作区"
