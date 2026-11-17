@@ -105,6 +105,7 @@ def remove_background(
     mode: str = "edge",
     tolerance: int = 22,
     feather: int = 1,
+    denoise: int = 0,
     color: tuple[int, int, int] | None = None,
     channel: str = "max",
 ) -> RemovalResult:
@@ -121,6 +122,8 @@ def remove_background(
         raise EditorError("tolerance 需要在 0–255 之间")
     if not 0 <= feather <= 12:
         raise EditorError("feather 需要在 0–12 之间")
+    if not 0 <= denoise <= 10:
+        raise EditorError("denoise 需要在 0–10 之间")
 
     rgba = np.asarray(image, dtype=np.uint8)
     rgb = rgba[..., :3]
@@ -130,7 +133,23 @@ def remove_background(
     candidate = distance <= tolerance
     region = _edge_connected(candidate) if mode == "edge" else candidate
 
-    alpha = np.where(region, 0, 255).astype(np.uint8)
+    keep = ~region
+    if denoise:
+        # 去杂点：填掉主体内部的小孔（噪点），丢掉背景里的小碎块；大面积的封闭背景（如腋下）不动
+        min_area = max(8, int(denoise) * 40)
+        holes = ndimage.label(~keep)[0]
+        for index in range(1, int(holes.max()) + 1):
+            spot = holes == index
+            if spot[0, :].any() or spot[-1, :].any() or spot[:, 0].any() or spot[:, -1].any():
+                continue  # 碰到画布边的是外部背景，不填
+            if spot.sum() < min_area:
+                keep |= spot
+        islands = ndimage.label(keep)[0]
+        for index in range(1, int(islands.max()) + 1):
+            spot = islands == index
+            if spot.sum() < min_area:
+                keep &= ~spot
+    alpha = np.where(keep, 255, 0).astype(np.uint8)
     # 原图本来有透明区域的地方保持透明
     alpha = np.minimum(alpha, rgba[..., 3])
 
@@ -144,7 +163,7 @@ def remove_background(
     return RemovalResult(
         png=buffer.getvalue(),
         background=background,
-        removed_ratio=float(region.mean()),
+        removed_ratio=float(1.0 - keep.mean()),
         width=image.width,
         height=image.height,
     )
@@ -193,11 +212,16 @@ def describe(image: Image.Image) -> dict[str, object]:
         if share >= 0.6:
             suggestion = step
             break
+    candidate = distance <= suggestion
+    region = _edge_connected(candidate)
+    enclosed = candidate & ~region
     return {
         "width": image.width,
         "height": image.height,
         "background": list(background),
         "has_alpha": bool(alpha.min() < 255),
-        "background_share": float((distance <= suggestion).mean()),
+        "background_share": float(candidate.mean()),
         "suggested_tolerance": suggestion,
+        # 主体内部被包住的背景面积：>0 说明「只删边缘连通」会留下色块，要切「删所有同色」
+        "enclosed_background_share": float(enclosed.mean()),
     }

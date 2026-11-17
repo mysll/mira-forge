@@ -517,11 +517,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
   "background": [34, 56, 36],
   "has_alpha": true,
   "background_share": 0.8996,
-  "suggested_tolerance": 4
+  "suggested_tolerance": 4,
+  "enclosed_background_share": 0.0032
 }
 ```
 
-`background` 取的是图片边框像素的中位数（比众数稳：渐变背景也不会只挑到一个色）。`suggested_tolerance` 是从 `[4, 8, 16, 24, 32, 48]` 里挑最小的、能让至少 60% 像素落入的值——直接用它通常就能抠干净纯色底。
+`background` 取的是图片边框像素的中位数（比众数稳：渐变背景也不会只挑到一个色）。`suggested_tolerance` 是从 `[4, 8, 16, 24, 32, 48]` 里挑最小的、能让至少 60% 像素落入的值——直接用它通常就能抠干净纯色底。`enclosed_background_share` 是「被主体包住的同色块」占画布的比例：大于 0 就说明 `edge` 模式会漏掉这些色块（典型如角色腋下、手臂与身体之间的缝隙），前端据此提示切到 `color`。
 
 ### POST /editor/remove-background
 
@@ -534,6 +535,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 | `tolerance` | `22` | 0–120，颜色距离阈值 |
 | `channel` | `max` | 颜色距离算法：`max`（三通道取最大差）/ `mean` / `luma` |
 | `feather` | `1` | 0–8，对 alpha 做高斯模糊的半径，边缘更软 |
+| `denoise` | `0` | 0–10，去杂点：填掉面积 < `40 × denoise` 平方像素的小孔、丢掉同样大小的碎块；大块封闭背景不会被误填 |
 | `color` | 自动 | `#rrggbb`，不传时用边框主色 |
 
 返回 `image/png` 字节流，附三个响应头：

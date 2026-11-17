@@ -112,3 +112,61 @@ def test_rejects_bad_parameters(client: TestClient) -> None:
     )
     assert response.status_code == 422
     assert "edge" in response.json()["detail"]
+
+def _donut() -> bytes:
+    """白底 + 红色圆环：圆环内部被包住的白块就是「封闭背景」。"""
+    image = Image.new("RGB", (160, 160), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((30, 30, 129, 129), fill=(200, 40, 40))
+    draw.ellipse((60, 60, 99, 99), fill=(255, 255, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_analyze_reports_enclosed_background(client: TestClient) -> None:
+    response = client.post(f"{API}/editor/analyze", files={"image": ("d.png", _donut(), "image/png")})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # 圆环内部那圈白色不是边缘连通，会被算成封闭背景
+    assert body["enclosed_background_share"] > 0.02, body
+
+
+def test_color_mode_clears_enclosed_background(client: TestClient) -> None:
+    response = client.post(
+        f"{API}/editor/remove-background",
+        files={"image": ("d.png", _donut(), "image/png")},
+        data={"mode": "color", "tolerance": 4, "feather": 0},
+    )
+    assert response.status_code == 200, response.text
+    alpha = np.array(_png_bytes(response.content))[..., 3]
+    assert alpha[80, 80] == 0  # 圆环中心原本是背景色，现在也透明了
+
+
+def test_denoise_fills_small_holes_but_keeps_big_ones(client: TestClient) -> None:
+    """小孔被填上，大块封闭背景（圆环中心）保留为透明。"""
+    image = Image.new("RGB", (160, 160), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((30, 30, 129, 129), fill=(200, 40, 40))
+    draw.ellipse((60, 60, 99, 99), fill=(255, 255, 255))  # 大孔：封闭背景
+    draw.rectangle((48, 48, 52, 52), fill=(255, 255, 255))  # 小孔：噪点
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    payload = buffer.getvalue()
+
+    plain = client.post(
+        f"{API}/editor/remove-background",
+        files={"image": ("d.png", payload, "image/png")},
+        data={"mode": "color", "tolerance": 4, "feather": 0, "denoise": 0},
+    )
+    cleaned = client.post(
+        f"{API}/editor/remove-background",
+        files={"image": ("d.png", payload, "image/png")},
+        data={"mode": "color", "tolerance": 4, "feather": 0, "denoise": 1},
+    )
+    assert plain.status_code == 200 and cleaned.status_code == 200
+    before = np.array(_png_bytes(plain.content))[..., 3]
+    after = np.array(_png_bytes(cleaned.content))[..., 3]
+    assert before[50, 50] == 0  # 小孔原本是透明的
+    assert after[50, 50] == 255  # 去杂点后填上了
+    assert after[80, 80] == 0  # 大孔（封闭背景）仍然是透明的

@@ -184,12 +184,16 @@ export type EditorAnalysis = {
   /** 建议容差下，「背景色」占画布的比例，用来提示这张图适不适合直接抠 */
   background_share: number;
   suggested_tolerance: number;
+  /** 主体内部被包住的背景比例：>0 说明「只删边缘连通」会留下色块 */
+  enclosed_background_share: number;
 };
 
 export type RemoveBackgroundOptions = {
   mode?: "edge" | "color";
   tolerance?: number;
   feather?: number;
+  /** 去杂点：填掉主体内部的小孔、丢掉背景里的小碎块（面积按 40 px² × 档位算） */
+  denoise?: number;
   /** #rrggbb；不给就让后端按边框估 */
   color?: string;
   channel?: "max" | "mean" | "luma";
@@ -235,6 +239,7 @@ export async function removeBackgroundFromImage(
   form.append("mode", options.mode ?? "edge");
   form.append("tolerance", String(options.tolerance ?? 22));
   form.append("feather", String(options.feather ?? 1));
+  form.append("denoise", String(options.denoise ?? 0));
   form.append("channel", options.channel ?? "max");
   if (options.color) {
     form.append("color", options.color);

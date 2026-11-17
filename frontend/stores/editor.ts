@@ -22,6 +22,7 @@ export type EditorParams = {
   mode: RemovalMode;
   tolerance: number;
   feather: number;
+  denoise: number;
 };
 
 export type SourceImage = {
@@ -47,6 +48,8 @@ type EditorState = {
   mode: RemovalMode;
   tolerance: number;
   feather: number;
+  /** 去杂点档位 0–4：填掉主体内部的小孔、丢掉背景里的小碎块 */
+  denoise: number;
   /** 导出倍率：1 / 2 / 4，只影响输出像素密度，不改构图（不进撤销栈） */
   exportScale: number;
 
@@ -68,6 +71,7 @@ type EditorState = {
 
 const DEFAULT_TOLERANCE = 22;
 const DEFAULT_FEATHER = 1;
+const DEFAULT_DENOISE = 0;
 const HISTORY_LIMIT = 40;
 
 function clamp(value: number, low: number, high: number): number {
@@ -85,6 +89,7 @@ function snapshot(state: EditorState): EditorParams {
     mode: state.mode,
     tolerance: state.tolerance,
     feather: state.feather,
+    denoise: state.denoise,
   };
 }
 
@@ -103,6 +108,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   mode: "edge",
   tolerance: DEFAULT_TOLERANCE,
   feather: DEFAULT_FEATHER,
+  denoise: DEFAULT_DENOISE,
   exportScale: 1,
 
   past: [],
@@ -184,6 +190,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       if (patch.feather !== undefined) {
         next.feather = clamp(Math.round(patch.feather), 0, 12);
+      }
+      if (patch.denoise !== undefined) {
+        next.denoise = clamp(Math.round(patch.denoise), 0, 4);
       }
       if (patch.offsetX !== undefined) {
         next.offsetX = Math.round(patch.offsetX);

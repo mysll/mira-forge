@@ -3,10 +3,11 @@
 import type { ReactNode } from "react";
 
 import { exportSize, placementFor, rgbToHex, upscaleRatio, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT } from "@/lib/editor";
+import type { EditorAnalysis } from "@/lib/api";
 import { useEditorStore } from "@/stores/editor";
 
 type Props = {
-  analysis: { background: number[]; suggested_tolerance: number } | null;
+  analysis: EditorAnalysis | null;
   busy: boolean;
   onRemoveBackground: () => void;
   onResetSubject: () => void;
@@ -121,6 +122,7 @@ export default function EditorPanel({
     mode,
     tolerance,
     feather,
+    denoise,
     exportScale,
     cut,
     subject,
@@ -170,12 +172,14 @@ export default function EditorPanel({
 
       <Section id="editor-canvas" title="画布" hint={`${canvasWidth} × ${canvasHeight}`}>
         <div className="grid grid-cols-2 gap-2">
-          <Row label="宽">
+          <label className="flex flex-col gap-1 text-[11px] text-muted">
+            <span>宽</span>
             <NumberBox value={canvasWidth} min={16} max={4096} onChange={(value) => setCanvas(value, canvasHeight)} />
-          </Row>
-          <Row label="高">
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] text-muted">
+            <span>高</span>
             <NumberBox value={canvasHeight} min={16} max={4096} onChange={(value) => setCanvas(canvasWidth, value)} />
-          </Row>
+          </label>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((size) => (
@@ -287,18 +291,42 @@ export default function EditorPanel({
                 "flex-1 rounded px-2 py-1 text-[11px] transition",
                 mode === option.key ? "bg-accent/20 text-accentSoft" : "text-muted hover:text-ink",
               ].join(" ")}
-              onClick={() => setParams({ mode: option.key })}
+              onClick={() =>
+                setParams(
+                  option.key === "color"
+                    ? // 「删所有同色」是全局匹配，容差留大容易把主体里的深色也吃掉，这里顺手收一下
+                      { mode: option.key, tolerance: Math.min(tolerance, 12) }
+                    : { mode: option.key },
+                )
+              }
             >
               {option.label}
             </button>
           ))}
         </div>
+        {mode === "color" && tolerance > 16 ? (
+          <p className="text-[10px] leading-relaxed text-warn">
+            容差 {tolerance} 对「删所有同色」偏大，主体里的深色部分可能被一起删掉，建议先降到 8–12。
+          </p>
+        ) : null}
         <Row label="容差" suffix={String(tolerance)}>
           <Slider value={tolerance} min={0} max={120} onChange={(value) => setParams({ tolerance: value }, { quiet: true })} />
         </Row>
         <Row label="羽化" suffix={`${feather} px`}>
           <Slider value={feather} min={0} max={8} onChange={(value) => setParams({ feather: value }, { quiet: true })} />
         </Row>
+        <Row label="去杂点" suffix={`${denoise} 档`}>
+          <Slider value={denoise} min={0} max={4} onChange={(value) => setParams({ denoise: value }, { quiet: true })} />
+        </Row>
+        <p className="text-[10px] leading-relaxed text-muted/60">
+          填掉主体内部的小孔、丢掉背景里的小碎块；面积小于 40×档位 平方像素才动，所以大片封闭背景不会被糊上。
+        </p>
+        {analysis && analysis.enclosed_background_share > 0.002 ? (
+          <p className="rounded border border-warn/30 bg-warn/10 px-2 py-1.5 text-[10px] leading-relaxed text-warn">
+            这张图主体内部还有约 {(analysis.enclosed_background_share * 100).toFixed(1)}% 的封闭背景（被主体包住的同色块）。
+            「只删边缘连通」碰不到它，切到上面的「删所有同色」再点抠除；如果边缘留下浅色描边，把「去杂点」调到 1–2 档，内部的小孔和碎块会一并清掉。
+          </p>
+        ) : null}
         {analysis ? (
           <p className="text-[10px] leading-relaxed text-muted/70">
             估计背景色 {estimatedColor}，建议容差 {analysis.suggested_tolerance}。

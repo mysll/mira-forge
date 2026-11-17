@@ -65,6 +65,7 @@ async def remove_background_endpoint(
     mode: str = Form("edge"),
     tolerance: int = Form(22),
     feather: int = Form(1),
+    denoise: int = Form(0),
     color: str | None = Form(None),
     channel: str = Form("max"),
 ) -> Response:
@@ -81,6 +82,7 @@ async def remove_background_endpoint(
             mode=mode,
             tolerance=tolerance,
             feather=feather,
+            denoise=denoise,
             color=_parse_color(color),
             channel=channel,
         )

@@ -68,7 +68,7 @@
 | `app/tools/page.tsx` | 工具目录：卡片网格（第一张是编辑器，其余是「计划中」占位卡）+ 三条使用提示 |
 | `app/tools/editor/page.tsx` | 编辑器页：从 `window.location.search` 读 `?image=<id>`（不用 `useSearchParams`，避开静态预渲染 bailout）、四个动作（抠底 / 裁边 / 贴合主体 / 导出）、空态与 Toast |
 | `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条同时显示「画布」与「导出」两种尺寸；预览按 `缩放 × devicePixelRatio` 重绘（最高 4×），放大查看时用的是原图细节而不是把成品放大 |
-| `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景 / 导出四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
+| `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景（模式、容差、羽化、去杂点；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
 | `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene(ctx, input, scale)`、`exportSize()`（画布 × 倍率，最长边上限 8192）、`upscaleRatio()`（超出原图像素时给警告）、分级降采样绘制、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
 | `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、导出倍率（1×/2×/4×，不进撤销栈）、撤销重做栈（只记参数，抠底有独立「还原」） |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |

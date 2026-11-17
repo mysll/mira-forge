@@ -129,6 +129,7 @@ export default function EditorPage() {
         mode: store.mode,
         tolerance: store.tolerance,
         feather: store.feather,
+        denoise: store.denoise,
       });
       const image = await loadImageElement(blob);
       store.setSubject(image, { cut: true });
