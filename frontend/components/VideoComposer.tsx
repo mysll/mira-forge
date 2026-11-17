@@ -155,6 +155,8 @@ export default function VideoComposer({
       setPrompt("");
       setFirst(null);
       setLast(null);
+      setMenu(null);
+      setPicking(null);
       void queryClient.invalidateQueries({ queryKey: ["generations"] });
       window.setTimeout(() => {
         void queryClient.invalidateQueries({ queryKey: ["generations"] });
@@ -245,7 +247,6 @@ export default function VideoComposer({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4">
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 -top-32 bg-gradient-to-t from-bg via-bg via-70% to-transparent" />
       <div
         className={`pointer-events-auto relative mx-auto flex max-w-[1180px] flex-col gap-2 rounded-xl2 border bg-surface/92 p-3 shadow-pop backdrop-blur-2xl transition ${
           dragging ? "border-accent/70 ring-2 ring-accent/20" : "border-edge"
