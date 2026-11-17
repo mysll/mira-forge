@@ -176,6 +176,16 @@ cd backend
 
 `alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0003_workspace`（给 `generations` 加了 `negative_prompt/steps/cfg/sampler`，给 `images` 加了 `is_favorite`）。
 
+## 序列帧工坊（SpriteForge）的同步
+
+工坊的源码是 `D:\AI\SpriteForge` 的原样副本，托管在 `frontend/public/tools/spriteforge/`（Next 直接当静态文件发）。改上游后同步：
+
+```powershell
+.\tools\sync-spriteforge.ps1           # 复制 index.html / styles.css / app.js 并打印大小
+.\tools\sync-spriteforge.ps1 -Check    # 只比对 SHA256，不写文件；有差异时退出码 1
+```
+
+不要在这个目录里手改代码——本地改动会在下次同步时被覆盖。工具本身不经过后端：抽帧、抠背景、图集打包、ZIP 导出全在浏览器里，偏好存 `localStorage`（`spriteforge.prefs.v1`）。
 ## 代码约定
 
 - 时间统一用 UTC（`utcnow()` 返回 tz-aware datetime），响应层补 `Z`。

@@ -11,6 +11,17 @@ const TOOLS = [
     href: "/tools/editor",
     ready: true,
     tags: ["抠背景", "画布", "等比缩放", "导出"],
+    action: "打开编辑器 →",
+  },
+  {
+    key: "sprite",
+    title: "序列帧工坊",
+    description: "把视频拆成序列帧，抠掉纯色背景，按行列打包成透明图集，导出 PNG + JSON。",
+    badge: "本地处理",
+    href: "/tools/spriteforge",
+    ready: true,
+    tags: ["视频抽帧", "抠背景", "图集", "JSON"],
+    action: "打开工坊 →",
   },
   {
     key: "resize",
@@ -110,7 +121,7 @@ function ToolCard({ tool }: { tool: (typeof TOOLS)[number] }) {
             tool.ready ? "text-accentSoft group-hover:underline" : "text-muted/50",
           ].join(" ")}
         >
-          {tool.ready ? "打开编辑器 →" : "敬请期待"}
+          {tool.ready ? (tool.action ?? "打开 →") : "敬请期待"}
         </span>
       </div>
     </div>

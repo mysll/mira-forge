@@ -11,6 +11,7 @@
 - **多项目**：每个项目一个独立文件夹（`data/projects/<id>/`，各自一套 SQLite 与图片目录），顶栏左侧的下拉可切换、新建、改名、删除；新建项目的入口就在下拉里。切换即换库，作品与任务各看各的。
 - **资产库**：`/gallery` 一页看全部图片——响应式网格、按日期分组、按生成时间从新到旧，图片直接可收藏 / 下载 / 继续编辑 / 删除；点「管理」可勾选批量删除，或清空整个工作区（危险操作，二次确认）。
 - **本地图片编辑器**：`/tools` 工具页里第一张卡，纯 CPU 跑（不占显存、不产生新作品、不改原图）。抠背景（只删边缘连通 / 删所有同色，可调容差、羽化与去杂点；主体内部被包住的同色块用「删所有同色」一并清掉）、按主体裁掉透明边、把画布指定成任意尺寸（如 256×256）、主体**等比**缩放并指定底边留白（如距底 20px）与水平偏移，导出 PNG（需要更大像素时用导出面板的 1× / 2× / 4× 倍率，别把主体拖大）。资产页与详情弹窗都有「本地编辑」直达入口，和调用 ComfyUI 的「AI 编辑」分开；成品可以「保存到资产」，在资产库里作为一条「本地编辑」记录出现，能收藏、下载、删除。
+- **序列帧工坊（SpriteForge）**：`/tools/spriteforge`，把视频拆成序列帧、抠掉纯色背景、按行列打包成透明图集并导出 PNG + JSON + ZIP，全程在浏览器里跑（不经过后端、不占显存）。源码是 `D:\AI\SpriteForge` 的原样副本，改完源头用 `tools/sync-spriteforge.ps1` 同步。
 - **文生图**：模型下拉（Qwen Image 2.1 25 步 / Qwen Image 2.1 Turbo 8 步），10 种比例（含自定义）× 4 档分辨率（480/720/1K/2K，默认 1:1 · 1K），一次 1–8 张（默认 4 张），每张独立 seed、串行执行。
 - **参考图生成（图生图）**：在「图片生成」里可选加 1–2 张参考图——有图就参考构图/材质出图，无图就是普通文生图；参考图不改变输出比例，尺寸仍按右下角的设置（实测同一句提示词，加参考图后画面构图明显跟随参考图）。
 - **视频（MiniMax H3）**：独立 `/video` 工作台（左侧栏切换）。写一句镜头描述就是文生视频；首帧 / 尾帧可以直接从资产库里挑已生成的图（也能上传本机文件、拖入），给了就变成图生视频（两张都不给自动退回文生视频）。尺寸按「比例 × 480p / 720p / 1080p」选，时长 3 / 5 / 8 / 10 秒快捷档或 1–15 秒滑块自定，一次最多 4 条（默认 1 条，串行出），24fps、音视频一起出；卡片带时长与播放角标，详情里直接播放。
@@ -87,13 +88,14 @@ backend/            FastAPI 应用
   workflow_configs/ registry.yaml（模型目录）+ 每个工作流的参数绑定 YAML
   workflows/        ComfyUI API 格式工作流 JSON
 frontend/           Next.js 应用
-  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ tools（工具目录）/ tools/editor（本地图片编辑器）/ settings（系统状态）
+  app/              page.tsx（首页）/ compose（图片创作）/ video（视频工作台）/ gallery（资产库）/ tools（工具目录）/ tools/editor（本地图片编辑器）/ tools/spriteforge（序列帧工坊，内嵌）/ settings（系统状态）
   components/       Sidebar · TopBar · ProjectSwitcher · Feed · FeedCard · ImageDetail
                     · Composer · VideoComposer · Popover · ConfirmDialog · ToastStack
                     · editor/EditorCanvas · editor/EditorPanel
   hooks/            useImageActions（收藏 / 下载 / 删除 / 继续编辑 / 重新生成，两个页面共用）
   stores/           composer（创作框状态）· reference（编辑参考图）· generationRefs（生成模式参考图）· editor（编辑器参数与撤销栈）
-  lib/              api · size（比例与分辨率）· date（日期分组与筛选）· editor（几何与导出）
+  lib/              api · size（比例与分辨率）· date（日期分组与筛选）· editor（几何与导出）· models（模型名显示）
+  public/tools/spriteforge/  序列帧工坊的静态源码（从 D:\AI\SpriteForge 同步，勿手改）
 storage/            旧布局的产物目录（首次启动后被搬进 data/projects/default/storage）
 data/projects/      每个项目一个文件夹：<id>/app.db + <id>/storage/{images,videos,thumbnails,uploads}
                     catalog.json 是项目清单

@@ -229,3 +229,11 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 编辑器导出的是「已经完成的字节」，没有采样过程，但用户希望它在资产库里和生成图一样能看、能收藏、能删。所以保存时后端不建新表，而是补一条最小的 `generations` 行（`generation_type = local_edit`、`model_name = local_editor`、`status = completed`）+ 一条 `generation_tasks` 行（`progress = 100`、`seed` 为空）+ 一张 `images` 行，产物照常落在 `storage/images/{generation_id}/`。
 
 这样做的好处是资产页、详情弹窗、收藏、下载、删除、`GET /generations?media=image` 全都不用改；代价是 `generation_tasks.seed` 必须可空（迁移 `0006_local_edit`），以及前端类型标签要认识 `local_edit`。带原图保存时，`images.original_image_id` 与 `generations.reference_image_path` 记录来源，详情弹窗里就能看到「来自图 #N」。
+## 序列帧工坊：第三方纯静态工具怎么接进来
+
+SpriteForge 是别人写好的、完全没有构建步骤的工具（一个 `index.html` + 一个 `app.js` + 一个 `styles.css`，不引 CDN、不发网络请求）。接入方式刻意选了「原样托管 + iframe」，而不是重写或拆成 React 组件：
+
+- **源码原样放在 `frontend/public/tools/spriteforge/`**，Next 直接按静态文件提供 `/tools/spriteforge/index.html`。文件字节与 `D:\AI\SpriteForge` 一致，`tools/sync-spriteforge.ps1` 负责同步（`-Check` 只比对），所以上游更新不用改一行我们的代码。
+- **`/tools/spriteforge` 只是壳**：一个「← 工具」返回、一个「在新标签页打开」，中间同源 `<iframe>`。同源的好处是工具的 `localStorage`、文件选择、ZIP 下载都照常工作，不需要 `postMessage` 协议，也不用给它开后端接口。
+- **不进入我们的数据模型**：抽帧、抠背景、打图集、导出都在浏览器里完成，产物通过工具自己的下载落地；`images` 表里不会多出记录。想做「存进资产」的功能，才需要走 `/editor/save` 那条路。
+- 代价：iframe 内部的样式、快捷键、滚动都由工具自己管，我们的主题（暗色、字体）不会渗进去；如果以后要和 MiraForge 的资产库联动（例如把图集帧直接存成资产），再考虑加一层 `postMessage` 或直接改成组件。
