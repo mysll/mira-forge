@@ -10,8 +10,7 @@
 | 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧；hover 里有「本地编辑」直达编辑器 |
 | 工具 | `/tools` | 工具目录：卡片网格，已有「图片编辑器」「序列帧工坊」，其余是计划中的占位卡 |
 | 图片编辑器 | `/tools/editor` | 本地图片编辑器：抠背景、改画布尺寸、主体等比缩放、指定底边留白，导出 PNG 或**保存到资产** |
-
-| 序列帧工坊 | `/tools/spriteforge` | 原生三栏（左参数 / 中帧格 / 右图集预览）：视频抽帧、抠透明背景、按行列打图集、导出 PNG + JSON + ZIP。三种输入都支持「本机」与「资产」两条来源（`?video=<id>` / `?asset=<id>` 深链自动载入），导出可直接存进资产；全部在浏览器里完成，不经过后端 |
+| 序列帧工坊 | `/tools/spriteforge` | **原版 SpriteForge 原样挂载**（同一文档、非 iframe）：序列帧播放预览、编辑轨道、多序列、分页导出都是上游实现。宿主条只加两条资产通路——「从资产导入 ▾」（视频 / 图集）与「保存到资产」（截下原版导出的 ZIP 存进素材）；`?video=<id>` / `?asset=<id>` 深链自动载入。全部在浏览器里完成，不经过后端 |
 | 图片 | `/compose` | 创作：批次流的作品 + 底部悬浮创作框（默认文生图，可在框内切编辑） |
 | 视频 | `/video` | 视频工作台：只显示视频作品，底部是视频创作框（首帧 / 尾帧、时长、画幅） |
 | 设置 | `/settings` | 系统状态 |
@@ -71,11 +70,9 @@
 | `app/tools/editor/page.tsx` | 编辑器页：从 `window.location.search` 读 `?image=<id>`（不用 `useSearchParams`，避开静态预渲染 bailout）、五个动作（抠底 / 裁边 / 贴合主体 / 导出 / 保存到资产）、空态与 Toast；导出与保存共用 `renderCanvas()`，保存成功后导出区块显示批次号 |
 | `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条同时显示「画布」与「导出」两种尺寸；预览按 `缩放 × devicePixelRatio` 重绘（最高 4×），放大查看时用的是原图细节而不是把成品放大 |
 | `components/editor/EditorPanel.tsx` | 右侧面板：画布 / 主体 / 抠背景（模式、容差、羽化、去杂点；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
-
-| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：左栏来源与参数（fps / 最多帧数 / 帧最长边 / 抠色容差与羽化 / 行列与格子尺寸）、中栏帧网格（多选）、右栏图集预览；顶栏四个按钮——打开图集／加载视频（各自下拉出「从本机上传 / 从资产选」）、保存、导出 |
-| `lib/sprite/frames.ts` | 抽帧与抠色：`loadVideo()` / `extractFrames()`（seek + `seeked` 逐帧 drawImage）/ `keyBackground()`（通道差阈值 + 羽化）/ `guessBackgroundColor()`（四角中位数） |
-| `lib/sprite/atlas.ts` | 图集：`packFrames()` 按行列分页填格（格内等比缩放居中）、`buildAtlasJson()` / `parseAtlasJson()` 双向对应 SpriteForge v1 结构 |
-| `lib/sprite/zip.ts` | ZIP 读写：`createZip()`（STORE + CRC32 + UTF-8 文件名）、`readZip()`（扫 EOCD + 中央目录，DEFLATE 走 `DecompressionStream`） |
+| `app/tools/spriteforge/page.tsx` | 序列帧工坊页：`fetch` 原版三件套 → 注入 body 标记与 `tool.css`（已加 `.sf-app` 前缀）→ `(0, eval)` 执行 `app.js`（接管 `DOMContentLoaded` 让 init 立刻跑，卸载时摘掉它注册的全局监听）；宿主条只有「从资产导入 ▾」与「保存到资产」 |
+| `public/tools/spriteforge/{index.html,app.js,tool.css}` | 原版 Vendor 副本：`index.html` / `app.js` 与上游逐字节一致，`tool.css` 由同步脚本加 `.sf-app` 前缀后生成 |
+| `tools/sync-spriteforge.mjs` | 同步脚本：从 `D:\AI\SpriteForge` 复制三件套并生成作用域化的 `tool.css`（`--check` 只比对不写） |
 | `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene(ctx, input, scale)`、`exportSize()`（画布 × 倍率，最长边上限 8192）、`upscaleRatio()`（超出原图像素时给警告）、分级降采样绘制、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
 | `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、导出倍率（1×/2×/4×，不进撤销栈）、撤销重做栈（只记参数，抠底有独立「还原」） |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |

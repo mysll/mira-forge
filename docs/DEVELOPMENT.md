@@ -176,11 +176,23 @@ cd backend
 
 `alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0003_workspace`（给 `generations` 加了 `negative_prompt/steps/cfg/sampler`，给 `images` 加了 `is_favorite`）。
 
-## 序列帧工坊的图集格式
+## 序列帧工坊（SpriteForge）的同步
 
-工坊已经是原生页面，图集 JSON 由 `frontend/lib/sprite/atlas.ts` 的 `buildAtlasJson()` 生成、`parseAtlasJson()` 解析，字段与 SpriteForge v1 一致：`version` / `coordinateSystem` / `atlas{rows,cols,cellWidth,cellHeight,pageCount}` / `pages[].file` / `sequences[].frames[]{page,row,col,x,y,width,height,time}`。
+工坊不是我们重写的：`frontend/public/tools/spriteforge/` 是上游 `D:\AI\SpriteForge` 的 Vendor 副本，`frontend/app/tools/spriteforge/page.tsx` 把它原样挂进同一文档（不是 iframe）。三条规则：
 
-改这里时要同步三处：`ZIP` 里 PNG 的命名（导出 `名字_01.png`、导入时按数值排序）、`POST /assets` 的扩展名白名单、以及 `docs/API.md` 里的素材一节。改完跑 `node tools/e2e_spriteforge_native.mjs`（抽帧 → 保存到资产）确认往返可用。
+1. **不要手改 vendor 文件**。上游改了，重跑同步：
+   ```powershell
+   .\tools\sync-spriteforge.mjs            # 复制三件套 + 生成作用域化的 tool.css
+   .\tools\sync-spriteforge.mjs --check    # 只比对 index.html / app.js 的 SHA256，不一致退出 1
+   ```
+   `styles.css` 会被加上 `.sf-app` 前缀（`:root` / `html` / `body` 映射到容器，`body::before` 丢弃），并在末尾追加一段「容器内 `.workspace` 高度跟随容器」的覆盖样式。这些都写在脚本里，别在 `tool.css` 上手工打补丁。
+2. **宿主只加两条通路**：`#videoInput` / `#atlasInput` 用 `DataTransfer` 喂「本机文件或资产文件」；「保存到资产」点原版「导出图集」→ 弹层「下载 ZIP」，在 `<a download>` 点击的瞬间截 blob 交给 `POST /assets`。原版其它按钮一律保持原样。
+3. **改了桥接就跑端到端**：
+   ```powershell
+   node tools/e2e_spriteforge_1to1.mjs
+   ```
+   它验证「挂载 → 载视频 → 抽帧 → 进轨道 → 播放 → 导出 ZIP → 保存到资产 → 用 `?asset=` 重新导入」整条链路，最后打印每个环节的实测值。
+
 ## 代码约定
 
 - 时间统一用 UTC（`utcnow()` 返回 tz-aware datetime），响应层补 `Z`。

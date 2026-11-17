@@ -229,21 +229,22 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 编辑器导出的是「已经完成的字节」，没有采样过程，但用户希望它在资产库里和生成图一样能看、能收藏、能删。所以保存时后端不建新表，而是补一条最小的 `generations` 行（`generation_type = local_edit`、`model_name = local_editor`、`status = completed`）+ 一条 `generation_tasks` 行（`progress = 100`、`seed` 为空）+ 一张 `images` 行，产物照常落在 `storage/images/{generation_id}/`。
 
 这样做的好处是资产页、详情弹窗、收藏、下载、删除、`GET /generations?media=image` 全都不用改；代价是 `generation_tasks.seed` 必须可空（迁移 `0006_local_edit`），以及前端类型标签要认识 `local_edit`。带原图保存时，`images.original_image_id` 与 `generations.reference_image_path` 记录来源，详情弹窗里就能看到「来自图 #N」。
-## 序列帧工坊：为什么从 iframe 改成原生
+## 序列帧工坊：把原版挂进同一文档
 
-第一版把 SpriteForge 的原样副本放进 `public/tools/spriteforge/`，用同源 `<iframe>` 套起来。它能跑，但用户实际使用时暴露了三个问题：
+工坊这条线绕了两圈，值得记下来，因为它解释了「为什么不是重写」。
 
-1. **输入源割裂**：工坊自己的「导入视频 / 导入图集」是 `<input type="file">`，只会打开本机文件选择框。要在壳上挂「从资产导入」，只能靠 `DataTransfer` 伪造一次 `change`，而工具内部的两个按钮仍然指向本地文件——同一个页面里两套语义。
-2. **图集 schema 不通**：壳里另写了一份导出逻辑，产出的 JSON 与工坊自己的导入校验（缺 `atlas` / `pages` / `sequences`）不一致，于是「先存进资产、再从资产打开」必然报错。
-3. **桥接太脆**：导出要走「覆写 `HTMLAnchorElement.prototype.click` 截 blob」这条路，只能靠轮询 iframe 的 `readyState` 才挂得上钩子，任何一侧改实现都会静默失效。
+1. **第一版：同源 iframe**。原版是三件套静态文件（`index.html` / `app.js` / `styles.css`，无构建、无依赖、无网络），放进 `public/` 再用 `<iframe>` 套起来最省事。代价是壳和工具是两份文档：工具自己的「导入视频 / 导入图集」永远只开本机文件框，壳上挂「从资产导入」只能拿 `DataTransfer` 伪造一次 `change`；导出要靠「覆写 `HTMLAnchorElement.prototype.click` 截 blob」，还得轮询 iframe 的 `readyState` 才挂得上钩子。
+2. **第二版：自己重写**。照它写了一个原生 React 三栏页，输入走「本机 / 资产」两条同构路径，导出直接 `saveAsset()`。但功能上丢了原版的序列帧轨道、播放预览、多序列、分页弹窗、取色与透明度——**重写等于把上游每个细节都重新实现一遍，还永远追不上**。
+3. **现在：原版原样，同一文档内挂载**。`frontend/public/tools/spriteforge/` 放原版三件套（由 `tools/sync-spriteforge.mjs` 从 `D:\AI\SpriteForge` 同步；`styles.css` 在同步时被加上 `.sf-app` 前缀），`frontend/app/tools/spriteforge/page.tsx` 在挂载时：
 
-所以现在是一个**原生 React 页面**（`frontend/app/tools/spriteforge/page.tsx`），三块纯前端模块负责底层能力：
+- `fetch` 三件套，用 `DOMParser` 取出 body 标记注入 `.sf-app` 容器（去掉 `<script>`）；
+- 注入已加前缀的 `tool.css`，原版样式只作用于容器内，不会污染其它页面；
+- `(0, eval)` 执行 `app.js`，**执行前临时接管 `document.addEventListener`**，把它的 `DOMContentLoaded` 回调抓出来立刻调用（原版代码一行不改，也不会因为文档已经就绪而永远不启动），同时记录它注册的全局监听，卸载时逐个摘掉。
 
-- `frontend/lib/sprite/frames.ts`：`loadVideo()` 读时长、`extractFrames()` 按 fps 用 `seeked` 逐帧 drawImage、`keyBackground()` 通道差抠色 + 羽化、`guessBackgroundColor()` 取四角中位数；
-- `frontend/lib/sprite/atlas.ts`：`packFrames()` 按行列分页填格（格内等比缩放居中，不裁切）、`buildAtlasJson()` 产出 SpriteForge v1 结构（`version` / `coordinateSystem` / `atlas` / `pages` / `sequences[].frames[].{page,row,col,x,y,width,height}`）、`parseAtlasJson()` 反向解析（`x/y` 优先，否则按 `(col-1)*cellWidth` 换算）；
-- `frontend/lib/sprite/zip.ts`：`createZip()` 自己写 STORE 模式 ZIP（CRC32 + UTF-8 flag），`readZip()` 扫 EOCD 读中央目录、DEFLATE 走 `DecompressionStream("deflate-raw")`。**中央目录里的「本地头偏移」必须逐条累计**，早先一律写 0，导致第二个文件开始读到的数据错位，ZX 里解出来是乱码。
+只额外加两条通路：`#videoInput` / `#atlasInput` 收到的是「本机文件」或「资产文件」（同一个 `DataTransfer` 注入，工具无感）；「保存到资产」走原版「导出图集」→ 弹层「下载 ZIP」，在 `<a download>` 被点击的那一瞬截下 blob 交给 `POST /assets`。
 
-好处是三种输入（视频 / 图集 zip / 单帧图片）都能走「本机」和「资产」两条同构的路径，导出/保存也直接用 `saveAsset()` 走 `POST /assets`，不再需要桥接。代价是我们接管了抽帧与打包逻辑，上游 SpriteForge 的更新不再自动生效——换来的是行为可控、可与资产库双向互通。
+结果是 1:1 的界面与行为由上游负责，我们只管把「资产」这一层接进去；上游更新时重跑同步脚本即可。
+
 ## 素材（assets）：为什么复用 `images` 表
 
 序列帧工坊导出的是 `.zip`（图集 + `atlas.json`）或单张 PNG，它们既要出现在资产库、又要能收藏 / 下载 / 删除。如果新开一张 `assets` 表，就得把 `GET /images`、`POST /images/{id}/favorite`、批量删除、清空工作区、缩略图、`/images/{id}/file` 全部复制一遍。
