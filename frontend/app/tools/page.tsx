@@ -16,7 +16,8 @@ const TOOLS = [
   {
     key: "sprite",
     title: "序列帧工坊",
-    description: "把视频拆成序列帧，抠掉纯色背景，按行列打包成透明图集，导出 PNG + JSON。",
+    description:
+      "视频拆序列帧、抠纯色背景、按行列打成透明图集，导出 PNG + JSON + ZIP；来源可以直接从资产里挑，成果也能一键存回资产。",
     badge: "本地处理",
     href: "/tools/spriteforge",
     ready: true,

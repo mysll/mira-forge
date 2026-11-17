@@ -229,15 +229,21 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 编辑器导出的是「已经完成的字节」，没有采样过程，但用户希望它在资产库里和生成图一样能看、能收藏、能删。所以保存时后端不建新表，而是补一条最小的 `generations` 行（`generation_type = local_edit`、`model_name = local_editor`、`status = completed`）+ 一条 `generation_tasks` 行（`progress = 100`、`seed` 为空）+ 一张 `images` 行，产物照常落在 `storage/images/{generation_id}/`。
 
 这样做的好处是资产页、详情弹窗、收藏、下载、删除、`GET /generations?media=image` 全都不用改；代价是 `generation_tasks.seed` 必须可空（迁移 `0006_local_edit`），以及前端类型标签要认识 `local_edit`。带原图保存时，`images.original_image_id` 与 `generations.reference_image_path` 记录来源，详情弹窗里就能看到「来自图 #N」。
-## 序列帧工坊：第三方纯静态工具怎么接进来
+## 序列帧工坊：为什么从 iframe 改成原生
 
-SpriteForge 是别人写好的、完全没有构建步骤的工具（一个 `index.html` + 一个 `app.js` + 一个 `styles.css`，不引 CDN、不发网络请求）。接入方式刻意选了「原样托管 + iframe」，而不是重写或拆成 React 组件：
+第一版把 SpriteForge 的原样副本放进 `public/tools/spriteforge/`，用同源 `<iframe>` 套起来。它能跑，但用户实际使用时暴露了三个问题：
 
-- **源码原样放在 `frontend/public/tools/spriteforge/`**，Next 直接按静态文件提供 `/tools/spriteforge/index.html`。文件字节与 `D:\AI\SpriteForge` 一致，`tools/sync-spriteforge.ps1` 负责同步（`-Check` 只比对），所以上游更新不用改一行我们的代码。
-- **`/tools/spriteforge` 只是壳**：一个「← 工具」返回、一个「在新标签页打开」，中间同源 `<iframe>`。同源的好处是工具的 `localStorage`、文件选择、ZIP 下载都照常工作，不需要 `postMessage` 协议，也不用给它开后端接口。
-- **不进入我们的数据模型**：抽帧、抠背景、打图集、导出都在浏览器里完成，产物通过工具自己的下载落地；`images` 表里不会多出记录。想做「存进资产」的功能，才需要走 `/editor/save` 那条路。
-- 代价：iframe 内部的样式、快捷键、滚动都由工具自己管，我们的主题（暗色、字体）不会渗进去；如果以后要和 MiraForge 的资产库联动（例如把图集帧直接存成资产），再考虑加一层 `postMessage` 或直接改成组件。
+1. **输入源割裂**：工坊自己的「导入视频 / 导入图集」是 `<input type="file">`，只会打开本机文件选择框。要在壳上挂「从资产导入」，只能靠 `DataTransfer` 伪造一次 `change`，而工具内部的两个按钮仍然指向本地文件——同一个页面里两套语义。
+2. **图集 schema 不通**：壳里另写了一份导出逻辑，产出的 JSON 与工坊自己的导入校验（缺 `atlas` / `pages` / `sequences`）不一致，于是「先存进资产、再从资产打开」必然报错。
+3. **桥接太脆**：导出要走「覆写 `HTMLAnchorElement.prototype.click` 截 blob」这条路，只能靠轮询 iframe 的 `readyState` 才挂得上钩子，任何一侧改实现都会静默失效。
 
+所以现在是一个**原生 React 页面**（`frontend/app/tools/spriteforge/page.tsx`），三块纯前端模块负责底层能力：
+
+- `frontend/lib/sprite/frames.ts`：`loadVideo()` 读时长、`extractFrames()` 按 fps 用 `seeked` 逐帧 drawImage、`keyBackground()` 通道差抠色 + 羽化、`guessBackgroundColor()` 取四角中位数；
+- `frontend/lib/sprite/atlas.ts`：`packFrames()` 按行列分页填格（格内等比缩放居中，不裁切）、`buildAtlasJson()` 产出 SpriteForge v1 结构（`version` / `coordinateSystem` / `atlas` / `pages` / `sequences[].frames[].{page,row,col,x,y,width,height}`）、`parseAtlasJson()` 反向解析（`x/y` 优先，否则按 `(col-1)*cellWidth` 换算）；
+- `frontend/lib/sprite/zip.ts`：`createZip()` 自己写 STORE 模式 ZIP（CRC32 + UTF-8 flag），`readZip()` 扫 EOCD 读中央目录、DEFLATE 走 `DecompressionStream("deflate-raw")`。**中央目录里的「本地头偏移」必须逐条累计**，早先一律写 0，导致第二个文件开始读到的数据错位，ZX 里解出来是乱码。
+
+好处是三种输入（视频 / 图集 zip / 单帧图片）都能走「本机」和「资产」两条同构的路径，导出/保存也直接用 `saveAsset()` 走 `POST /assets`，不再需要桥接。代价是我们接管了抽帧与打包逻辑，上游 SpriteForge 的更新不再自动生效——换来的是行为可控、可与资产库双向互通。
 ## 素材（assets）：为什么复用 `images` 表
 
 序列帧工坊导出的是 `.zip`（图集 + `atlas.json`）或单张 PNG，它们既要出现在资产库、又要能收藏 / 下载 / 删除。如果新开一张 `assets` 表，就得把 `GET /images`、`POST /images/{id}/favorite`、批量删除、清空工作区、缩略图、`/images/{id}/file` 全部复制一遍。
@@ -248,11 +254,8 @@ SpriteForge 是别人写好的、完全没有构建步骤的工具（一个 `ind
 - 缩略图不一定是「解码出来的」：ZIP 由后端取里面第一张 PNG 交给 Pillow 压成 `thumbnails/`，JSON 没有图，`/thumbnail` 就返回 404，前端退化成文件牌；
 - `GET /images/{id}/file` 的 `Content-Type` 按后缀给（`application/zip` / `application/json` / 图片类型），否则浏览器会把 ZIP 当图片渲染失败。
 
-## 序列帧工坊的桥接：不碰源码的两个接缝
+## 序列帧工坊的帧与图集约定
 
-工坊是别人的静态页面，我们不改它一行代码，只利用两个接缝：
-
-1. **入向**（把资产里的视频交给工坊）：工坊的输入是 `<input type="file" id="videoInput">`，用 `DataTransfer` 构造 `FileList`、赋给 `input.files`、再 `dispatchEvent(new Event("change", { bubbles: true }))`，工坊自己的 `change` 监听就会开始抽帧。深链 `?video=<id>` 只是把这一步自动化。
-2. **出向**（把工坊导出的文件存进资产）：`app.js` 是 IIFE，`downloadBlob` 不在 `window` 上，改不了函数，但它最终一定执行「造 `<a download>` 然后 `click()`」。所以在父页面覆写 `iframe.contentWindow.HTMLAnchorElement.prototype.click`：读 `this.download` 与 `this.href`（`blob:`），`win.fetch(href)` 取回同一份字节留档，再调原始 `click` 让下载照旧发生。
-
-两个注意点：iframe 可能在 React 水合**之前**就 load 完，`onLoad` 会漏，所以在 `useEffect` 里轮询 `readyState === "complete" && #videoInput` 直到挂上钩子（幂等）；另外桥接只在同源时成立，这也是把工坊放在 `public/tools/spriteforge/` 而不是另起端口的原因。
+- 抽帧结果在内存里是 `HTMLCanvasElement`，导出时才编码；抠背景作用在 canvas 上，所以「先抠色再打图集」与「先打图集再抠色」结果一致。
+- 图集是「按页」的：`cols × rows` 决定每页容量，超出自动开新页；`cellWidth/cellHeight` 是格子的像素尺寸，帧在格内等比缩放居中（`scale` 控制格内占比上限）。
+- 导入时按 `pages[].file` 的名字匹配 ZIP 里的 PNG（数值排序），再按 `sequences[].frames[]` 逐帧 `drawImage(page, x, y, width, height, ...)` 还原成独立 canvas——所以「导出 zip → 存进资产 → 从资产打开」能拿回一模一样的帧数（实测 73 帧 / 2 页 / 6912×2880）。

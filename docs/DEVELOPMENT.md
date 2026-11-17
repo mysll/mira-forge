@@ -176,16 +176,11 @@ cd backend
 
 `alembic/env.py` 已配置 `render_as_batch=True`（SQLite 改表需要）。当前 head 为 `0003_workspace`（给 `generations` 加了 `negative_prompt/steps/cfg/sampler`，给 `images` 加了 `is_favorite`）。
 
-## 序列帧工坊（SpriteForge）的同步
+## 序列帧工坊的图集格式
 
-工坊的源码是 `D:\AI\SpriteForge` 的原样副本，托管在 `frontend/public/tools/spriteforge/`（Next 直接当静态文件发）。改上游后同步：
+工坊已经是原生页面，图集 JSON 由 `frontend/lib/sprite/atlas.ts` 的 `buildAtlasJson()` 生成、`parseAtlasJson()` 解析，字段与 SpriteForge v1 一致：`version` / `coordinateSystem` / `atlas{rows,cols,cellWidth,cellHeight,pageCount}` / `pages[].file` / `sequences[].frames[]{page,row,col,x,y,width,height,time}`。
 
-```powershell
-.\tools\sync-spriteforge.ps1           # 复制 index.html / styles.css / app.js 并打印大小
-.\tools\sync-spriteforge.ps1 -Check    # 只比对 SHA256，不写文件；有差异时退出码 1
-```
-
-不要在这个目录里手改代码——本地改动会在下次同步时被覆盖。工具本身不经过后端：抽帧、抠背景、图集打包、ZIP 导出全在浏览器里，偏好存 `localStorage`（`spriteforge.prefs.v1`）。
+改这里时要同步三处：`ZIP` 里 PNG 的命名（导出 `名字_01.png`、导入时按数值排序）、`POST /assets` 的扩展名白名单、以及 `docs/API.md` 里的素材一节。改完跑 `node tools/e2e_spriteforge_native.mjs`（抽帧 → 保存到资产）确认往返可用。
 ## 代码约定
 
 - 时间统一用 UTC（`utcnow()` 返回 tz-aware datetime），响应层补 `Z`。
