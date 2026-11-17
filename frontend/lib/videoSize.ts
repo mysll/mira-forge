@@ -115,3 +115,58 @@ export function videoWeight(width: number, height: number, seconds: number): num
 
 /** 超过这个量在 16GB 卡上大概率要重试，前端据此提示一句（不拦着）。 */
 export const VIDEO_WEIGHT_WARN = 60;
+
+/**
+ * 反查：已知一批视频的宽高，猜回它当时用的是哪个比例 + 档位。
+ *
+ * 「重新生成」要把旧参数填回创作框，而创作框的状态是「比例 + 档位」而不是宽高；
+ * 先找能算出同样宽高的组合，找不到就按短边最近的档位、长宽比最近的比例兜底。
+ */
+export function matchVideoSize(
+  width: number,
+  height: number,
+  fallback: { width: number; height: number },
+): { ratioKey: VideoRatioKey; tierKey: string } {
+  // 「自动」不参与匹配：它的宽高是拿 fallback 现算的，兜底给目标尺寸时反而会自己匹配自己
+  const ratios = VIDEO_RATIOS.filter((item) => item.value > 0);
+  if (width > 0 && height > 0) {
+    for (const tier of VIDEO_TIERS) {
+      for (const ratio of ratios) {
+        const size = videoSizeFor(ratio, tier, fallback);
+        if (size.width === width && size.height === height) {
+          return { ratioKey: ratio.key, tierKey: tier.key };
+        }
+      }
+    }
+  }
+
+  const aspect =
+    width > 0 && height > 0
+      ? width / height
+      : fallback.width > 0 && fallback.height > 0
+        ? fallback.width / fallback.height
+        : 16 / 9;
+  let bestRatio = VIDEO_RATIOS[0];
+  let bestDelta = Number.POSITIVE_INFINITY;
+  for (const candidate of ratios) {
+    const value = candidate.value;
+    const delta = Math.abs(Math.log(aspect / value));
+    if (delta < bestDelta) {
+      bestRatio = candidate;
+      bestDelta = delta;
+    }
+  }
+
+  const shortEdge = Math.min(width || fallback.width, height || fallback.height);
+  let bestTier = VIDEO_TIERS[0];
+  let tierDelta = Number.POSITIVE_INFINITY;
+  for (const candidate of VIDEO_TIERS) {
+    const delta = Math.abs(Math.log((shortEdge || candidate.shortEdge) / candidate.shortEdge));
+    if (delta < tierDelta) {
+      bestTier = candidate;
+      tierDelta = delta;
+    }
+  }
+
+  return { ratioKey: bestRatio.key, tierKey: bestTier.key };
+}

@@ -15,11 +15,13 @@ import {
   VIDEO_RATIOS,
   VIDEO_TIERS,
   clampDuration,
+  matchVideoSize,
   videoSizeFor,
   videoWeight,
   VIDEO_WEIGHT_WARN,
   type VideoRatioKey,
 } from "@/lib/videoSize";
+import { useVideoComposerStore } from "@/stores/videoComposer";
 import type { ImageBrief, ModelInfo } from "@/types/api";
 
 /** 首帧 / 尾帧的来源：本机文件，或资产库里已经生成的一张图。 */
@@ -48,6 +50,7 @@ export default function VideoComposer({
   const [menu, setMenu] = useState<"first" | "last" | null>(null);
   const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recallToken = useRef(0);
   const firstInput = useRef<HTMLInputElement>(null);
   const lastInput = useRef<HTMLInputElement>(null);
 
@@ -61,6 +64,54 @@ export default function VideoComposer({
       setModelId(models[0].id);
     }
   }, [modelId, models]);
+
+  // 作品流点「重新生成」：把那一批的提示词、模型、时长、尺寸和首尾帧填回来。
+  // 首尾帧是后端的上传文件，先取回字节再当成「本机文件」塞进槽位，和用户自己拖入的完全等价。
+  const recall = useVideoComposerStore((state) => state.recall);
+  const consumeRecall = useVideoComposerStore((state) => state.consumeRecall);
+
+  useEffect(() => {
+    if (!recall) {
+      return;
+    }
+    setPrompt(recall.prompt);
+    if (recall.modelId && models.some((item) => item.id === recall.modelId)) {
+      setModelId(recall.modelId);
+    }
+    if (recall.durationSeconds) {
+      setDuration(clampDuration(recall.durationSeconds));
+    }
+    if (recall.count > 0) {
+      setCount(Math.min(4, Math.max(1, Math.round(recall.count))));
+    }
+    if (recall.width && recall.height) {
+      const matched = matchVideoSize(recall.width, recall.height, {
+        width: recall.width,
+        height: recall.height,
+      });
+      setRatioKey(matched.ratioKey);
+      setTierKey(matched.tierKey);
+    }
+    setMenu(null);
+    setPicking(null);
+
+    // 取图是异步的，用序号防串：连续点两次「重新生成」时只让最后一次的帧落地。
+    // 注意这里不能写成 effect 的 cleanup——consumeRecall 会立刻把 recall 置空，
+    // 依赖变化触发的 cleanup 会把刚取回来的帧直接丢掉。
+    const token = recallToken.current + 1;
+    recallToken.current = token;
+    void (async () => {
+      const firstFrame = recall.firstUrl ? await frameFromUrl(recall.firstUrl) : null;
+      const lastFrame = recall.lastUrl ? await frameFromUrl(recall.lastUrl) : null;
+      if (token !== recallToken.current) {
+        return;
+      }
+      setFirst(firstFrame);
+      setLast(lastFrame);
+    })();
+
+    consumeRecall();
+  }, [recall, consumeRecall, models]);
 
   // 快捷档优先用模型声明的，没声明就退回内置的 3/5/8/10
   const durationPresets = useMemo(() => {
@@ -550,6 +601,22 @@ export default function VideoComposer({
       </div>
     </div>
   );
+}
+
+/** 后端存的参考图取回字节，当成「本机导入」的文件——和用户自己上传的完全等价。 */
+async function frameFromUrl(url: string): Promise<FrameSource | null> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return null;
+    }
+    const blob = await response.blob();
+    const type = blob.type || "image/png";
+    const name = `frame.${type.split("/")[1] || "png"}`;
+    return { kind: "file", file: new File([blob], name, { type }) };
+  } catch {
+    return null;
+  }
 }
 
 /** 把首帧 / 尾帧统一成 File：资产里选的图先取回字节再当上传。 */
