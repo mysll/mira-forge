@@ -56,9 +56,10 @@ DEFAULT_TEMPLATES: list[dict[str, str]] = [
         "position from the first frame to the last, nothing moves left or right",
     ),
     _template(
-        "下落",
-        "A character falling straight down along the same vertical line, arms raised, legs trailing, hair and "
-        "clothes lifted by the fall, no sideways drift and no forward motion",
+        "下蹲",
+        "A character dropping into a low crouch on the spot: knees bend, hips sink, torso leans slightly forward, "
+        "arms drawn in, then holds the crouched pose with both feet flat on the same ground point, no hop and no "
+        "sideways shift",
     ),
     _template(
         "受伤",
@@ -97,6 +98,21 @@ _OLD_COMMON = (
 )
 
 
+# 已经下线的默认动作：「下落」换成了「下蹲」。这里留下它出现过的两种默认动作句
+# （第一版 + 加强定点约束后的那版），升级时只删逐字等于这两种文案的行——用户改过的留着。
+_RETIRED_DEFAULTS: dict[str, tuple[str, ...]] = {
+    "下落": (
+        "A character falling straight down along the same vertical line, arms raised, legs trailing, hair and "
+        "clothes lifted by the fall, no sideways drift and no forward motion",
+        "A character falling in place, arms raised, legs trailing, hair and clothes lifted by the fall, "
+        "vertical drop with no sideways drift",
+    ),
+}
+
+# 下线后由谁顶替（占它原来的位置）；值为 None 表示只删不补
+_RETIRED_REPLACEMENTS: dict[str, str | None] = {"下落": "下蹲"}
+
+
 class TemplateError(ValueError):
     """模板内容不合法。"""
 
@@ -120,22 +136,55 @@ def list_templates(db: Session) -> list[PromptTemplate]:
     return list(db.scalars(statement))
 
 
-def upgrade_defaults(db: Session) -> int:
-    """把「还没被改过」的旧默认文案换成新版（动作用语加了更强的定点约束）。
+def _retired_prompts() -> set[tuple[str, str]]:
+    """已下线默认动作的「标准文案」集合：名字 + 完整提示词，用来认出没被改过的那几行。"""
+    texts: set[tuple[str, str]] = set()
+    for label, actions in _RETIRED_DEFAULTS.items():
+        for action in actions:
+            texts.add((label, f"{action}, {_COMMON}."))
+            texts.add((label, f"{action}, {_OLD_COMMON}."))
+    return texts
 
-    判据是逐字相等：用户改过一个字就不碰，避免把人家的自定义覆盖掉。
+
+def upgrade_defaults(db: Session) -> int:
+    """升级老项目里的默认动作模板，返回改动的行数。
+
+    做两件事：①「还没被改过」的旧文案换成新版（动作用语加了更强的定点约束）；
+    ② 删掉已下线的动作（「下落」），并在它原来的位置上补上顶替它的动作（「下蹲」）。
+    判据都是逐字相等：用户改过一个字就不碰，避免把人家的自定义覆盖掉。
     """
     legacy = {item["label"]: f"{item['action']}, {_OLD_COMMON}." for item in _PREVIOUS_DEFAULTS}
     current = {item["label"]: item["prompt"] for item in DEFAULT_TEMPLATES}
+    retired = _retired_prompts()
+    rows = list(db.scalars(select(PromptTemplate)))
+
     updated = 0
-    for row in db.scalars(select(PromptTemplate)):
+    dropped: list[PromptTemplate] = []
+    for row in rows:
         expected = legacy.get(row.label)
         if expected is not None and row.prompt == expected and current.get(row.label) != row.prompt:
             row.prompt = current[row.label]
             updated += 1
-    if updated:
+            continue
+        if (row.label, row.prompt) in retired:
+            dropped.append(row)
+
+    added = 0
+    if dropped:
+        present = {row.label for row in rows}
+        for row in dropped:
+            order = row.sort_order
+            db.delete(row)
+            replacement = _RETIRED_REPLACEMENTS.get(row.label)
+            if replacement and replacement in current and replacement not in present:
+                db.add(PromptTemplate(label=replacement, prompt=current[replacement], sort_order=order))
+                present.add(replacement)
+                added += 1
+
+    changes = updated + added + len(dropped)
+    if changes:
         db.commit()
-    return updated
+    return changes
 
 
 def seed_defaults(db: Session) -> int:

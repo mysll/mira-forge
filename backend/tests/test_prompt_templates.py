@@ -25,7 +25,8 @@ def test_defaults_describe_side_view_actions(client: TestClient) -> None:
     items = _items(client)
     labels = [item["label"] for item in items]
     assert labels[:3] == ["待机", "走路", "跑步"]
-    assert {"攻击", "跳跃", "下落", "受伤", "死亡", "翻滚"} <= set(labels)
+    assert {"攻击", "跳跃", "下蹲", "受伤", "死亡", "翻滚"} <= set(labels)
+    assert "下落" not in labels
     # 每个默认模板都要带上「侧视 + 朝右 + 定点 + 镜头不动」这组约束
     for item in items:
         assert "side view" in item["prompt"]
@@ -42,6 +43,59 @@ def test_jump_prompt_forbids_travelling(client: TestClient) -> None:
     assert "jumping vertically on the spot" in prompt
     assert "lands on the exact same ground point" in prompt
     assert "nothing moves left or right" in prompt
+
+
+def test_crouch_replaces_the_retired_falling_action(client: TestClient) -> None:
+    """「下落」已下线：默认里是「下蹲」，且下蹲句要点明蹲住不动。"""
+    items = _items(client)
+    assert [item["label"] for item in items][:6] == ["待机", "走路", "跑步", "攻击", "跳跃", "下蹲"]
+    crouch = next(item for item in items if item["label"] == "下蹲")
+    assert "low crouch on the spot" in crouch["prompt"]
+    assert "same ground point" in crouch["prompt"]
+
+
+def test_upgrade_drops_the_untouched_falling_row_and_adds_crouch(client: TestClient) -> None:
+    """老项目里那条没改过的「下落」要被删掉，并在原位补上「下蹲」。"""
+    from app.models.database import SessionLocal
+    from app.models.prompt_template import PromptTemplate
+    from app.services.prompt_template_service import _COMMON, _RETIRED_DEFAULTS, upgrade_defaults
+
+    db = SessionLocal()
+    try:
+        crouch = db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one()
+        order = crouch.sort_order
+        crouch.label = "下落"
+        crouch.prompt = f"{_RETIRED_DEFAULTS['下落'][0]}, {_COMMON}."
+        db.commit()
+
+        assert upgrade_defaults(db) == 2  # 删一条「下落」，补一条「下蹲」
+        labels = [row.label for row in db.query(PromptTemplate).order_by(PromptTemplate.sort_order).all()]
+        assert "下落" not in labels
+        assert labels.count("下蹲") == 1
+        assert db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one().sort_order == order
+        assert upgrade_defaults(db) == 0
+    finally:
+        db.close()
+
+
+def test_upgrade_keeps_a_falling_row_the_user_edited(client: TestClient) -> None:
+    """用户自己改过的「下落」不动——那是人家的自定义。"""
+    from app.models.database import SessionLocal
+    from app.models.prompt_template import PromptTemplate
+    from app.services.prompt_template_service import upgrade_defaults
+
+    db = SessionLocal()
+    try:
+        crouch = db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one()
+        crouch.label = "下落"
+        crouch.prompt = "A hero plummeting through clouds, my own wording"
+        db.commit()
+
+        assert upgrade_defaults(db) == 0
+        kept = db.query(PromptTemplate).filter(PromptTemplate.label == "下落").one()
+        assert kept.prompt == "A hero plummeting through clouds, my own wording"
+    finally:
+        db.close()
 
 
 def test_create_appends_and_can_be_edited(client: TestClient) -> None:

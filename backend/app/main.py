@@ -51,7 +51,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             purged = purge_expired(db)
             upgraded = upgrade_prompt_templates(db)
             if upgraded:
-                logger.info("项目 %s：%s 条默认动作模板更新为更强的定点约束", item.name, upgraded)
+                logger.info("项目 %s：%s 条默认动作模板已升级（含下线的「下落」）", item.name, upgraded)
             seeded = seed_prompt_templates(db)
             if seeded:
                 logger.info("项目 %s：补齐 %s 条默认视频提示词模板", item.name, seeded)
