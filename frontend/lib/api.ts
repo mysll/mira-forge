@@ -463,6 +463,14 @@ export type TaskDeleted = { task_id: number; generation_deleted: boolean };
 /** 删掉一个批次后返回的计数：多少件产物、多少个任务一起进了回收站。 */
 export type GenerationDeleted = { generation_id: number; images: number; tasks: number };
 
+/** 给批次改名；传空字符串就是清掉名字，回到「批次 #id」 */
+export function renameGeneration(generationId: number, name: string): Promise<GenerationRead> {
+  return request<GenerationRead>(`/generations/${generationId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+}
+
 /** 删掉一整个批次：名下任务与产物一起进回收站（30 天内可恢复） */
 export function deleteGeneration(generationId: number): Promise<GenerationDeleted> {
   return request<GenerationDeleted>(`/generations/${generationId}`, { method: "DELETE" });

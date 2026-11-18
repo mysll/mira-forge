@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { bucketOf, formatTime, type DateBucket } from "@/lib/date";
 import type { FeedSlot, GenerationRead } from "@/types/api";
 
@@ -24,6 +26,7 @@ type Props = {
   onDeleteTask?: (item: FeedSlot) => void;
   /** 整批删除：任务、产物、记录一起清掉 */
   onDeleteBatch?: (generation: GenerationRead) => void;
+  onRenameBatch?: (generation: GenerationRead, name: string) => void;
   modelLabels?: Record<string, string>;
   emptyHint?: string;
   /** 网格卡宽度（视频比图片宽，留出 16:9 的空间） */
@@ -61,12 +64,22 @@ function BatchHeader({
   batch,
   unit,
   onDeleteBatch,
+  onRenameBatch,
 }: {
   batch: Batch;
   unit: string;
   onDeleteBatch?: (generation: GenerationRead) => void;
+  onRenameBatch?: (generation: GenerationRead, name: string) => void;
 }) {
   const { generation, items } = batch;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(generation.name ?? "");
+  const title = (generation.name ?? "").trim() || `批次 #${generation.id}`;
+
+  const commit = () => {
+    setEditing(false);
+    onRenameBatch?.(generation, draft);
+  };
   const done = items.filter((item) => item.image !== null).length;
   const active = ACTIVE_STATUS.has(generation.status);
   const finished = generation.status === "completed";
@@ -74,7 +87,47 @@ function BatchHeader({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex min-w-0 items-baseline gap-2 text-[11px]">
-        <span className="shrink-0 text-muted">批次 #{generation.id}</span>
+        {editing ? (
+          <input
+            autoFocus
+            value={draft}
+            maxLength={60}
+            aria-label="批次名"
+            placeholder={`批次 #${generation.id}`}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                commit();
+              } else if (event.key === "Escape") {
+                setDraft(generation.name ?? "");
+                setEditing(false);
+              }
+            }}
+            className="h-5 w-32 shrink-0 rounded border border-accent/50 bg-surface px-1 text-[11px] text-ink outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (!onRenameBatch) {
+                return;
+              }
+              setDraft(generation.name ?? "");
+              setEditing(true);
+            }}
+            title={onRenameBatch ? "点击给这一批起个名字，产物会叫「名字 · 第 N 个」" : undefined}
+            className={`shrink-0 rounded px-1 text-muted ${
+              onRenameBatch ? "transition hover:bg-surface hover:text-ink" : "cursor-default"
+            }`}
+            data-batch-name={generation.name ?? ""}
+          >
+            {title}
+            {onRenameBatch && !generation.name ? (
+              <span className="ml-1 text-muted/40">起名</span>
+            ) : null}
+          </button>
+        )}
         <span className="shrink-0 text-muted/60">
           · {done}/{items.length} {unit}
         </span>
@@ -157,7 +210,12 @@ export default function Feed({
             <div className="flex flex-col gap-4">
               {group.batches.map((batch) => (
                 <div key={batch.generation.id} className="group/batch flex flex-col gap-0.5 px-2">
-                  <BatchHeader batch={batch} unit={unit} onDeleteBatch={actions.onDeleteBatch} />
+                  <BatchHeader
+                    batch={batch}
+                    unit={unit}
+                    onDeleteBatch={actions.onDeleteBatch}
+                    onRenameBatch={actions.onRenameBatch}
+                  />
                   {batch.items.map((item) => (
                     <FeedCard key={item.key} item={item} view="list" modelLabels={modelLabels} {...actions} />
                   ))}
@@ -168,7 +226,12 @@ export default function Feed({
             <div className="flex flex-col gap-5">
               {group.batches.map((batch) => (
                 <div key={batch.generation.id} className="group/batch flex flex-col gap-2">
-                  <BatchHeader batch={batch} unit={unit} onDeleteBatch={actions.onDeleteBatch} />
+                  <BatchHeader
+                    batch={batch}
+                    unit={unit}
+                    onDeleteBatch={actions.onDeleteBatch}
+                    onRenameBatch={actions.onRenameBatch}
+                  />
                   <div className="flex flex-wrap gap-3">
                     {batch.items.map((item) => (
                       <div key={item.key} style={{ width: cardWidth }}>

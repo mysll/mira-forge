@@ -4,7 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-import { deleteGeneration, deleteImage, deleteTask, imageFileUrl, setImageFavorite } from "@/lib/api";
+import {
+  deleteGeneration,
+  deleteImage,
+  deleteTask,
+  imageFileUrl,
+  renameGeneration,
+  setImageFavorite,
+} from "@/lib/api";
 import { useComposerStore } from "@/stores/composer";
 import { useReferenceStore } from "@/stores/reference";
 import type { GenerationRead, ImageBrief } from "@/types/api";
@@ -113,6 +120,24 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     [onToast, refresh],
   );
 
+  /** 给批次起名：产物随即变成「名字 · 第 N 个」；传空字符串就是清掉 */
+  const renameBatch = useCallback(
+    async (generation: GenerationRead, name: string) => {
+      const trimmed = name.trim();
+      if (trimmed === (generation.name ?? "")) {
+        return;
+      }
+      try {
+        await renameGeneration(generation.id, trimmed);
+        refresh();
+        onToast(trimmed ? `批次改名为「${trimmed}」` : "已清掉批次名");
+      } catch (error) {
+        onToast((error as Error).message || "改名失败");
+      }
+    },
+    [onToast, refresh],
+  );
+
   /** 整批删除：这次生成的所有任务与产物一起清掉 */
   const removeBatch = useCallback(
     async (generation: GenerationRead) => {
@@ -164,5 +189,15 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     [goCompose, onEdited, onToast],
   );
 
-  return { favorite, download, remove, removeTask, removeBatch, edit, regenerate, refresh };
+  return {
+    favorite,
+    download,
+    remove,
+    removeTask,
+    removeBatch,
+    renameBatch,
+    edit,
+    regenerate,
+    refresh,
+  };
 }

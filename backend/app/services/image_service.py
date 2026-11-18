@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.projects import active_project
+from app.models.generation import Generation
 from app.models.image import Image
 
 
@@ -260,6 +261,41 @@ def delete_images(
 
     db.commit()
     return sorted(found), sorted(set(wanted) - found)
+
+
+def label_images(db: Session, images: Sequence[Image]) -> dict[int, str]:
+    """给一批产物算「批次名 · 第 N 个」，用来在资产选择器里区分同款产物。
+
+    序号按同一批次里 id 升序（跳过回收站里的），所以第一张永远是「第 1 个」；
+    批次没起名时用「批次 #id」，和作品流标题一致。
+    """
+    generation_ids = {image.generation_id for image in images if image.generation_id}
+    if not generation_ids:
+        return {}
+
+    names = {
+        generation_id: name
+        for generation_id, name in db.execute(
+            select(Generation.id, Generation.name).where(Generation.id.in_(generation_ids))
+        )
+    }
+    order: dict[int, list[int]] = {}
+    for image_id, generation_id in db.execute(
+        select(Image.id, Image.generation_id)
+        .where(Image.generation_id.in_(generation_ids), Image.deleted_at.is_(None))
+        .order_by(Image.id)
+    ):
+        order.setdefault(generation_id, []).append(image_id)
+
+    labels: dict[int, str] = {}
+    for image in images:
+        if not image.generation_id:
+            continue
+        base = (names.get(image.generation_id) or "").strip() or f"批次 #{image.generation_id}"
+        siblings = order.get(image.generation_id, [])
+        position = siblings.index(image.id) + 1 if image.id in siblings else 0
+        labels[image.id] = f"{base} · 第 {position} 个" if position else base
+    return labels
 
 
 def list_images(

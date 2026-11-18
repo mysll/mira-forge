@@ -64,11 +64,21 @@ class ImageBrief(BaseModel):
     frame_count: int | None = None
     is_favorite: bool = False
     created_at: datetime
+    # 「批次名 · 第 N 个」，由 _to_read 按批内顺序算好
+    label: str = ""
+
+
+class GenerationRename(BaseModel):
+    """给批次起名；传空字符串或 null 就是清掉名字、回到「批次 #id」。"""
+
+    name: str | None = Field(default=None, max_length=60)
 
 
 class GenerationRead(TimestampedModel):
     id: int
     prompt: str
+    # 批次名（可编辑）；空着时前端显示「批次 #id」
+    name: str | None = None
     negative_prompt: str | None = None
     workflow_id: int | None = None
     generation_type: str

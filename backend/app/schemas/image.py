@@ -26,6 +26,8 @@ class ImageRead(OrmModel):
     frame_count: int | None = None
     is_favorite: bool = False
     created_at: datetime
+    # 「批次名 · 第 N 个」——批次没起名就是「批次 #id · 第 N 个」，列表里用来区分同款产物
+    label: str = ""
 
 
 class ImageListResponse(BaseModel):

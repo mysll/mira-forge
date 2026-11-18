@@ -441,7 +441,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 
 `file_path` 相对 `STORAGE_DIR`，因此项目目录可整体搬迁。
 
-每个 `ImageRead` 都带 `media_type`（`image` / `video` / `asset`）与视频专用的 `duration_seconds` / `fps` / `frame_count`；素材另外带 `file_path`（前端靠后缀区分 PNG 与 ZIP / JSON）；`GenerationRead` 也带 `duration_seconds` / `fps`，所以前端不需要再单独查任务表。
+每个 `ImageRead` 都带 `label`（`「批次名 · 第 N 个」`，见 `PATCH /generations/{id}`）、`media_type`（`image` / `video` / `asset`）与视频专用的 `duration_seconds` / `fps` / `frame_count`；素材另外带 `file_path`（前端靠后缀区分 PNG 与 ZIP / JSON）；`GenerationRead` 也带 `duration_seconds` / `fps`，所以前端不需要再单独查任务表。
 
 ### `GET /images/{id}`
 
@@ -465,6 +465,21 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/image-to-video \
 ### `POST /images/{id}/favorite`
 
 收藏 / 取消收藏，body `{"favorite": true}`，返回更新后的 `ImageRead`。不存在 `404`。
+
+### `PATCH /generations/{id}`
+
+给这一批起个名字，body `{"name": "走路 3 秒"}`（最多 60 字，前后空白会被去掉）。传空字符串就是清掉名字、回到默认的「批次 #id」。返回更新后的 `GenerationRead`。
+
+名字只存在 `generations.name` 一列，产物本身不改名——文件名、`file_path` 都不动，**展示用的名字由读取接口现算**：
+
+- `GenerationRead.name`：原始值（没起名就是 `null`），前端没名字时显示 `批次 #id`。
+- `ImageRead.label` / `ImageBrief.label`：`「名字 · 第 N 个」`，`N` 是这张图在**未删除**的产物里按 `id` 排第几；没起名时是 `批次 #id · 第 N 个`。删掉第 1 张之后，第 2 张会变成「第 1 个」。
+
+```json
+{ "name": "走路 3 秒" }
+```
+
+为什么算在读取侧：产物名要跟着批次名与删除情况变，存成列的话每次改名、每次删图都要批量回写；现算只有一次 `IN` 查询（`label_images()`），而且回收站里的图不会占号。
 
 ### `DELETE /generations/{id}`
 

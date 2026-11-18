@@ -190,6 +190,7 @@ export default function WorkspacePage() {
             if (slot.image) void actions.remove({ image: slot.image, generation: slot.generation });
           }}
           onDeleteBatch={(generation) => void actions.removeBatch(generation)}
+          onRenameBatch={(generation, next) => void actions.renameBatch(generation, next)}
           onDeleteTask={(slot) => {
             if (slot.task) void actions.removeTask(slot.generation, slot.task.id);
           }}

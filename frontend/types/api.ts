@@ -125,6 +125,8 @@ export type ImageBrief = {
   duration_seconds: number | null;
   fps: number | null;
   frame_count: number | null;
+  /** 「批次名 · 第 N 个」，后端按批内顺序算好 */
+  label?: string;
   is_favorite: boolean;
   created_at: string;
 };
@@ -132,6 +134,8 @@ export type ImageBrief = {
 export type GenerationRead = {
   id: number;
   prompt: string;
+  /** 批次名，可编辑；空着时显示「批次 #id」 */
+  name: string | null;
   negative_prompt: string | null;
   workflow_id: number | null;
   generation_type: string;
@@ -194,6 +198,8 @@ export type ImageRead = {
   duration_seconds: number | null;
   fps: number | null;
   frame_count: number | null;
+  /** 「批次名 · 第 N 个」，后端按批内顺序算好 */
+  label?: string;
   is_favorite: boolean;
   created_at: string;
 };

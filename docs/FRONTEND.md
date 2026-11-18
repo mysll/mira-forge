@@ -80,19 +80,19 @@
 | `app/trash/page.tsx` | 回收站页：`fetchRecycleBin({media})` 拉列表，「恢复」走 `POST /recycle-bin/restore`、单件「彻底删除」走 `DELETE /recycle-bin/{id}`、「清空回收站」走 `POST /recycle-bin/clear`；卡片显示缩略图、类型徽标、「还剩 N 天」（≤3 天转危险色）、删除时间与尺寸；两个动作都过一次 `ConfirmDialog`，成功后 invalidate `["recycle-bin"]` / `["generations"]` / `["images"]`，回到作品流立刻能看到恢复的图 |
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
 | `components/TopBar.tsx` | 标题与计数（`title` / `countText`）、搜索、日期、模型、仅收藏、网格/列表切换（`viewToggle={false}` 时隐藏）、右侧插槽 `actions`（管理按钮） |
-| `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多 |
+| `components/Feed.tsx` | 按「今天 / 昨天 / 更早」分组渲染，加载更多；批次标题行的名字可直接点开改名（`data-batch-name`，`aria-label="批次名"` 的输入框，Enter 提交、Esc 还原、失焦也算提交），没起名的显示「批次 #id」并在后面挂一个淡淡的「起名」 |
 | `components/FeedCard.tsx` | 单个产物的网格卡 / 列表行：收藏星、hover 里的五项操作（查看 / 收藏 / 继续编辑 / 下载 / 只删这张图）、状态与进度；视频卡是 16:9 + 播放角标 + 时长 / fps，占位卡遇到视频也用 16:9。产物被删光、任务已结束的格子显示「图已被删除 / 无产物」，右上角有垃圾桶按钮（`onDeleteTask`），点它会 `DELETE /tasks/{id}`（产物进回收站），批次空了就一起移出作品流 |
 | `components/ImageDetail.tsx` | 大图弹窗：提示词、负面提示词、模型、Seed、尺寸、步数/CFG/采样器；视频换成 `<video controls>` 播放器 + 时长 / 帧数。**按钮按产物类型算**：生成图 = 下载 / 收藏 / AI 编辑 / 本地编辑 / 重新生成 / 删除；本地编辑的图 = 去掉 AI 编辑与重新生成；视频 = 下载 / 收藏 / 在序列帧工坊打开 / 重新生成 / 删除；素材 = 下载 / 收藏 / 在序列帧工坊打开 / 删除。参考图缩略图可点开看大图（`z-[60]` 图层，点任意处关闭；Esc 先关大图，再按一次才关详情） |
 | `components/CountMenu.tsx` | 数量菜单（一列数字 + 选中勾），图片 1–8 张与视频 1–4 条共用 |
 | `components/Composer.tsx` | 图片创作框：模式、提示词、参考图（点格子先弹「从本机上传 / 从资产选」两项菜单；编辑模式两个槽——第 1 张定结构、第 2 张可选，生成模式最多 2 张）、参数 pill、高级面板、提交 |
 | `components/VideoComposer.tsx` | 视频创作框：提示词、首帧 / 尾帧（点格子先弹两项小菜单——「从本机上传」/「从资产选」，也可拖入文件，可移除）、尺寸（比例 × 480p/720p/1080p）、时长（3/5/8/10 快捷档 + 1–15 秒滑块）、数量（1–4 条，默认 1）、模型，`⌘/Ctrl+Enter` 提交；作品流点「重新生成」时从 `stores/videoComposer.ts` 取一次 recall 载荷（提示词 / 模型 / 时长 / 尺寸 / 首尾帧）填回来；输入框下面一排「动作模板」胶囊（`data-prompt-templates`），点一下整段填进提示词、`⌘/Ctrl` 点击则追加，数据来自 `GET /prompt-templates` |
 | `components/PromptTemplateSettings.tsx` | 设置页的「视频提示词模板」：每行可改名字与提示词、保存 / 删除，底部可加新模板或恢复默认 9 条 |
-| `components/ImagePicker.tsx` | 资产挑图弹层：读 `/images`（自动滤掉视频）列最近 60 张，点一张就返回；底部还有「从本机上传」出口。**只有用户选了「从资产选」才挂载并发请求**（`useQuery({ enabled: open })`），开菜单本身不发请求。用 portal 挂到 `body`，否则会被创作框的 `backdrop-filter` 当成包含块、弹层跑偏 |
+| `components/ImagePicker.tsx` | 资产挑图弹层：读 `/images`（按 `kind` 滤成只列图片或只列视频）列最近 60 张，点一张就返回；每格底部用 `image.label`（「批次名 · 第 N 个」）代替纯尺寸——所有视频首帧都长一样，只给尺寸根本分不出是哪一条，下面一行才是 `宽×高 · 秒数`；视频格子用 `<video muted loop playsInline preload="metadata">`，**鼠标悬停就播放**、移开暂停并回到第 0 帧（静态缩略图全一样，动起来才挑得出来）；底部还有「从本机上传」出口。**只有用户选了「从资产选」才挂载并发请求**（`useQuery({ enabled: open })`），开菜单本身不发请求。用 portal 挂到 `body`，否则会被创作框的 `backdrop-filter` 当成包含块、弹层跑偏 |
 | `components/SlotMenu.tsx` | 加图前的小菜单：「从本机上传」/「从资产选」。图片创作框（参考图、编辑参考图）与视频创作框（首帧 / 尾帧）共用这一个组件 |
 | `components/MaskEditor.tsx` | 悬浮遮罩编辑器：按图片**原始尺寸**建两层 canvas（底图画源图、上层接指针事件），径向渐变印章当笔刷（边缘自带羽化）、橡皮、笔刷大小 8–200、清空；撤销 / 重做按「一笔」回放——记下每笔的路径、笔刷大小与形状，撤销时清空画布再按顺序重画，所以同一张遮罩反复改也不掉精度；Ctrl/Cmd+Z 撤销、Ctrl+Shift+Z（或 Ctrl+Y）重做，「清空」也进撤销栈。「应用遮罩」导出灰度 PNG（白 = 要重绘）与「原图 + 55% 红」的预览图；缩放 10%–400%——打开时按可视区「适应窗口」，滑块以视口中心为锚点、滚轮以光标为锚点（`wheel` 用非被动监听自己挂，否则 `preventDefault` 无效、页面会跟着滚），笔刷有圆（径向渐变、边缘羽化）与方（硬边）两种，画布上跟着指针走的白色轮廓按「笔刷大小 × 缩放」折算成屏幕像素，看到多大就涂多大；按住空格（或鼠标中键）拖动可以平移画布，光标同时变成抓手；每次重新打开或换图都回到「适应窗口」，不会带着上一次的缩放。放大后容器内滚动平移。遮罩层 `z-[70]`，Esc / 点背景关闭；整层用 `createPortal(…, document.body)` 挂到 body —— 创作框带 `backdrop-filter`，直接写在组件树里会让 `fixed` 以它为包含块、整层跟着往下偏移 |
 | `components/Popover.tsx` | 参数用的小弹层（点外部 / ESC 关闭，向上弹出） |
 | `components/ToastStack.tsx` | 右下角轻提示，2.6s 自动消失 |
-| `lib/api.ts` | 所有 REST 调用、`ApiError`、`TASK_EVENTS_URL` |
+| `lib/api.ts` | 所有 REST 调用（含 `renameGeneration`）、`ApiError`、`TASK_EVENTS_URL` |
 | `lib/size.ts` | 10 种比例 + 自定义 × 4 档分辨率（480/720/1K/2K，短边定档）→ 宽高，对齐 16、长边上限 2560 |
 | `lib/date.ts` | 日期分组（今天/昨天/更早）、筛选区间、时间与体积格式化 |
 | `stores/composer.ts` | 创作框状态（按模式分别保存提示词） |

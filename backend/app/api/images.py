@@ -22,6 +22,7 @@ from app.services.image_service import (
     ImageStoreError,
     absolute_path,
     ensure_thumbnail,
+    label_images,
     list_images,
     set_favorite,
 )
@@ -29,6 +30,17 @@ from app.services.recycle_service import soft_delete_images
 from app.services.workspace_service import WorkspaceBusyError, clear_workspace
 
 router = APIRouter(prefix="/images", tags=["images"])
+
+
+def _reads(db: Session, rows: list[Image]) -> list[ImageRead]:
+    """把「批次名 · 第 N 个」贴到每条记录上；列表与单条走同一套。"""
+    labels = label_images(db, rows)
+    items: list[ImageRead] = []
+    for row in rows:
+        item = ImageRead.model_validate(row)
+        item.label = labels.get(row.id, "")
+        items.append(item)
+    return items
 
 
 @router.get("", response_model=ImageListResponse)
@@ -47,7 +59,7 @@ def list_all(
         favorites_only=favorite,
     )
     return ImageListResponse(
-        items=[ImageRead.model_validate(row) for row in rows],
+        items=_reads(db, rows),
         total=total,
         limit=limit,
         offset=offset,
@@ -61,7 +73,7 @@ def get_image(image_id: int, db: Session = Depends(get_db)) -> ImageRead:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
         )
-    return ImageRead.model_validate(image)
+    return _reads(db, [image])[0]
 
 
 _ASSET_CONTENT_TYPES = {

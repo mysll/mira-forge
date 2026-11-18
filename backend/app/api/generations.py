@@ -17,6 +17,7 @@ from app.schemas.generation import (
     GenerationCreate,
     GenerationListResponse,
     GenerationRead,
+    GenerationRename,
 )
 from app.services.generation_service import (
     GenerationValidationError,
@@ -75,6 +76,10 @@ def _to_read(generation) -> GenerationRead:
         generation.reference_image_paths, generation.reference_image_path
     )
     payload.has_mask = bool(generation.mask_image_path)
+    # 产物名：批次名（或「批次 #id」）+ 批内序号，资产选择器里用来区分同款
+    base = (generation.name or "").strip() or f"批次 #{generation.id}"
+    for index, image in enumerate(payload.images, start=1):
+        image.label = f"{base} · 第 {index} 个"
     return payload
 
 
@@ -389,6 +394,25 @@ def list_generations(
     )
 
 
+@router.patch("/{generation_id}", response_model=GenerationRead)
+def rename_generation(
+    generation_id: int,
+    payload: GenerationRename,
+    db: Session = Depends(get_db),
+) -> GenerationRead:
+    """给批次起名（产物就叫「名字 · 第 N 个」）；传空字符串就是清掉名字。"""
+    generation = GenerationRepository(db).get(generation_id)
+    if generation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"generation {generation_id} 不存在"
+        )
+    name = (payload.name or "").strip()
+    generation.name = name or None
+    db.commit()
+    db.refresh(generation)
+    return _to_read(generation)
+
+
 @router.get("/{generation_id}", response_model=GenerationRead)
 def get_generation(generation_id: int, db: Session = Depends(get_db)) -> GenerationRead:
     generation = GenerationRepository(db).get(generation_id)
@@ -397,6 +421,7 @@ def get_generation(generation_id: int, db: Session = Depends(get_db)) -> Generat
             status_code=status.HTTP_404_NOT_FOUND, detail=f"generation {generation_id} 不存在"
         )
     return _to_read(generation)
+
 
 @router.delete("/{generation_id}")
 def delete_generation(generation_id: int, db: Session = Depends(get_db)) -> dict[str, int]:

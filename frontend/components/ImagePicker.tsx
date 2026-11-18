@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { fetchImages, imageThumbnailUrl } from "@/lib/api";
+import { fetchImages, imageFileUrl, imageThumbnailUrl } from "@/lib/api";
 import type { ImageBrief } from "@/types/api";
 
 /**
@@ -30,6 +30,9 @@ export default function ImagePicker({
   onUpload?: () => void;
   kind?: "image" | "video";
 }) {
+  const labelOf = (image: ImageBrief) =>
+    image.label || `作品 #${image.id}`;
+
   const images = useQuery({
     queryKey: ["images", "picker"],
     queryFn: () => fetchImages({ limit: 60 }),
@@ -110,18 +113,47 @@ export default function ImagePicker({
                   key={image.id}
                   type="button"
                   onClick={() => onPick(image)}
-                  title={`${image.width} × ${image.height}`}
+                  title={`${labelOf(image)} · ${image.width} × ${image.height}`}
+                  data-picker-item={image.id}
                   className="group relative aspect-square overflow-hidden rounded-lg border border-edge/70 transition hover:border-accent/60 hover:ring-2 hover:ring-accent/30"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={imageThumbnailUrl(image)}
-                    alt={`作品 ${image.id}`}
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                  />
-                  <span className="absolute inset-x-0 bottom-0 bg-black/55 py-0.5 text-[10px] text-white/80">
-                    {image.width}×{image.height}
+                  {image.media_type === "video" ? (
+                    /* 视频全是一模一样的首帧，静态缩略图分不出来，悬停直接播放 */
+                    <video
+                      src={imageFileUrl(image)}
+                      poster={imageThumbnailUrl(image)}
+                      muted
+                      loop
+                      playsInline
+                      preload="metadata"
+                      data-picker-video
+                      className="h-full w-full object-cover"
+                      onMouseEnter={(event) => {
+                        void event.currentTarget.play().catch(() => undefined);
+                      }}
+                      onMouseLeave={(event) => {
+                        const node = event.currentTarget;
+                        node.pause();
+                        node.currentTime = 0;
+                      }}
+                    />
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={imageThumbnailUrl(image)}
+                      alt={`作品 ${image.id}`}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  )}
+                  <span className="absolute inset-x-0 bottom-0 flex flex-col gap-0.5 bg-gradient-to-t from-black/80 via-black/60 to-transparent px-1 pb-0.5 pt-3 text-left">
+                    <span className="truncate text-[10px] leading-tight text-white/90" data-picker-label>
+                      {labelOf(image)}
+                    </span>
+                    <span className="truncate text-[9px] leading-tight text-white/55">
+                      {image.width}×{image.height}
+                      {image.duration_seconds ? ` · ${image.duration_seconds.toFixed(1)}s` : ""}
+                    </span>
                   </span>
                 </button>
               ))}

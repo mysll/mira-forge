@@ -64,6 +64,8 @@ class Generation(Base):
     reference_image_paths: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 局部编辑的遮罩（相对 STORAGE_DIR，灰度 PNG，白色=要改的区域）
     mask_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 批次名：给这一批起个名字，产物就叫「名字 · 第 N 个」；空着就用「批次 #id」
+    name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     # 用户显式给出的生成参数；为 None 时回落到 registry.yaml 里模型默认值
     negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
