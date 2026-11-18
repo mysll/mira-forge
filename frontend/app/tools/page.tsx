@@ -25,6 +25,17 @@ const TOOLS = [
     action: "打开工坊 →",
   },
   {
+    key: "frames",
+    title: "抽帧台",
+    description:
+      "把一段视频按帧率抽成序列帧：可选抠背景、勾选要的帧、按锁水平或锁垂直对齐，最后导成 ZIP 存成「帧集」资产。",
+    badge: "本地处理",
+    href: "/tools/frames",
+    ready: true,
+    tags: ["抽帧", "抠背景", "对齐", "帧集"],
+    action: "打开抽帧台 →",
+  },
+  {
     key: "resize",
     title: "批量改尺寸",
     description: "把一批图统一到同一个画布与主体比例，适合做角色三视图与图标。",
@@ -32,15 +43,6 @@ const TOOLS = [
     href: "",
     ready: false,
     tags: ["批量", "对齐"],
-  },
-  {
-    key: "frames",
-    title: "视频抽帧",
-    description: "从生成的视频里挑一帧存成图片，方便继续做图或当参考图。",
-    badge: "计划中",
-    href: "",
-    ready: false,
-    tags: ["抽帧", "封面"],
   },
   {
     key: "grid",
@@ -146,6 +148,17 @@ function ToolGlyph({ kind }: { kind: string }) {
         <path d="M8 34 L22 22 L32 32 L38 26" stroke="currentColor" strokeWidth="1.4" opacity="0.45" />
         <rect x="30" y="26" width="26" height="28" rx="3" stroke="currentColor" strokeWidth="1.8" strokeDasharray="3 3" />
         <path d="M30 46 H56" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
+      </svg>
+    );
+  }
+  if (kind === "frames") {
+    return (
+      <svg viewBox="0 0 64 64" className="h-14 w-14 text-accentSoft" fill="none" aria-hidden>
+        <rect x="6" y="16" width="52" height="32" rx="3" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M15 16v32M49 16v32" stroke="currentColor" strokeWidth="1.2" opacity="0.6" />
+        <rect x="23" y="25" width="7" height="14" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="34" y="25" width="7" height="14" rx="1" stroke="currentColor" strokeWidth="1.4" strokeDasharray="2 2" />
+        <path d="M6 24h9M6 40h9M49 24h9M49 40h9" stroke="currentColor" strokeWidth="1.2" opacity="0.45" />
       </svg>
     );
   }
