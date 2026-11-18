@@ -46,7 +46,7 @@ models:
 
   - id: qwen_image_21_turbo
     label: Qwen Image 2.1 Turbo
-    description: 8 步蒸馏版，速度优先；步数由固定 sigma 表决定，不可调
+    description: 8 步蒸馏版，速度优先；步数由固定 sigma 表决定，CFG 可调（>1 时负面提示词才生效）
     default: true
     # 蒸馏模型的 CFG 弹性较差，用 2.0 而不是 3.0；再高会开始过饱和。
     negative_prompt_cfg: 2.0
@@ -59,7 +59,8 @@ models:
       height: 1024
     capabilities:
       exposes_steps: false
-      exposes_cfg: false
+      # CFG 落在 CFGGuider.cfg 上，是独立可调的：>1 才走 uncond 分支，负面提示词才会生效
+      exposes_cfg: true
       exposes_sampler: false
     workflows:
       - type: text_to_image

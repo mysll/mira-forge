@@ -190,7 +190,7 @@ EmptyLatentImage(width,height,1) ─────────────┴─�
 1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0
 ```
 
-所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端显示"步数固定 8 步，由 sigma 表决定，不可调"而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。
+所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端不显示步数输入框，而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。CFG 则是**独立于 sigma 表**的参数（落在 `CFGGuider.cfg` 上），改了真生效，因此 `exposes_cfg: true`；只有默认 1.0（cfg1 优化会跳过 uncond 分支）时负面提示词不参与采样。
 
 ## 负面提示词与 CFG
 
@@ -232,8 +232,8 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
 | `prompt` | `TextEncodeQwenImage21.prompt` | 同左 |
 | `width` / `height` | `EmptyLatentImage.width/height` | 不生效（记 `null`） |
 | `seed` | `KSampler.seed` / `RandomNoise.noise_seed` | 同左 |
-| `steps` | `KSampler.steps`（turbo 不可调） | 同左 |
-| `cfg` | `KSampler.cfg` / `CFGGuider.cfg` | 同左 |
+| `steps` | `KSampler.steps`（turbo 不可调，走固定 sigma 表） | 同左 |
+| `cfg` | `KSampler.cfg` / `CFGGuider.cfg`（turbo 也可调） | 同左 |
 | `sampler` | `KSampler.sampler_name` / `KSamplerSelect.sampler_name` | 同左 |
 | `denoise` | `KSampler.denoise`（默认 1.0） | 同左 |
 | 参考图 | — | `LoadImage.image` → `images.image_N` |
