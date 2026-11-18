@@ -1,4 +1,4 @@
-"""应用配置：所有可调项集中在此，键名与 doc/PROJECT.md 的 .env 约定一致。"""
+"""应用配置：所有可调项集中在此，键名与 docs/PROJECT.md 的 .env 约定一致。"""
 
 from functools import lru_cache
 from pathlib import Path

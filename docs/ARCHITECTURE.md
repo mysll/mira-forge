@@ -66,7 +66,7 @@ data/projects/
 
 ## 数据模型
 
-四张表，字段与 `doc/PROJECT.md` 一致（**每个项目各一套**）：
+四张表，字段与 `docs/PROJECT.md` 一致（**每个项目各一套**）：
 
 ```
 workflows 1 ──< generations 1 ──< generation_tasks 1 ──< images

@@ -103,12 +103,13 @@ frontend/           Next.js 应用
 storage/            旧布局的产物目录（首次启动后被搬进 data/projects/default/storage）
 data/projects/      每个项目一个文件夹：<id>/app.db + <id>/storage/{images,videos,assets,thumbnails,uploads}
                     catalog.json 是项目清单
-docs/               架构、API、工作流映射、开发说明
+docs/               规格书、架构、API、工作流映射、前端、开发说明、环境检查报告
 ```
 
 ## 文档
 
-- [环境检查报告](doc/ENVIRONMENT_REPORT.md)
+- [项目规格书](docs/PROJECT.md)（最初的规格，可能落后于代码）
+- [环境检查报告](docs/ENVIRONMENT_REPORT.md)
 - [架构说明](docs/ARCHITECTURE.md)
 - [前端工作台](docs/FRONTEND.md)
 - [API 参考](docs/API.md)

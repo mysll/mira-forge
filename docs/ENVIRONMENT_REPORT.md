@@ -1,7 +1,7 @@
 # MiraForge 环境检查报告（P0 勘察，P1 前）
 
 - 检查时间：2026-11-14 15:2x
-- 依据：`doc/PROJECT.md`（1068 行）全文 + 本机实测（Python / Node / ComfyUI HTTP API / object_info / 模型目录 / 官方模板 / 用户已验证 API 图）
+- 依据：`docs/PROJECT.md`（1068 行）全文 + 本机实测（Python / Node / ComfyUI HTTP API / object_info / 模型目录 / 官方模板 / 用户已验证 API 图）
 - 原则：本报告只记录**实测事实**。凡未经实测的推断，均明确标注「未验证」。未安装、未删除任何模型，未修改 ComfyUI 配置，项目内未写入任何业务代码。
 
 ---
@@ -10,7 +10,7 @@
 
 **可以进入 P1。** 平台依赖的三大前提已就绪：ComfyUI 0.44.0 在线、Qwen Image 2.1 全链路权重齐备、存在一份**真实执行过**的 API 格式工作流可作为编辑链路基线。
 
-主要缺口只有三个，且都是纯软件层、可自动化解决：`pnpm` 未安装、后端业务依赖（SQLAlchemy/Alembic 等）未安装、MiraForge 目录内目前只有一个 `doc/PROJECT.md`。
+主要缺口只有三个，且都是纯软件层、可自动化解决：`pnpm` 未安装、后端业务依赖（SQLAlchemy/Alembic 等）未安装、MiraForge 目录内目前只有一份规格书 `docs/PROJECT.md`。
 
 需要你拍板的是 5 个产品/参数级决策（第 6 节 Q1–Q5），以及一个工程操作授权（Q6：P2 阶段是否允许向 ComfyUI 提交一次真实出图任务，会占用 GPU）。
 

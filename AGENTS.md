@@ -30,7 +30,7 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 - `backend/workflows/*.json` (ComfyUI **API format**) + `backend/workflow_configs/*.yaml` (param bindings) + `registry.yaml` (the only model catalog; `GET /models` is generated from it and the `workflows` table resyncs at startup).
 - `frontend/app/<screen>/page.tsx` per route, `components/` (Composer, VideoComposer, Feed/FeedCard, ImageDetail, MaskEditor, ImagePicker), `stores/` (zustand), `types/api.ts` mirrors backend schemas **by hand** — change both sides.
 - Runtime state: `data/projects/<id>/{app.db,storage/}` (git-ignored), `data/projects/catalog.json` lists projects. `data/` also holds throwaway screenshots and probe scripts.
-- Docs: `docs/{ARCHITECTURE,API,FRONTEND,WORKFLOW_MAPPING,DEVELOPMENT}.md`; `doc/PROJECT.md` is the original spec (may lag the code).
+- Docs: `docs/{PROJECT,ARCHITECTURE,API,FRONTEND,WORKFLOW_MAPPING,DEVELOPMENT,ENVIRONMENT_REPORT}.md`; `docs/PROJECT.md` is the original spec (may lag the code).
 
 ## How a request flows
 
