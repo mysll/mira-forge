@@ -33,7 +33,7 @@ UI 模板是 subgraph 结构，**不能直接提交给 `/prompt`**；必须展�
 - **AUTOGROW 输入的 API 键名带子前缀**：第 1 张参考图写作 `"images.image_1"`，不是 `images`，也不是数组。
 - **编辑链路的 latent 直接取自编码器第 3 个输出**：`latent_image=[6,2]`（`TextEncodeQwenImage21` 的 output `['positive','negative','latent']`）。因此编辑时 `EmptyLatentImage` 不参与，宽高不生效。
 
-## 六个目标工作流
+## 图片目标工作流
 
 | 注册表条目 | 文件 | 采样方式 | 状态 |
 | --- | --- | --- | --- |
@@ -43,8 +43,54 @@ UI 模板是 subgraph 结构，**不能直接提交给 `/prompt`**；必须展�
 | `qwen_image_21_turbo` / text_to_image | `backend/workflows/qwen_image_21_turbo_t2i.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实出图验证（多张） |
 | `qwen_image_21_turbo` / image_edit | `backend/workflows/qwen_image_21_turbo_edit.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实编辑验证（多张，3–6 s/张） |
 | `qwen_image_21_turbo` / image_to_image | `backend/workflows/qwen_image_21_turbo_i2i.json` | SamplerCustomAdvanced + 固定 sigma 表 | ✅ 真实出图验证（1 张 / 2 张参考图） |
+| `z_image_turbo` / text_to_image | `backend/workflows/z_image_turbo_t2i.json` | KSampler 8 步 + ModelSamplingAuraFlow(shift 3) | ✅ 真实出图验证（1024²，10.1 s） |
+| `flux2_klein_distilled` / text_to_image | `backend/workflows/flux2_klein_distilled_t2i.json` | SamplerCustomAdvanced + Flux2Scheduler(4 步) | ✅ 真实出图验证（1024²，8.1 s） |
+| `flux2_klein_base` / text_to_image | `backend/workflows/flux2_klein_base_t2i.json` | SamplerCustomAdvanced + Flux2Scheduler(20 步) | ✅ 真实出图验证（1024²，14.2 s） |
 
 四张图都已通过 MiraForge 的 `POST /prompt` 真实跑通，注册表里 `validated: true`。编辑链路的参考图由 Worker 先 `POST /upload/image` 送进 ComfyUI 的 `input/`，再写进 `LoadImage.image`。
+
+## Z-Image 与 FLUX.2 Klein（另外三套文生图）
+
+三个新模型都是**纯数据接入**：只加了 3 个 JSON、3 个 YAML 和 registry 里的 3 个条目，`prompt_builder` / Worker / 前端代码一行没改。
+
+| 模型 | 权重 | 文本编码器 | VAE | 采样 |
+| --- | --- | --- | --- | --- |
+| Z-Image Turbo | `z_image_turbo_int8_convrot` | `qwen_3_4b_fp8_mixed`（`type=lumina2`） | `ae` | KSampler，8 步，cfg 1.0，`res_multistep` + `simple` |
+| Klein 4B Distilled | `flux-2-klein-4b-fp8` | `qwen_3_4b`（`type=flux2`） | `flux2-vae` | Flux2Scheduler 4 步，cfg 1.0，euler |
+| Klein 4B Base | `flux-2-klein-base-4b-fp8` | `qwen_3_4b`（`type=flux2`） | `flux2-vae` | Flux2Scheduler 20 步，cfg 5.0，euler |
+
+### Z-Image-Turbo 链路
+
+```
+UNETLoader(z_image_turbo_int8_convrot) ─► ModelSamplingAuraFlow(shift 3.0) ─┐
+CLIPLoader(qwen_3_4b_fp8_mixed, lumina2) ─► CLIPTextEncode(prompt) ─────────┤
+                                            └► ConditioningZeroOut ────────┤ negative
+VAELoader(ae) ──────────────────────────────────────────────────────────────┤
+EmptySD3LatentImage(width, height) ─────────────────────────────────────────┴─► KSampler
+   (8 步 / cfg 1.0 / res_multistep / simple) ─► VAEDecode ─► SaveImage
+```
+
+- 潜空间必须用 `EmptySD3LatentImage`：Lumina2 的 latent 是 16 通道、8 倍下采样，节点里 `width`/`height` 的 step 是 16（前端尺寸面板正好按 16 对齐）。
+- 负面提示词在这套图里**是被架空的**：官方模板用 `ConditioningZeroOut` 把正向条件零化当负向，cfg 又是 1.0（ComfyUI 在 cfg≈1 时直接跳过 uncond 分支）。所以 registry 里 `exposes_negative_prompt: false`、`exposes_steps/cfg: false`，前端不会出现这三个控件。
+
+### FLUX.2 Klein 链路
+
+```
+UNETLoader(flux-2-klein-*) ─────────────► CFGGuider(positive, negative, cfg) ─┐
+CLIPLoader(qwen_3_4b, flux2) ─► CLIPTextEncode(prompt) ──► positive ─────────┤
+                              └► CLIPTextEncode(neg) / ConditioningZeroOut ─► negative
+PrimitiveInt(width) ─┬─► EmptyFlux2LatentImage ──────────────────────────────┤
+PrimitiveInt(height) ┤        (128 通道、16 倍下采样)                        │
+                     └─► Flux2Scheduler(steps, width, height) ─► SIGMAS ─────┤
+RandomNoise(seed) ─► NOISE ──────────────────────────────────────────────────┤
+KSamplerSelect(euler) ─► SAMPLER ────────────────────────────────────────────┴─► SamplerCustomAdvanced
+   ─► VAEDecode ─► SaveImage
+```
+
+- **宽高有两个落点**：`Flux2Scheduler` 要用面积算 sigmas，`EmptyFlux2LatentImage` 要用它定尺寸。YAML 绑定是「一个参数一个落点」，所以在图里插两个 `PrimitiveInt`，让两处都连它，YAML 只绑 `width/height → PrimitiveInt.value`——`prompt_builder` 因此零改动。
+- 蒸馏版（`flux2_klein_distilled`）的负向是 `ConditioningZeroOut`、cfg 1.0、4 步；基础版（`flux2_klein_base`）的负向是第二个 `CLIPTextEncode`、cfg 5.0、20 步，负面提示词真的参与计算（正负两个编码器分别进 `CFGGuider.positive/negative`）。
+- 两者都**不需要** `scheduler` 绑定：sigmas 由 `Flux2Scheduler` 内部按 `simple` 风格算，YAML 里没有这个键，前端也不显示。
+- 接口层面只暴露到「步数 / CFG / 负面提示词」：基础版三个都能调，蒸馏版全锁死（改了只会更差）。
 
 ## 两个视频目标工作流（MiniMax H3）
 
@@ -229,6 +275,9 @@ bindings:
 | `qwen_image_21_turbo` / image_edit | 3 | 3–6 s | 换场景/换主体的指令式编辑 |
 | `qwen_image_21_turbo` / image_to_image（1 张参考图） | 1 | 17.4 s | 陶壶原图 → 秋日庭院，器型/角度/光影跟随参考图 |
 | `qwen_image_21_turbo` / image_to_image（2 张参考图） | 1 | 15.1 s | 陶壶 + 黄铜台灯同时进同一个庭院石桌场景 |
+| `z_image_turbo`（8 步） | 1 | 10.1 s | 首次加载权重（5.78 GB + 5.25 GB 编码器）之后的单张耗时 |
+| `flux2_klein_distilled`（4 步） | 1 | 8.1 s | 同样含首次加载；4 步是官方蒸馏档位 |
+| `flux2_klein_base`（20 步） | 1 | 14.2 s | 20 步基础版，负面提示词可用 |
 
 图生图的对照实验（同 prompt、同 seed）：带参考图 10.0 s、不带参考图 6.1 s；带参考图那张连树形、苔藓土丘、左下角耙纹走向都跟着参考图，不带参考图则自己编了螺旋纹、石头与远山 —— 说明参考图确实进了条件分支，而不是被忽略。
 
@@ -254,6 +303,7 @@ bindings:
 6. 批量 8 张串行、中途取消 / 重试、后端强杀后重启续跑均未出现显存问题。
 7. 图生图的 `EmptyLatentImage` 潜空间 + `images.image_1/image_2` 双槽位：1 张与 2 张参考图都真实出图；只给 1 张时多余的 `LoadImage` 节点被摘掉，ComfyUI 未报「找不到 placeholder.png」。
 8. 视频：`length` 必须落在 `5 + 17k`；t2v、只给首帧、首帧 + 尾帧三种输入都真实出片；`SaveVideo` 的产出是 mp4 且 `metadata.kind == "video"`；封面帧靠 `ImageFromBatch` 单独存一张 png。
+9. Z-Image Turbo / Klein Distilled / Klein Base 三套文生图都经 `POST /prompt` 真实出图（1024²，10.1 / 8.1 / 14.2 s）；Klein 的宽高经两个 `PrimitiveInt` 同时喂 `Flux2Scheduler` 与 `EmptyFlux2LatentImage`，两次实测都没出现尺寸不一致；基础版换负面提示词后图确实变了（同 seed 两张输出哈希不同），但因为本机 ComfyUI 本来就不可逐位复现，这一点以「图里有独立的负向编码器 + cfg 5.0」为准。
 
 仍待观察：
 

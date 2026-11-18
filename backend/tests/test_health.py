@@ -55,7 +55,9 @@ def test_models_catalog_is_data_driven(client: TestClient) -> None:
             assert types == {"text_to_video", "image_to_video"}
             assert item["capabilities"]["exposes_duration"] is True
         else:
-            assert types == image_types
+            # 任何图片模型都必须能文生图；支持编辑/图生图的模型才会多出那两种
+            assert "text_to_image" in types
+            assert types <= image_types
         for workflow in item["workflows"]:
             assert isinstance(workflow["available"], bool)
 
@@ -82,8 +84,9 @@ def test_workflows_table_synced_from_registry(client: TestClient) -> None:
     response = client.get("/api/v1/workflows")
     assert response.status_code == 200
     rows = response.json()["items"]
-    # 2 个图片模型 × 3 种任务 + 1 个视频模型 × 2 种任务 = 8 个目标工作流
-    assert len(rows) == 8
+    # 工作流条数 = 注册表里所有模型的工作流之和（加模型时这条断言不用手改）
+    models = client.get("/api/v1/models").json()["items"]
+    assert len(rows) == sum(len(item["workflows"]) for item in models)
     assert {row["type"] for row in rows} == {
         "text_to_image",
         "image_to_image",

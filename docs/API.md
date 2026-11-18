@@ -141,7 +141,8 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 
 - `available`：该模型至少一种工作流的 JSON 落地了。
 - `is_default`：前端下拉默认选中项（对应 `registry.yaml` 的 `default: true`）。
-- `validated`：该工作流是否真实跑通过（`qwen_image_21` 与 `qwen_image_21_turbo` 的文生图均为 `true`；编辑类待 P4）。
+- `validated`：该工作流是否真实跑通过。当前图片侧 9 条（Qwen Image 2.1 三条、Qwen Turbo 三条、Z-Image Turbo / Klein Distilled / Klein Base 各一条文生图）都是 `true`，视频两条是 `true`。
+- 当前注册表里有 6 个模型、11 条工作流：Qwen Image 2.1（3）、Qwen Image 2.1 Turbo（3）、Z-Image Turbo（1）、FLUX.2 Klein 4B Distilled（1）、FLUX.2 Klein 4B Base（1）、MiniMax H3（2）。
 
 ### `GET /models/{model_id}`
 

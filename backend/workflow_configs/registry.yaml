@@ -78,6 +78,74 @@ models:
         config: workflow_configs/qwen_image_21_turbo_i2i.yaml
         validated: true
 
+  # ---- 其它图片模型 ----
+  - id: z_image_turbo
+    label: Z-Image Turbo
+    description: Lumina2 架构的 8 步蒸馏模型，1024 原生；负面提示词被 ConditioningZeroOut 零化，不可用
+    defaults:
+      steps: 8
+      cfg: 1.0
+      sampler: res_multistep
+      scheduler: simple
+      denoise: 1.0
+      width: 1024
+      height: 1024
+    capabilities:
+      exposes_steps: false
+      exposes_cfg: false
+      exposes_sampler: true
+      exposes_negative_prompt: false
+    workflows:
+      - type: text_to_image
+        label: 文生图
+        json: workflows/z_image_turbo_t2i.json
+        config: workflow_configs/z_image_turbo_t2i.yaml
+        validated: true
+
+  - id: flux2_klein_distilled
+    label: FLUX.2 Klein 4B Distilled
+    description: 4 步蒸馏版，最快；cfg 固定 1.0，负面提示词无效
+    defaults:
+      steps: 4
+      cfg: 1.0
+      sampler: euler
+      denoise: 1.0
+      width: 1024
+      height: 1024
+    capabilities:
+      exposes_steps: false
+      exposes_cfg: false
+      exposes_sampler: false
+      exposes_negative_prompt: false
+    workflows:
+      - type: text_to_image
+        label: 文生图
+        json: workflows/flux2_klein_distilled_t2i.json
+        config: workflow_configs/flux2_klein_distilled_t2i.yaml
+        validated: true
+
+  - id: flux2_klein_base
+    label: FLUX.2 Klein 4B Base
+    description: 20 步基础版，质量优先，支持负面提示词；比蒸馏版慢约五倍
+    defaults:
+      steps: 20
+      cfg: 5.0
+      sampler: euler
+      denoise: 1.0
+      width: 1024
+      height: 1024
+    capabilities:
+      exposes_steps: true
+      exposes_cfg: true
+      exposes_sampler: false
+      exposes_negative_prompt: true
+    workflows:
+      - type: text_to_image
+        label: 文生图
+        json: workflows/flux2_klein_base_t2i.json
+        config: workflow_configs/flux2_klein_base_t2i.yaml
+        validated: true
+
   # ---- 视频（二期）----
   - id: minimax_h3
     label: MiniMax H3

@@ -1,0 +1,15 @@
+# FLUX.2 Klein 4B Distilled 文生图（4 步蒸馏，cfg 固定 1.0）
+#
+# 宽高走两个 PrimitiveInt（6 = 宽、7 = 高）：Flux2Scheduler 与 EmptyFlux2LatentImage
+# 必须拿到同一组宽高，而 YAML 绑定是「一个参数一个落点」，所以让两处都连 PrimitiveInt。
+#
+# 没有 negative_prompt 落点：负向是 ConditioningZeroOut（把正向零化），蒸馏模型 cfg=1
+# 时本来也不走 uncond 分支。steps / cfg 也不暴露。
+output_node: "15"
+
+bindings:
+  prompt: { node: "4", input: text }
+  width: { node: "6", input: value }
+  height: { node: "7", input: value }
+  seed: { node: "11", input: noise_seed }
+  filename_prefix: { node: "15", input: filename_prefix }

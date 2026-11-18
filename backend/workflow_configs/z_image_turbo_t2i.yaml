@@ -1,0 +1,15 @@
+# Z-Image-Turbo 文生图（Lumina2 架构，8 步蒸馏）
+#
+# 负面提示词走 ConditioningZeroOut（把正向条件零化），所以这里没有 negative_prompt 落点：
+# 该模型不支持负面提示词，registry 里 exposes_negative_prompt 已设为 false。
+# steps / cfg 也不暴露给用户（蒸馏模型 8 步、cfg 必须 1.0），只在 JSON 里写死。
+output_node: "10"
+
+bindings:
+  prompt: { node: "4", input: text }
+  width: { node: "6", input: width }
+  height: { node: "6", input: height }
+  seed: { node: "8", input: seed }
+  sampler: { node: "8", input: sampler_name }
+  scheduler: { node: "8", input: scheduler }
+  filename_prefix: { node: "10", input: filename_prefix }

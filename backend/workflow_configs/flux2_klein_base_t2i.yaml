@@ -1,0 +1,18 @@
+# FLUX.2 Klein 4B Base 文生图（20 步，cfg 5.0，支持负面提示词）
+#
+# 与蒸馏版的结构差异只有编码与 cfg：正向 4、负向 5 各一个 CLIPTextEncode，
+# 分别接到 CFGGuider 的 positive / negative。cfg=5 时 uncond 分支会真的参与计算，
+# 所以负面提示词在这里是有效的（不需要 negative_prompt_cfg 兜底，默认就是 5.0）。
+#
+# 宽高同样走两个 PrimitiveInt（6 = 宽、7 = 高），Flux2Scheduler 与 EmptyFlux2LatentImage 共用。
+output_node: "15"
+
+bindings:
+  prompt: { node: "4", input: text }
+  negative_prompt: { node: "5", input: text }
+  width: { node: "6", input: value }
+  height: { node: "7", input: value }
+  steps: { node: "9", input: steps }
+  cfg: { node: "12", input: cfg }
+  seed: { node: "11", input: noise_seed }
+  filename_prefix: { node: "15", input: filename_prefix }

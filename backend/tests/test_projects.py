@@ -45,8 +45,11 @@ def test_create_activates_and_starts_empty(client: TestClient) -> None:
     assert client.get(f"{API}/generations").json()["total"] == 0
     assert client.get(f"{API}/images").json()["total"] == 0
     assert client.get(f"{API}/models").json()["items"]
-    # 工作流注册表已经同步进新库
-    assert len(client.get(f"{API}/workflows").json()["items"]) == 8
+    # 工作流注册表已经同步进新库（条数跟 /models 里声明的保持一致，不写死数字）
+    workflows = client.get(f"{API}/workflows").json()["items"]
+    models = client.get(f"{API}/models").json()["items"]
+    assert len(workflows) == sum(len(item["workflows"]) for item in models)
+    assert workflows
 
 
 def test_projects_are_isolated(client: TestClient) -> None:

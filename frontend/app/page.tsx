@@ -463,12 +463,25 @@ function Stat({
 
 function ModelCard({ model, onUse }: { model: ModelInfo; onUse: () => void }) {
   const isVideo = model.capabilities.media === "video";
+  const steps = model.defaults.steps;
+  const takesReferences = model.workflows.some(
+    (workflow) => workflow.type === "image_to_image" || workflow.type === "image_edit",
+  );
+  const thirdFact = takesReferences
+    ? "参考图最多 2 张"
+    : model.capabilities.exposes_negative_prompt
+      ? "支持负面提示词"
+      : "仅文生图";
   const facts = isVideo
     ? ["音视频同出", "1–15 秒", "首尾帧可选"]
     : [
-        model.capabilities.exposes_steps ? "步数可调" : "8 步 turbo",
+        model.capabilities.exposes_steps
+          ? "步数可调"
+          : typeof steps === "number"
+            ? `${steps} 步固定`
+            : "步数固定",
         "480 / 720 / 1K / 2K",
-        "参考图最多 2 张",
+        thirdFact,
       ];
 
   return (
