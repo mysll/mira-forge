@@ -254,6 +254,114 @@ export function boundsFor(frames: Frame[], offsets: Map<number, Offset>): Bounds
   };
 }
 
+export type LayoutOptions = {
+  /** 输出画布高度（px）。null = 跟着主体框走，不缩放。 */
+  height: number | null;
+  /** 主体脚底到画布底边的留白（输出像素） */
+  bottomPad: number;
+  /** 左右留白（输出像素） */
+  sidePad: number;
+  /** 主体头顶到画布顶边的留白（输出像素） */
+  topPad: number;
+};
+
+export type Layout = {
+  width: number;
+  height: number;
+  scale: number;
+  /** 脚底线（主体并集框的底边）在输出画布里的 y，画参考线用 */
+  baseline: number;
+  /** 主体并集框在「平移后」的坐标，渲染时用它把源图摆正 */
+  left: number;
+  top: number;
+  padX: number;
+  padY: number;
+};
+
+/**
+ * 把「选中帧的主体框 + 对齐偏移」摊成一张统一的输出画布。
+ *
+ * 只做平移不够用：一段 736×736 的视频里角色可能只有 110px 宽，导出 736 的画布等于
+ * 每帧都是「一大片透明 + 一个小人」，对齐挪的那十几像素根本看不出来。所以这里顺手把
+ * 主体并集框缩放到指定高度，并留出底边/左右留白——游戏里要的正是这种固定尺寸贴图。
+ */
+export function createLayout(
+  frames: Frame[],
+  boxes: Map<number, SubjectBox>,
+  offsets: Map<number, Offset>,
+  options: LayoutOptions,
+): Layout {
+  let unionLeft = Number.POSITIVE_INFINITY;
+  let unionTop = Number.POSITIVE_INFINITY;
+  let unionRight = Number.NEGATIVE_INFINITY;
+  let unionBottom = Number.NEGATIVE_INFINITY;
+  for (const frame of frames) {
+    const box = boxes.get(frame.index) ?? {
+      left: 0,
+      right: frame.canvas.width,
+      top: 0,
+      bottom: frame.canvas.height,
+      width: frame.canvas.width,
+      height: frame.canvas.height,
+      centerX: frame.canvas.width / 2,
+    };
+    const offset = offsets.get(frame.index) ?? { dx: 0, dy: 0 };
+    unionLeft = Math.min(unionLeft, box.left + offset.dx);
+    unionRight = Math.max(unionRight, box.right + offset.dx);
+    unionTop = Math.min(unionTop, box.top + offset.dy);
+    unionBottom = Math.max(unionBottom, box.bottom + offset.dy);
+  }
+  if (!Number.isFinite(unionLeft)) {
+    return { width: 1, height: 1, scale: 1, left: 0, top: 0, padX: 0, padY: 0, baseline: 1 };
+  }
+  const contentWidth = Math.max(1, unionRight - unionLeft);
+  const contentHeight = Math.max(1, unionBottom - unionTop);
+  const sidePad = Math.max(0, Math.round(options.sidePad));
+  const topPad = Math.max(0, Math.round(options.topPad));
+  const bottomPad = Math.max(0, Math.round(options.bottomPad));
+
+  if (options.height === null) {
+    return {
+      width: Math.round(contentWidth) + sidePad * 2,
+      height: Math.round(contentHeight) + topPad + bottomPad,
+      scale: 1,
+      baseline: topPad + contentHeight,
+      left: unionLeft,
+      top: unionTop,
+      padX: sidePad,
+      padY: topPad,
+    };
+  }
+
+  const height = Math.max(1, Math.round(options.height));
+  const usable = Math.max(1, height - topPad - bottomPad);
+  const scale = usable / contentHeight;
+  return {
+    width: Math.max(1, Math.round(contentWidth * scale) + sidePad * 2),
+    height,
+    scale,
+    baseline: topPad + usable,
+    left: unionLeft,
+    top: unionTop,
+    padX: sidePad,
+    padY: topPad,
+  };
+}
+
+/** 按 layout 把一帧画到输出画布上（缩放 + 平移一步到位）。 */
+export function renderInLayout(frame: Frame, offset: Offset, layout: Layout): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = layout.width;
+  canvas.height = layout.height;
+  const context = canvas.getContext("2d");
+  if (!context) return canvas;
+  context.imageSmoothingQuality = "high";
+  context.translate((offset.dx - layout.left) * layout.scale + layout.padX, (offset.dy - layout.top) * layout.scale + layout.padY);
+  context.scale(layout.scale, layout.scale);
+  context.drawImage(frame.canvas, 0, 0);
+  return canvas;
+}
+
 export function renderAligned(frame: Frame, offset: Offset, bounds: Bounds): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = bounds.width;

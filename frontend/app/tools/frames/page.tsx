@@ -11,16 +11,17 @@ import ProjectSwitcher from "@/components/ProjectSwitcher";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import { imageFileUrl, saveFrameSet } from "@/lib/api";
 import {
-  boundsFor,
   canvasToBlob,
   canvasToBytes,
   computeOffsets,
+  createLayout,
   extractFrames,
   keyOutBackground,
   measureSubject,
-  renderAligned,
+  renderInLayout,
   type AlignMode,
   type Frame,
+  type Layout,
   type Offset,
   type SubjectBox,
 } from "@/lib/frames";
@@ -68,6 +69,10 @@ export default function FramesPage() {
   const [progress, setProgress] = useState("");
   const [alignMode, setAlignMode] = useState<AlignMode>("x");
   const [reference, setReference] = useState<number | null>(null);
+  // 输出画布：游戏里要的是固定尺寸的贴图，所以默认把主体缩到 256 高、脚底留 4px。
+  const [outputHeight, setOutputHeight] = useState("256");
+  const [bottomPad, setBottomPad] = useState("4");
+  const [sidePad, setSidePad] = useState("8");
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -166,6 +171,20 @@ export default function FramesPage() {
     return computeOffsets(basis, boxes, alignMode, reference ?? selectedFrames[0]?.index ?? 0);
   }, [alignMode, boxes, frames, reference, selectedFrames]);
 
+  const layoutOptions = useMemo(() => {
+    return {
+      height: outputHeight.trim() === "" ? null : Math.max(16, Math.round(numberOr(outputHeight, 256))),
+      bottomPad: Math.max(0, Math.round(numberOr(bottomPad, 4))),
+      sidePad: Math.max(0, Math.round(numberOr(sidePad, 8))),
+      topPad: 0,
+    };
+  }, [bottomPad, outputHeight, sidePad]);
+
+  const layout = useMemo(
+    () => createLayout(selectedFrames, boxes, offsets, layoutOptions),
+    [boxes, layoutOptions, offsets, selectedFrames],
+  );
+
   const runExtract = async () => {
     const video = videoRef.current;
     if (!video || !videoUrl) {
@@ -228,7 +247,8 @@ export default function FramesPage() {
     const basis = frames.filter((frame) => selected.has(frame.index));
     const referenceIndex = reference ?? basis[0]?.index ?? 0;
     const shift = computeOffsets(basis, boxes, alignMode, referenceIndex);
-    const bounds = boundsFor(basis, shift);
+    // 导出用同一套布局参数（basis 与 selectedFrames 是同一批帧，偏移也一样）
+    const frameLayout = createLayout(basis, boxes, shift, layoutOptions);
     setSaving(true);
     try {
       const entries: { name: string; data: Uint8Array }[] = [];
@@ -237,7 +257,7 @@ export default function FramesPage() {
       for (let position = 0; position < basis.length; position += 1) {
         const frame = basis[position];
         const offset: Offset = shift.get(frame.index) ?? { dx: 0, dy: 0 };
-        const canvas = renderAligned(frame, offset, bounds);
+        const canvas = renderInLayout(frame, offset, frameLayout);
         entries.push({
           name: `frames/${String(position + 1).padStart(4, "0")}.png`,
           data: await canvasToBytes(canvas),
@@ -253,8 +273,8 @@ export default function FramesPage() {
             {
               name: label,
               fps: numberOr(fps, 24),
-              width: bounds.width,
-              height: bounds.height,
+              width: frameLayout.width,
+              height: frameLayout.height,
               align: alignMode,
               keying,
               tolerance: keying ? tolerance : null,
@@ -273,8 +293,8 @@ export default function FramesPage() {
         cover,
         name: label,
         count: basis.length,
-        width: bounds.width,
-        height: bounds.height,
+        width: frameLayout.width,
+        height: frameLayout.height,
         fps: numberOr(fps, 24),
         sourceVideoId: videoId,
       });
@@ -287,7 +307,6 @@ export default function FramesPage() {
   };
 
   const previewFrames = selectedFrames.slice(0, 8);
-  const previewBoxes = previewFrames.length > 0 ? boundsFor(previewFrames, offsets) : null;
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto">
@@ -598,16 +617,14 @@ export default function FramesPage() {
             </label>
           </div>
 
-          {previewBoxes && previewFrames.length > 0 ? (
+          {previewFrames.length > 0 ? (
             <div className="flex flex-wrap items-end gap-3">
               {previewFrames.map((frame) => {
                 const offset = offsets.get(frame.index) ?? { dx: 0, dy: 0 };
                 return (
                   <div key={frame.index} className="flex flex-col items-center gap-1">
                     <div className="relative overflow-hidden rounded-md border border-edge/60 bg-[#0b0d10]">
-                      <AlignedThumb frame={frame} offset={offset} bounds={previewBoxes} />
-                      <span className="pointer-events-none absolute inset-x-4 top-1/2 h-px bg-accent/50" />
-                      <span className="pointer-events-none absolute inset-y-2 left-1/2 w-px bg-warn/40" />
+                      <AlignedThumb frame={frame} offset={offset} layout={layout} />
                     </div>
                     <span className="text-[9px] text-muted" data-offset-label={frame.index}>
                       {offset.dx >= 0 ? `+${offset.dx}` : offset.dx} / {offset.dy >= 0 ? `+${offset.dy}` : offset.dy}
@@ -616,10 +633,59 @@ export default function FramesPage() {
                 );
               })}
               <p className="max-w-[260px] text-[10px] leading-relaxed text-muted">
-                预览里的横线是参考帧的质心高度、竖线是脚底线；数字是这一帧被平移的像素（x / y）。
+                预览用的是导出那套画布：虚线是脚底线，对齐后每帧都踩在同一高度；数字是这一帧被平移的像素（x / y）。
               </p>
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {frames.length > 0 ? (
+        <section className="panel flex flex-col gap-3 p-4" data-frames-layout>
+          <div className="flex flex-wrap items-end gap-3">
+            <h2 className="text-xs font-medium text-ink">输出画布</h2>
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              高度（留空 = 跟主体框）
+              <input
+                value={outputHeight}
+                onChange={(event) => setOutputHeight(event.target.value)}
+                inputMode="numeric"
+                placeholder="自动"
+                aria-label="输出高度"
+                className="w-24 rounded border border-edge bg-surface2 px-2 py-1 text-xs text-ink"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              底边留白
+              <input
+                value={bottomPad}
+                onChange={(event) => setBottomPad(event.target.value)}
+                inputMode="numeric"
+                aria-label="底边留白"
+                className="w-20 rounded border border-edge bg-surface2 px-2 py-1 text-xs text-ink"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] text-muted">
+              左右留白
+              <input
+                value={sidePad}
+                onChange={(event) => setSidePad(event.target.value)}
+                inputMode="numeric"
+                aria-label="左右留白"
+                className="w-20 rounded border border-edge bg-surface2 px-2 py-1 text-xs text-ink"
+              />
+            </label>
+            <span
+              className="rounded-md border border-edge/60 bg-surface2 px-2 py-1 font-mono text-[11px] text-accentSoft"
+              data-frames-layout-size
+            >
+              {layout.width} × {layout.height}
+            </span>
+          </div>
+          <p className="text-[10px] leading-relaxed text-muted">
+            每帧都缩放进同一张画布（主体并集框 + 对齐偏移），游戏里可以直接当贴图用：高度决定人物多大，
+            底边留白是脚底到画布底的距离，左右留白跟着高度等比走。
+          </p>
         </section>
       ) : null}
 
@@ -711,23 +777,29 @@ function FrameThumb({ frame, box }: { frame: Frame; box?: SubjectBox }) {
   return <canvas ref={ref} className="block h-[76px] w-full bg-[#0b0d10]" />;
 }
 
-function AlignedThumb({ frame, offset, bounds }: { frame: Frame; offset: Offset; bounds: ReturnType<typeof boundsFor> }) {
+function AlignedThumb({ frame, offset, layout }: { frame: Frame; offset: Offset; layout: Layout }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const size = 96;
-    canvas.width = size;
-    canvas.height = size;
+    // 直接用导出的同一套布局画，所见即所得（画布可能不是正方形）
+    const rendered = renderInLayout(frame, offset, layout);
+    canvas.width = rendered.width;
+    canvas.height = rendered.height;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.clearRect(0, 0, size, size);
-    const scale = Math.min(size / bounds.width, size / bounds.height);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(rendered, 0, 0);
+    // 脚底线：每帧都该踩在这条线上，一眼就能看出对齐有没有生效
     context.save();
-    context.translate((size - bounds.width * scale) / 2, (size - bounds.height * scale) / 2);
-    context.scale(scale, scale);
-    context.drawImage(frame.canvas, offset.dx - bounds.minX, offset.dy - bounds.minY);
+    context.strokeStyle = "rgba(124, 156, 255, 0.75)";
+    context.setLineDash([4, 3]);
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(0, layout.baseline + 0.5);
+    context.lineTo(canvas.width, layout.baseline + 0.5);
+    context.stroke();
     context.restore();
-  }, [bounds, frame, offset]);
-  return <canvas ref={ref} className="block h-[96px] w-[96px]" />;
+  }, [frame, layout, offset]);
+  return <canvas ref={ref} className="block max-h-[96px] max-w-[96px]" />;
 }
