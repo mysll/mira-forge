@@ -41,6 +41,7 @@ function numberOr(value: string, fallback: number): number {
 
 export default function FramesPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const stageRef = useRef<HTMLCanvasElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoName, setVideoName] = useState("");
@@ -57,6 +58,10 @@ export default function FramesPage() {
   const [tolerance, setTolerance] = useState(48);
 
   const [frames, setFrames] = useState<Frame[]>([]);
+  // 剪辑软件那种轨道：鼠标停在哪一帧，上面的大画面就显示哪一帧
+  const [hovered, setHovered] = useState<number | null>(null);
+  // 视频里人往往只占一小块，默认裁到主体看，大画面才看得出动作细节
+  const [zoomSubject, setZoomSubject] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [boxes, setBoxes] = useState<Map<number, SubjectBox>>(new Map());
   const [extracting, setExtracting] = useState(false);
@@ -83,6 +88,7 @@ export default function FramesPage() {
 
   const resetFrames = () => {
     setFrames([]);
+    setHovered(null);
     setSelected(new Set());
     setBoxes(new Map());
     setReference(null);
@@ -112,6 +118,48 @@ export default function FramesPage() {
     () => frames.filter((frame) => selected.has(frame.index)),
     [frames, selected],
   );
+
+  // 大画面里正在看的那一帧：优先鼠标悬停的，其次第一张选中的。
+  const previewFrame = useMemo(() => {
+    if (hovered !== null) {
+      const found = frames.find((frame) => frame.index === hovered);
+      if (found) return found;
+    }
+    return selectedFrames[0] ?? frames[0] ?? null;
+  }, [frames, hovered, selectedFrames]);
+
+  useEffect(() => {
+    const canvas = stageRef.current;
+    if (!canvas) return;
+    if (!previewFrame) {
+      canvas.width = 1;
+      canvas.height = 1;
+      return;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const box = zoomSubject ? boxes.get(previewFrame.index) : undefined;
+    if (box) {
+      // 主体框外留一圈余量，动作幅度大时不会被裁掉
+      const padX = Math.max(8, Math.round(box.width * 0.18));
+      const padY = Math.max(8, Math.round(box.height * 0.12));
+      const left = Math.max(0, box.left - padX);
+      const top = Math.max(0, box.top - padY);
+      const right = Math.min(previewFrame.canvas.width, box.right + padX);
+      const bottom = Math.min(previewFrame.canvas.height, box.bottom + padY);
+      const cropWidth = Math.max(1, right - left);
+      const cropHeight = Math.max(1, bottom - top);
+      canvas.width = cropWidth;
+      canvas.height = cropHeight;
+      context.clearRect(0, 0, cropWidth, cropHeight);
+      context.drawImage(previewFrame.canvas, left, top, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+      return;
+    }
+    canvas.width = previewFrame.canvas.width;
+    canvas.height = previewFrame.canvas.height;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(previewFrame.canvas, 0, 0);
+  }, [boxes, previewFrame, zoomSubject]);
 
   const offsets = useMemo(() => {
     const basis = reference !== null ? frames : selectedFrames;
@@ -242,7 +290,8 @@ export default function FramesPage() {
   const previewBoxes = previewFrames.length > 0 ? boundsFor(previewFrames, offsets) : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-5">
+    <div className="scroll-thin flex-1 overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">抽帧台</h1>
@@ -290,22 +339,71 @@ export default function FramesPage() {
         </div>
 
         {videoUrl ? (
-          <div className="flex justify-center rounded-lg border border-edge/60 bg-black/60 p-1">
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            playsInline
-            crossOrigin="anonymous"
-            onLoadedMetadata={(event) => {
-              const video = event.currentTarget;
-              setDuration(Number.isFinite(video.duration) ? video.duration : 0);
-              setWidth(video.videoWidth);
-              setHeight(video.videoHeight);
+          <div
+            className="relative flex w-full items-center justify-center overflow-hidden rounded-lg border border-edge/60"
+            style={{
+              height: "min(46vh, 380px)",
+              // 透明处给棋盘格，抠背景以后才能一眼看出抠没抠干净
+              backgroundImage: "repeating-conic-gradient(#15181e 0% 25%, #0e1015 0% 50%)",
+              backgroundSize: "18px 18px",
             }}
-            className="max-h-60 max-w-full rounded object-contain"
-            data-frames-video
-          />
+            data-frames-stage
+          >
+            {/* 没抽帧时它就是播放器；抽完帧就退成取帧的源，把画面让给预览 canvas */}
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls={frames.length === 0}
+              playsInline
+              crossOrigin="anonymous"
+              onLoadedMetadata={(event) => {
+                const video = event.currentTarget;
+                setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+                setWidth(video.videoWidth);
+                setHeight(video.videoHeight);
+              }}
+              className={`h-full w-full object-contain ${frames.length > 0 ? "pointer-events-none opacity-0" : ""}`}
+              data-frames-video
+            />
+            {frames.length > 0 ? (
+              <canvas
+                ref={stageRef}
+                className="pointer-events-none absolute inset-0 m-auto h-auto w-auto max-h-full max-w-full object-contain"
+                data-frames-preview
+              />
+            ) : null}
+            {frames.length > 0 ? (
+              <div className="absolute right-2 top-2 flex gap-1 rounded-md bg-black/45 p-0.5" data-frames-zoom>
+                {[
+                  { value: true, label: "看主体" },
+                  { value: false, label: "整幅" },
+                ].map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => setZoomSubject(option.value)}
+                    data-zoom-mode={option.value ? "subject" : "frame"}
+                    className={`rounded px-2 py-0.5 text-[10px] transition ${
+                      zoomSubject === option.value ? "bg-accent/25 text-accentSoft" : "text-white/70 hover:text-white"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {frames.length > 0 ? (
+              <span
+                className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/65 px-2 py-1 text-[10px] text-white/85"
+                data-frames-preview-label
+              >
+                {hovered !== null && previewFrame
+                  ? `第 ${previewFrame.index + 1} 帧 · ${previewFrame.time.toFixed(3)} 秒`
+                  : previewFrame
+                    ? `第 ${previewFrame.index + 1} 帧（悬停帧条可逐帧看）`
+                    : "把鼠标移到帧条上预览"}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -382,6 +480,7 @@ export default function FramesPage() {
         <section className="panel flex flex-col gap-3 p-4" data-frames-strip>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xs font-medium text-ink">帧条</h2>
+            <span className="text-[10px] text-muted/70">悬停看大图 · 点击选中</span>
             <span className="text-[11px] text-muted" data-frames-count>
               已选 {selected.size} / 共 {frames.length}
             </span>
@@ -414,23 +513,35 @@ export default function FramesPage() {
             </button>
           </div>
 
-          <div className="grid max-h-[300px] grid-cols-6 gap-2 overflow-y-auto sm:grid-cols-8 md:grid-cols-10">
+          {/* 剪辑软件式的轨道：横向一条，格子够大能看清动作，悬停时上面的大画面同步预览 */}
+          <div
+            className="scroll-thin flex gap-2 overflow-x-auto pb-2"
+            data-frames-track
+            onMouseLeave={() => setHovered(null)}
+          >
             {frames.map((frame) => {
               const active = selected.has(frame.index);
+              const peeking = hovered === frame.index;
               return (
                 <button
                   key={frame.index}
                   type="button"
                   onClick={() => toggleFrame(frame.index)}
+                  onMouseEnter={() => setHovered(frame.index)}
+                  onFocus={() => setHovered(frame.index)}
                   data-frame-chip={frame.index}
                   data-selected={active ? "1" : "0"}
-                  title={`第 ${frame.index + 1} 帧 · ${frame.time.toFixed(2)} 秒`}
-                  className={`relative overflow-hidden rounded-md border transition ${
-                    active ? "border-accent/70 ring-1 ring-accent/40" : "border-edge/60 opacity-60 hover:opacity-100"
+                  title={`第 ${frame.index + 1} 帧 · ${frame.time.toFixed(3)} 秒（点击选中 / 取消）`}
+                  className={`relative w-[116px] shrink-0 overflow-hidden rounded-md border transition ${
+                    peeking
+                      ? "border-accent/80 ring-1 ring-accent/50"
+                      : active
+                        ? "border-accent/60"
+                        : "border-edge/60 opacity-75 hover:opacity-100"
                   }`}
                 >
-                  <FrameThumb frame={frame} />
-                  <span className="absolute inset-x-0 bottom-0 bg-black/55 py-0.5 text-center text-[9px] text-white/85">
+                  <FrameThumb frame={frame} box={zoomSubject ? boxes.get(frame.index) : undefined} />
+                  <span className="absolute left-1 top-1 rounded bg-black/65 px-1 text-[9px] text-white/85">
                     {frame.index + 1}
                   </span>
                   {active ? (
@@ -438,6 +549,9 @@ export default function FramesPage() {
                       ✓
                     </span>
                   ) : null}
+                  <span className="absolute inset-x-0 bottom-0 bg-black/60 py-0.5 text-center text-[9px] text-white/80">
+                    {frame.time.toFixed(2)}s
+                  </span>
                 </button>
               );
             })}
@@ -545,28 +659,56 @@ export default function FramesPage() {
         onPick={onPickVideo}
       />
 
-      <ToastStack items={toasts} onDismiss={dismissToast} />
+        <ToastStack items={toasts} onDismiss={dismissToast} />
+      </div>
     </div>
   );
 }
 
-function FrameThumb({ frame }: { frame: Frame }) {
+function FrameThumb({ frame, box }: { frame: Frame; box?: SubjectBox }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const size = 96;
-    canvas.width = size;
-    canvas.height = size;
+    const boxWidth = 116;
+    const boxHeight = 76;
+    canvas.width = boxWidth;
+    canvas.height = boxHeight;
     const context = canvas.getContext("2d");
     if (!context) return;
-    context.clearRect(0, 0, size, size);
-    const scale = Math.min(size / frame.canvas.width, size / frame.canvas.height);
+    context.clearRect(0, 0, boxWidth, boxHeight);
+    // 源视频里人往往只占中间一小条，缩略图跟着裁到主体，才看得出这一帧在做什么
+    if (box) {
+      const padX = Math.max(8, Math.round(box.width * 0.18));
+      const padY = Math.max(8, Math.round(box.height * 0.12));
+      const left = Math.max(0, box.left - padX);
+      const top = Math.max(0, box.top - padY);
+      const right = Math.min(frame.canvas.width, box.right + padX);
+      const bottom = Math.min(frame.canvas.height, box.bottom + padY);
+      const cropWidth = Math.max(1, right - left);
+      const cropHeight = Math.max(1, bottom - top);
+      const scale = Math.min(boxWidth / cropWidth, boxHeight / cropHeight);
+      const drawWidth = cropWidth * scale;
+      const drawHeight = cropHeight * scale;
+      context.drawImage(
+        frame.canvas,
+        left,
+        top,
+        cropWidth,
+        cropHeight,
+        (boxWidth - drawWidth) / 2,
+        (boxHeight - drawHeight) / 2,
+        drawWidth,
+        drawHeight,
+      );
+      return;
+    }
+    const scale = Math.min(boxWidth / frame.canvas.width, boxHeight / frame.canvas.height);
     const drawWidth = frame.canvas.width * scale;
     const drawHeight = frame.canvas.height * scale;
-    context.drawImage(frame.canvas, (size - drawWidth) / 2, (size - drawHeight) / 2, drawWidth, drawHeight);
-  }, [frame]);
-  return <canvas ref={ref} className="block h-[72px] w-full bg-[#0b0d10] object-cover" />;
+    context.drawImage(frame.canvas, (boxWidth - drawWidth) / 2, (boxHeight - drawHeight) / 2, drawWidth, drawHeight);
+  }, [box, frame]);
+  return <canvas ref={ref} className="block h-[76px] w-full bg-[#0b0d10]" />;
 }
 
 function AlignedThumb({ frame, offset, bounds }: { frame: Frame; offset: Offset; bounds: ReturnType<typeof boundsFor> }) {
@@ -574,7 +716,7 @@ function AlignedThumb({ frame, offset, bounds }: { frame: Frame; offset: Offset;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const size = 112;
+    const size = 96;
     canvas.width = size;
     canvas.height = size;
     const context = canvas.getContext("2d");
@@ -587,5 +729,5 @@ function AlignedThumb({ frame, offset, bounds }: { frame: Frame; offset: Offset;
     context.drawImage(frame.canvas, offset.dx - bounds.minX, offset.dy - bounds.minY);
     context.restore();
   }, [bounds, frame, offset]);
-  return <canvas ref={ref} className="block h-[112px] w-[112px]" />;
+  return <canvas ref={ref} className="block h-[96px] w-[96px]" />;
 }
