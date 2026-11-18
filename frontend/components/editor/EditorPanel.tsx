@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { exportSize, placementFor, rgbToHex, upscaleRatio, MIN_SUBJECT_PCT, MAX_SUBJECT_PCT } from "@/lib/editor";
 import type { EditorAnalysis, LocalEditSaved } from "@/lib/api";
@@ -21,7 +21,7 @@ type Props = {
   onReplace: () => void;
 };
 
-const PRESETS = [256, 512, 1024, 2048];
+const PRESETS = [256, 512, 720, 1024, 2048];
 const EXPORT_SCALES = [1, 2, 4];
 
 function Section({ id, title, children, hint }: { id?: string; title: string; children: ReactNode; hint?: string }) {
@@ -48,6 +48,12 @@ function Row({ label, children, suffix }: { label: string; children: ReactNode; 
   );
 }
 
+/**
+ * 数字输入框：打字期间只更新框里的草稿，失焦或回车才提交。
+ *
+ * 之前每敲一个字符就写回 store，而 store 会把小于 16 的值提成 16 —— 想输 720，
+ * 敲下「7」的瞬间框里就变成 16，再敲「2」拼成 162，永远输不进去。
+ */
 function NumberBox({
   value,
   onChange,
@@ -61,17 +67,43 @@ function NumberBox({
   max: number;
   width?: string;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (Number.isFinite(value) ? String(Math.round(value)) : "0");
+
+  const commit = () => {
+    if (draft === null) {
+      return;
+    }
+    const raw = draft.trim();
+    setDraft(null);
+    if (raw === "") {
+      return;
+    }
+    const next = Number(raw);
+    if (Number.isFinite(next)) {
+      onChange(next);
+    }
+  };
+
   return (
     <input
       type="number"
       className={`${width} rounded-md border border-edge bg-surface2 px-2 py-1 text-right text-[12px] text-ink tabular-nums outline-none focus:border-accent/60`}
-      value={Number.isFinite(value) ? Math.round(value) : 0}
+      value={shown}
       min={min}
       max={max}
-      onChange={(event) => {
-        const next = Number(event.target.value);
-        if (Number.isFinite(next)) {
-          onChange(next);
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+          event.currentTarget.blur();
+          return;
+        }
+        if (event.key === "Escape") {
+          setDraft(null);
+          event.currentTarget.blur();
         }
       }}
     />
