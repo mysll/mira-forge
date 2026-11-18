@@ -50,8 +50,41 @@ def test_crouch_replaces_the_retired_falling_action(client: TestClient) -> None:
     items = _items(client)
     assert [item["label"] for item in items][:6] == ["待机", "走路", "跑步", "攻击", "跳跃", "下蹲"]
     crouch = next(item for item in items if item["label"] == "下蹲")
-    assert "low crouch on the spot" in crouch["prompt"]
+    # 参考死亡细胞那种警戒蹲：单脚后退半步撑住、单手撑地、目视前方、随时能起
+    assert "low, alert fighting crouch" in crouch["prompt"]
+    assert "back foot slides back half a step" in crouch["prompt"]
+    assert "plants flat on the floor" in crouch["prompt"]
+    assert "eyes keep looking straight ahead" in crouch["prompt"]
+    # 蹲到底会让人物变矮，必须写死「远景 + 全身始终在框内」，否则模型会把镜头拉近、头顶被裁
+    assert "wide shot from a distance" in crouch["prompt"]
+    assert "empty space above the head and below the feet" in crouch["prompt"]
     assert "same ground point" in crouch["prompt"]
+
+
+def test_upgrade_rewrites_the_first_crouch_wording(client: TestClient) -> None:
+    """第一版「下蹲」只写了蹲住不动，启动时要换成四帧过程版（用户改过的不动）。"""
+    from app.models.database import SessionLocal
+    from app.models.prompt_template import PromptTemplate
+    from app.services.prompt_template_service import _COMMON, _SUPERSEDED_ACTIONS, upgrade_defaults
+
+    db = SessionLocal()
+    try:
+        row = db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one()
+        row.prompt = f"{_SUPERSEDED_ACTIONS['下蹲'][0]}, {_COMMON}."
+        db.commit()
+
+        # 三稿历史里每一稿都要能升级到现在这一版
+        for older in _SUPERSEDED_ACTIONS["下蹲"]:
+            refreshed = db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one()
+            refreshed.prompt = f"{older}, {_COMMON}."
+            db.commit()
+            assert upgrade_defaults(db) == 1
+            assert "alert fighting crouch" in (
+                db.query(PromptTemplate).filter(PromptTemplate.label == "下蹲").one().prompt
+            )
+        assert upgrade_defaults(db) == 0
+    finally:
+        db.close()
 
 
 def test_upgrade_drops_the_untouched_falling_row_and_adds_crouch(client: TestClient) -> None:

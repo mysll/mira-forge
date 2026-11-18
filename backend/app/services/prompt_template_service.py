@@ -29,6 +29,38 @@ def _template(label: str, action: str) -> dict[str, str]:
     return {"label": label, "prompt": f"{action}, {_COMMON}."}
 
 
+# 「下蹲」改过三稿：第一稿只写蹲住不动；第二稿写成四帧过程但没有取景约束，模型把镜头拉近、
+# 头顶被裁；现在这一稿是「后退半步 + 单手撑地 + 目视前方」的警戒蹲。历史措辞留在这里，
+# 只用来认出「没被用户改过」的旧行并换掉。
+_CROUCH_V1 = (
+    "A character dropping into a low crouch on the spot: knees bend, hips sink, torso leans slightly forward, "
+    "arms drawn in, then holds the crouched pose with both feet flat on the same ground point, no hop and no "
+    "sideways shift"
+)
+_CROUCH_V2 = (
+    "A character dropping from a standing pose into a very low crouch on the spot, read as four frames: "
+    "standing with the arms loose, then the knees bending and the hips sinking, then the torso folding forward "
+    "over the thighs with one leg tucked under the body, and finally a low compact crouch close to the ground "
+    "with the hands near the floor and the head just above them, the character keeps facing right and both feet "
+    "stay on the same ground point, no hop, no slide and no sideways shift"
+)
+_CROUCH_V3 = (
+    _CROUCH_V2
+    + ", wide shot from a distance: the whole body from head to feet stays inside the frame with empty space above "
+    "the head and below the feet at every moment, including the lowest crouch, the camera does not move closer "
+    "as the character goes down"
+)
+_CROUCH = (
+    "A character dropping into a low, alert fighting crouch on the spot: the front foot stays planted while the "
+    "back foot slides back half a step to brace the body, both knees bend deep and the hips sink, one hand reaches "
+    "down and plants flat on the floor next to the front foot to support the weight, the other arm is kept up and "
+    "ready, the head stays up and the eyes keep looking straight ahead to the right, the character holds this "
+    "coiled crouch, alert and ready to spring, the front foot and the planted hand stay on the same ground points, "
+    "no hop, no slide and no sideways drift, wide shot from a distance: the whole body from the top of the head "
+    "down to the planted hand and both feet stays inside the frame with empty space above the head and below "
+    "the feet at every moment, the camera does not move closer as the character goes down"
+)
+
 DEFAULT_TEMPLATES: list[dict[str, str]] = [
     _template(
         "待机",
@@ -55,12 +87,7 @@ DEFAULT_TEMPLATES: list[dict[str, str]] = [
         "tucked, then lands on the exact same ground point, a single vertical hop that keeps the same horizontal "
         "position from the first frame to the last, nothing moves left or right",
     ),
-    _template(
-        "下蹲",
-        "A character dropping into a low crouch on the spot: knees bend, hips sink, torso leans slightly forward, "
-        "arms drawn in, then holds the crouched pose with both feet flat on the same ground point, no hop and no "
-        "sideways shift",
-    ),
+    _template("下蹲", _CROUCH),
     _template(
         "受伤",
         "A character taking a hit, flinching backward, head snapping back, a brief stagger, then returning to the "
@@ -113,6 +140,13 @@ _RETIRED_DEFAULTS: dict[str, tuple[str, ...]] = {
 _RETIRED_REPLACEMENTS: dict[str, str | None] = {"下落": "下蹲"}
 
 
+# 已经改过措辞的默认动作（同一个名字，更早的默认文案）：没被用户改过就换成现在这一版。
+# 「下蹲」的三稿历史见上面的 _CROUCH_V1..V3：认得出、就换成现在这一版。
+_SUPERSEDED_ACTIONS: dict[str, tuple[str, ...]] = {
+    "下蹲": (_CROUCH_V1, _CROUCH_V2, _CROUCH_V3),
+}
+
+
 class TemplateError(ValueError):
     """模板内容不合法。"""
 
@@ -158,9 +192,18 @@ def upgrade_defaults(db: Session) -> int:
     retired = _retired_prompts()
     rows = list(db.scalars(select(PromptTemplate)))
 
+    superseded = {
+        label: {f"{action}, {_COMMON}." for action in actions}
+        for label, actions in _SUPERSEDED_ACTIONS.items()
+    }
     updated = 0
     dropped: list[PromptTemplate] = []
     for row in rows:
+        older = superseded.get(row.label)
+        if older is not None and row.prompt in older and current.get(row.label) != row.prompt:
+            row.prompt = current[row.label]
+            updated += 1
+            continue
         expected = legacy.get(row.label)
         if expected is not None and row.prompt == expected and current.get(row.label) != row.prompt:
             row.prompt = current[row.label]
