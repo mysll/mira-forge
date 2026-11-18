@@ -1,4 +1,4 @@
-"""视频提示词模板：默认值、增删改、恢复默认。"""
+"""视频提示词模板：默认值、增删改、恢复默认、旧默认文案的升级。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,17 @@ def test_defaults_describe_side_view_actions(client: TestClient) -> None:
         assert "side view" in item["prompt"]
         assert "facing right" in item["prompt"]
         assert "fixed camera" in item["prompt"]
-        assert "stays in the exact same spot" in item["prompt"]
+        assert "anchored to the same spot" in item["prompt"]
+        assert "horizontal position of the body does not change" in item["prompt"]
+
+
+def test_jump_prompt_forbids_travelling(client: TestClient) -> None:
+    """跳跃最容易跑偏：提示词里必须明确「原地起跳 + 落回同一点 + 不左右移动」。"""
+    jump = next(item for item in _items(client) if item["label"] == "跳跃")
+    prompt = jump["prompt"]
+    assert "jumping vertically on the spot" in prompt
+    assert "lands on the exact same ground point" in prompt
+    assert "nothing moves left or right" in prompt
 
 
 def test_create_appends_and_can_be_edited(client: TestClient) -> None:
@@ -104,3 +114,33 @@ def test_reset_restores_the_defaults(client: TestClient) -> None:
     labels = [item["label"] for item in response.json()["items"]]
     assert labels[:3] == ["待机", "走路", "跑步"]
     assert len(labels) == 9
+
+
+def test_upgrade_rewrites_untouched_defaults_only(client: TestClient) -> None:
+    """启动时的升级只换「逐字等于旧默认」的行，用户改过的不能碰。"""
+    from app.models.database import SessionLocal
+    from app.models.prompt_template import PromptTemplate
+    from app.services.prompt_template_service import (
+        _OLD_COMMON,
+        _PREVIOUS_DEFAULTS,
+        upgrade_defaults,
+    )
+
+    legacy = {item["label"]: f"{item['action']}, {_OLD_COMMON}." for item in _PREVIOUS_DEFAULTS}
+    db = SessionLocal()
+    try:
+        rows = list(db.query(PromptTemplate).order_by(PromptTemplate.sort_order).all())
+        assert len(rows) >= 2
+        rows[0].prompt = legacy[rows[0].label]
+        rows[1].prompt = "A character doing something of my own"
+        db.commit()
+
+        assert upgrade_defaults(db) == 1
+        refreshed = {row.label: row.prompt for row in db.query(PromptTemplate).all()}
+        assert refreshed[rows[0].label] != legacy[rows[0].label]
+        assert "anchored to the same spot" in refreshed[rows[0].label]
+        assert refreshed[rows[1].label] == "A character doing something of my own"
+        # 已经是最新的行不会重复计数
+        assert upgrade_defaults(db) == 0
+    finally:
+        db.close()

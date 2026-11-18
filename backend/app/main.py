@@ -17,7 +17,10 @@ from app.core.migrations import upgrade_to_head
 from app.core.projects import active_project, ensure_catalog, list_projects
 from app.models.database import session_for
 from app.services.generation_service import reset_interrupted_tasks
-from app.services.prompt_template_service import seed_defaults as seed_prompt_templates
+from app.services.prompt_template_service import (
+    seed_defaults as seed_prompt_templates,
+    upgrade_defaults as upgrade_prompt_templates,
+)
 from app.services.recycle_service import purge_expired
 from app.services.workflow_service import sync_workflows
 from app.workers.generation_worker import start_worker, stop_worker
@@ -46,6 +49,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             recovered = reset_interrupted_tasks(db)
             # 回收站里超过 30 天的产物在启动时清掉，不依赖常驻定时器
             purged = purge_expired(db)
+            upgraded = upgrade_prompt_templates(db)
+            if upgraded:
+                logger.info("项目 %s：%s 条默认动作模板更新为更强的定点约束", item.name, upgraded)
             seeded = seed_prompt_templates(db)
             if seeded:
                 logger.info("项目 %s：补齐 %s 条默认视频提示词模板", item.name, seeded)
