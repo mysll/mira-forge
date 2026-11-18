@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export type MaskEditorResult = {
   /** 灰度 PNG：白色 = 要重绘 */
@@ -300,13 +301,15 @@ export default function MaskEditor({
     }
   };
 
-  if (!open) {
+  if (!open || typeof document === "undefined") {
     return null;
   }
 
-  return (
+  // 挂到 body 上：创作框等祖先带 backdrop-filter / transform，会成为 fixed 的包含块，
+  // 直接渲染在组件树里会让整层跟着祖先一起偏移。
+  return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/75 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       onMouseDown={(event) => {
@@ -422,6 +425,7 @@ export default function MaskEditor({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

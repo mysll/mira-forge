@@ -362,9 +362,14 @@ export default function Composer({ models, onToast }: Props) {
         {/* 输入区 + 参考图 */}
         <div className="flex items-start gap-2">
           {mode === "image_edit" ? (
-            <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-start gap-1.5">
               {reference.items.map((item, index) => (
-                <div key={item.key} className="relative" data-slot title={item.name}>
+                <div
+                  key={item.key}
+                  className="group/slot relative flex flex-col items-center gap-1"
+                  data-slot
+                  title={item.name}
+                >
                   <div className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -401,12 +406,15 @@ export default function Composer({ models, onToast }: Props) {
                     >
                       ×
                     </button>
+                  </div>
+                  <div className="flex h-[14px] items-center gap-1 whitespace-nowrap text-[9px] leading-none">
+                    <span className="text-muted/70">{index === 0 ? "结构" : "参考"}</span>
                     {index === 0 ? (
                       <button
                         type="button"
                         onClick={() => setMaskEditing(true)}
                         title="画遮罩：只有涂到的地方会被重绘"
-                        className="absolute bottom-0 left-0 hidden items-center gap-0.5 bg-black/70 px-1 py-0.5 text-[9px] text-white group-hover:flex"
+                        className="hidden items-center gap-0.5 rounded bg-surface2 px-1 py-[1px] text-[9px] text-accentSoft transition hover:bg-accent/15 group-hover/slot:inline-flex"
                         data-mask-button
                       >
                         <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" aria-hidden>
@@ -421,9 +429,6 @@ export default function Composer({ models, onToast }: Props) {
                       </button>
                     ) : null}
                   </div>
-                  <span className="absolute -bottom-4 left-0 text-[9px] text-muted/70">
-                    {index === 0 ? "结构" : "参考"}
-                  </span>
                   <SlotMenu
                     open={slotMenu?.kind === "edit" && slotMenu.index === index}
                     onUpload={() => {
@@ -440,7 +445,7 @@ export default function Composer({ models, onToast }: Props) {
               ))}
               {mask ? (
                 <div
-                  className="relative"
+                  className="group/slot relative flex flex-col items-center gap-1"
                   data-slot
                   data-mask-slot
                   title={`遮罩 ${mask.width}×${mask.height}：只有涂过的地方会被重绘`}
@@ -472,13 +477,13 @@ export default function Composer({ models, onToast }: Props) {
                       ×
                     </button>
                   </div>
-                  <span className="absolute -bottom-4 left-0 text-[9px] text-accentSoft/80">
+                  <div className="flex h-[14px] items-center whitespace-nowrap text-[9px] leading-none text-accentSoft/80">
                     遮罩
-                  </span>
+                  </div>
                 </div>
               ) : null}
               {reference.items.length < MAX_EDIT_REFS ? (
-                <div className="relative" data-slot>
+                <div className="relative flex flex-col items-center gap-1" data-slot>
                   <button
                     type="button"
                     onClick={() =>
@@ -506,6 +511,9 @@ export default function Composer({ models, onToast }: Props) {
                       {reference.items.length === 0 ? "参考图" : "再 1 张?"}
                     </span>
                   </button>
+                  <div className="h-[14px] whitespace-nowrap text-[9px] leading-none text-muted/40">
+                    {reference.items.length === 0 ? "第 1 张" : "可选"}
+                  </div>
                   <SlotMenu
                     open={slotMenu?.kind === "edit" && slotMenu.index === reference.items.length}
                     onUpload={() => {
