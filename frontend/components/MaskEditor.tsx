@@ -8,6 +8,44 @@ const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 4;
 const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
 
+/** 一笔的落点：撤销以「一笔」为单位，而不是逐像素 */
+type StrokePoint = { x: number; y: number };
+
+type Stroke = {
+  tool: "brush" | "erase";
+  shape: "soft" | "square";
+  size: number;
+  points: StrokePoint[];
+};
+
+/** 撤销栈里存的是「这一笔之前的整张画布」：笔迹列表 + 载入的底图 */
+type Snapshot = {
+  strokes: Stroke[];
+  base: HTMLCanvasElement | null;
+};
+
+/** 一笔之内相邻两点之间按笔刷宽度插值盖章；撤销重放也走这里 */
+const drawSegment = (
+  context: CanvasRenderingContext2D,
+  brush: HTMLCanvasElement,
+  erase: boolean,
+  from: StrokePoint,
+  to: StrokePoint,
+) => {
+  const radius = brush.width / 2;
+  context.save();
+  context.globalCompositeOperation = erase ? "destination-out" : "source-over";
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  const step = Math.max(1, brush.width * 0.18);
+  const count = Math.max(1, Math.ceil(distance / step));
+  for (let index = 1; index <= count; index += 1) {
+    const x = from.x + ((to.x - from.x) * index) / count;
+    const y = from.y + ((to.y - from.y) * index) / count;
+    context.drawImage(brush, x - radius, y - radius);
+  }
+  context.restore();
+};
+
 export type MaskEditorResult = {
   /** 灰度 PNG：白色 = 要重绘 */
   file: File;
@@ -54,6 +92,14 @@ export default function MaskEditor({
   });
   const brushRef = useRef<HTMLCanvasElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  // 撤销/重做：画布内容 = 底图（打开时载入的旧遮罩）+ 笔迹列表
+  const strokesRef = useRef<Stroke[]>([]);
+  const baseRef = useRef<HTMLCanvasElement | null>(null);
+  const undoRef = useRef<Snapshot[]>([]);
+  const redoRef = useRef<Snapshot[]>([]);
+  const activeStrokeRef = useRef<Stroke | null>(null);
+  const pendingRef = useRef<Snapshot | null>(null);
+  const [, bumpHistory] = useState(0);
 
   const [size, setSize] = useState(48);
   const [tool, setTool] = useState<"brush" | "erase">("brush");
@@ -275,6 +321,11 @@ export default function MaskEditor({
       imageContext?.drawImage(image, 0, 0);
       const maskContext = maskCanvas.getContext("2d");
       maskContext?.clearRect(0, 0, width, height);
+      strokesRef.current = [];
+      baseRef.current = null;
+      undoRef.current = [];
+      redoRef.current = [];
+      bumpHistory((value) => value + 1);
 
       if (!initialMaskUrl) {
         setReady(true);
@@ -296,6 +347,12 @@ export default function MaskEditor({
           context.drawImage(mask, 0, 0, width, height);
           context.restore();
         }
+        // 载入的旧遮罩当作底图：之后的撤销只回退这次新画的笔迹
+        const base = document.createElement("canvas");
+        base.width = width;
+        base.height = height;
+        base.getContext("2d")?.drawImage(maskCanvas, 0, 0);
+        baseRef.current = base;
         setReady(true);
       };
       mask.onerror = () => setReady(true);
@@ -307,19 +364,6 @@ export default function MaskEditor({
       cancelled = true;
     };
   }, [open, imageUrl, initialMaskUrl, fitToView]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, busy, onClose]);
 
   const pointToImage = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = maskCanvasRef.current;
@@ -334,26 +378,99 @@ export default function MaskEditor({
     };
   };
 
-  const stamp = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+  const stamp = (from: StrokePoint, to: StrokePoint) => {
     const canvas = maskCanvasRef.current;
     const context = canvas?.getContext("2d");
     const brush = brushRef.current;
     if (!canvas || !context || !brush) {
       return;
     }
-    const radius = brush.width / 2;
-    context.save();
-    context.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
-    const distance = Math.hypot(to.x - from.x, to.y - from.y);
-    const step = Math.max(1, brush.width * 0.18);
-    const count = Math.max(1, Math.ceil(distance / step));
-    for (let index = 1; index <= count; index += 1) {
-      const x = from.x + ((to.x - from.x) * index) / count;
-      const y = from.y + ((to.y - from.y) * index) / count;
-      context.drawImage(brush, x - radius, y - radius);
-    }
-    context.restore();
+    drawSegment(context, brush, tool === "erase", from, to);
   };
+
+  /** 重画整张遮罩：底图 + 逐笔重放（撤销/重做都走这里） */
+  const repaint = useCallback(() => {
+    const canvas = maskCanvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) {
+      return;
+    }
+    const { width, height } = sizeRef.current;
+    context.clearRect(0, 0, width, height);
+    if (baseRef.current) {
+      context.drawImage(baseRef.current, 0, 0);
+    }
+    for (const stroke of strokesRef.current) {
+      const brush = buildBrush(stroke.size, stroke.shape);
+      if (!brush) {
+        continue;
+      }
+      // 起笔那一下也要盖章，否则重放会比原来少一个圆点
+      drawSegment(context, brush, stroke.tool === "erase", stroke.points[0], stroke.points[0]);
+      for (let index = 1; index < stroke.points.length; index += 1) {
+        drawSegment(context, brush, stroke.tool === "erase", stroke.points[index - 1], stroke.points[index]);
+      }
+    }
+  }, [buildBrush]);
+
+  const restore = useCallback(
+    (snapshot: Snapshot) => {
+      strokesRef.current = snapshot.strokes;
+      baseRef.current = snapshot.base;
+      repaint();
+      bumpHistory((value) => value + 1);
+    },
+    [repaint],
+  );
+
+  const undo = useCallback(() => {
+    const snapshot = undoRef.current.pop();
+    if (!snapshot) {
+      return;
+    }
+    redoRef.current.push({ strokes: strokesRef.current, base: baseRef.current });
+    restore(snapshot);
+  }, [restore]);
+
+  const redo = useCallback(() => {
+    const snapshot = redoRef.current.pop();
+    if (!snapshot) {
+      return;
+    }
+    undoRef.current.push({ strokes: strokesRef.current, base: baseRef.current });
+    restore(snapshot);
+  }, [restore]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        onClose();
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+      if (key === "y") {
+        event.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, busy, onClose, undo, redo]);
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready) {
@@ -377,6 +494,8 @@ export default function MaskEditor({
     if (!point) {
       return;
     }
+    activeStrokeRef.current = { tool, shape: brushShape, size, points: [point] };
+    pendingRef.current = { strokes: strokesRef.current, base: baseRef.current };
     drawingRef.current = { active: true, last: point };
     stamp(point, point);
   };
@@ -400,10 +519,21 @@ export default function MaskEditor({
       return;
     }
     stamp(state.last, point);
+    activeStrokeRef.current?.points.push(point);
     state.last = point;
   };
 
   const endStroke = () => {
+    const stroke = activeStrokeRef.current;
+    const pending = pendingRef.current;
+    if (stroke && pending) {
+      strokesRef.current = [...pending.strokes, stroke];
+      undoRef.current.push(pending);
+      redoRef.current = [];
+      bumpHistory((value) => value + 1);
+    }
+    activeStrokeRef.current = null;
+    pendingRef.current = null;
     drawingRef.current = { active: false, last: null };
     panRef.current.active = false;
     setPanning(false);
@@ -415,7 +545,15 @@ export default function MaskEditor({
     if (!canvas || !context) {
       return;
     }
+    if (!strokesRef.current.length && !baseRef.current) {
+      return;
+    }
+    undoRef.current.push({ strokes: strokesRef.current, base: baseRef.current });
+    redoRef.current = [];
+    strokesRef.current = [];
+    baseRef.current = null;
     context.clearRect(0, 0, canvas.width, canvas.height);
+    bumpHistory((value) => value + 1);
   };
 
   const apply = async () => {
@@ -578,6 +716,28 @@ export default function MaskEditor({
               />
               <span className="w-8 tabular-nums text-ink/70">{size}</span>
             </label>
+            <div className="flex overflow-hidden rounded-lg border border-edge">
+              <button
+                type="button"
+                onClick={undo}
+                disabled={undoRef.current.length === 0}
+                className="px-2.5 py-1 text-[11px] text-ink/90 transition hover:bg-surface2 disabled:cursor-not-allowed disabled:text-muted/40"
+                title="撤销（Ctrl+Z）"
+                data-mask-undo
+              >
+                撤销
+              </button>
+              <button
+                type="button"
+                onClick={redo}
+                disabled={redoRef.current.length === 0}
+                className="border-l border-edge px-2.5 py-1 text-[11px] text-ink/90 transition hover:bg-surface2 disabled:cursor-not-allowed disabled:text-muted/40"
+                title="重做（Ctrl+Shift+Z）"
+                data-mask-redo
+              >
+                重做
+              </button>
+            </div>
             <button
               type="button"
               onClick={clearMask}

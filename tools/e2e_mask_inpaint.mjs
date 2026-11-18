@@ -200,6 +200,31 @@ const painted = await evaluate(`(() => {
   return { width: canvas.width, height: canvas.height, covered, ratio: +(covered / (canvas.width * canvas.height)).toFixed(4) };
 })()`);
 
+// 撤销 / 重做：这一笔必须能被撤掉，再重做回来（按整张画布的 alpha>8 计数）
+const countPainted = `(() => {
+  const canvas = document.querySelector("[data-mask-canvas]");
+  const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+  let covered = 0;
+  for (let offset = 3; offset < data.length; offset += 4) {
+    if (data[offset] > 8) covered += 1;
+  }
+  return covered;
+})()`;
+const undoState = await evaluate(`(() => {
+  const undo = document.querySelector("[data-mask-undo]");
+  const redo = document.querySelector("[data-mask-redo]");
+  return { canUndo: !!undo && !undo.disabled, canRedo: !!redo && !redo.disabled };
+})()`);
+await evaluate(`document.querySelector("[data-mask-undo]").click()`);
+await sleep(250);
+const afterUndo = await evaluate(countPainted);
+await evaluate(`document.querySelector("[data-mask-redo]").click()`);
+await sleep(250);
+const afterRedo = await evaluate(countPainted);
+if (!(undoState.canUndo && afterUndo === 0 && afterRedo === painted.covered)) {
+  throw new Error(`撤销/重做不对：${JSON.stringify({ undoState, painted: painted.covered, afterUndo, afterRedo })}`);
+}
+
 // 应用遮罩
 const applied = await evaluate(`(() => {
   const button = [...document.querySelectorAll("button")].find((node) => node.textContent?.trim() === "应用遮罩");
@@ -263,7 +288,7 @@ if (!has("no-submit")) {
 
 console.log(
   JSON.stringify(
-    { imagePath, maskButton, painted, applied, slotState, submitted },
+    { imagePath, maskButton, painted, undo: { ...undoState, afterUndo, afterRedo }, applied, slotState, submitted },
     null,
     2,
   ),
