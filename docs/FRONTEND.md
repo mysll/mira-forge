@@ -2,14 +2,15 @@
 
 一期前端只有一个目的：**让「看图 → 改图 → 再生成」这件事不离开同一个屏幕**。因此它不是表单页 + 画廊页的组合，而是一个两栏工作台：左边一条 72px 的图标导航，右边是内容区。
 
-导航七项，用两条细分隔线分成三组：**首页 / 资产 / 工具 / 回收站 ‖ 图片 / 视频 ‖ 设置**，默认落地页是首页。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。视频是独立的一页，而不是图片创作框的第三个 Tab：它的参数面（首帧 / 尾帧、时长、画幅档、音频）和图片几乎不重叠，混在一起会让那个框变成四组条件分支。工具是**不吃 GPU 的本地处理**，与生成流程完全分开；回收站紧挨着工具，因为它是「删除」的撤销入口，和创作无关。
+导航八项，用两条细分隔线分成三组：**首页 / 资产 / 工具 / 抽帧台 / 回收站 ‖ 图片 / 视频 ‖ 设置**，默认落地页是首页。文生图和图片编辑合并成「图片」——它们本来就是同一个创作框的两个模式，分成两个入口只会让人来回找。视频是独立的一页，而不是图片创作框的第三个 Tab：它的参数面（首帧 / 尾帧、时长、画幅档、音频）和图片几乎不重叠，混在一起会让那个框变成四组条件分支。工具是**不吃 GPU 的本地处理**，与生成流程完全分开；回收站紧挨着工具，因为它是「删除」的撤销入口，和创作无关。
 
 | 页面 | 路径 | 做什么 |
 | --- | --- | --- |
 | 首页 | `/` | 落地页：两个创作入口（生成图片 / 生成视频）、本机设备与显存状态、最近作品、模型卡、灵感提示词 |
 | 资产 | `/gallery` | 纯浏览：响应式网格，按日期分组、按生成时间从新到旧；hover 里有「本地编辑」直达编辑器 |
-| 工具 | `/tools` | 工具目录：卡片网格，已有「图片编辑器」「序列帧工坊」，其余是计划中的占位卡 |
+| 工具 | `/tools` | 工具目录：卡片网格，已有「图片编辑器」「序列帧工坊」「抽帧台」，其余是计划中的占位卡 |
 | 图片编辑器 | `/tools/editor` | 本地图片编辑器：抠背景、改画布尺寸、主体等比缩放、指定底边留白，导出 PNG 或**保存到资产** |
+| 抽帧台 | `/tools/frames` | 视频抽序列帧：选视频 → 定帧率 / 起始秒 / 上限 → 可选**抠背景**（容差 0–96）→ 勾选要的帧 → 对齐（不对齐 / 锁水平 / 锁垂直 / 都锁，参考帧可选）→ 导出 ZIP 存成「帧集」资产 |
 | 序列帧工坊 | `/tools/spriteforge` | **原版 SpriteForge 就地改造后内嵌**（同一文档、非 iframe）：序列帧播放预览、编辑轨道、多序列、分页导出都是上游实现。上游四个导入按钮现在都先弹「从本机上传 / 从资产选」，导出弹层多一个「保存到资产」（直接进素材）；`?video=<id>` / `?asset=<id>` 深链自动载入。全部在浏览器里完成，不经过后端。页面不再叠标题栏，回工具走左侧栏 |
 | 回收站 | `/trash` | 撤销删除的地方：被删的图片 / 视频 / 素材按删除时间倒序列出，每件显示「还剩 N 天」，可以「恢复」或「彻底删除」，右上角「清空回收站」一次性删文件 |
 | 图片 | `/compose` | 创作：批次流的作品 + 底部悬浮创作框（默认文生图，可在框内切编辑） |
@@ -71,12 +72,15 @@
 | `app/tools/editor/page.tsx` | 编辑器页：从 `window.location.search` 读 `?image=<id>`（不用 `useSearchParams`，避开静态预渲染 bailout）、五个动作（抠底 / 裁边 / 贴合主体 / 导出 / 保存到资产）、空态与 Toast；导出与保存共用 `renderCanvas()`，保存成功后导出区块显示批次号 |
 | `components/editor/EditorCanvas.tsx` | 画布舞台：棋盘格底、`ResizeObserver` 算「适应窗口」缩放（小画布可放大到 8 倍）、指针拖拽改底边留白与水平偏移、顶部状态条同时显示「画布」与「导出」两种尺寸；预览按 `缩放 × devicePixelRatio` 重绘（最高 4×），放大查看时用的是原图细节而不是把成品放大 |
 | `components/editor/EditorPanel.tsx` | 右侧面板：画布（预设 256² / 512² / 720² / 1024² / 2048²；宽高数字框**打字期间只改草稿，失焦或回车才提交**，否则每敲一个字符就被 store 的最小值 16 改写，720 根本输不进去）/ 主体 / 抠背景（模式、容差 0–48、羽化、去杂点；容差量的是逐通道最大差 0–255，后端给的建议值只到 48，所以滑条就停在 48——再往上只会连主体一起啃、还把有用区间挤在滑条前 1/4；检测到「被主体包住的同色块」时直接提示切 `color`，切过去还会把容差收到 12 免得吃掉主体）/ 导出（倍率）四个区块，带撤销重做；区块有 `id`，左侧工具栏靠它 `scrollIntoView` |
+| `app/tools/frames/page.tsx` | 抽帧台：帧率 / 起始秒 / 上限、抠背景开关 + 容差、帧条（勾选 / 全选 / 反选）、对齐方式与参考帧、导出并保存 |
+| `lib/frames.ts` | 抽帧的像素活：`extractFrames`（seek 逐帧 `drawImage`）、`keyOutBackground`（四角中位数取底色 + 欧氏距离）、`measureSubject`（bbox + 加权质心，抠没抠背景都能量）、`computeOffsets`、`boundsFor` / `renderAligned` |
+| `lib/zip.ts` | 最小 ZIP 打包器（store-only + CRC32）：PNG 已经压过，再套 deflate 收益不到 1% |
 | `app/tools/spriteforge/page.tsx` | 序列帧工坊页：`fetch` 三件套 → `DOMParser` 注入 body 标记 → 挂 `tool.css` → `(0, eval)` → `MiraSpriteForge.boot()`；提供 `window.MiraForgeToolBridge`（`chooseSource` 弹「本机 / 资产」两项菜单、`saveAsset` 上传素材）与 `?video=` / `?asset=` 深链；工具自己的顶栏已含品牌与导入导出，这里不再叠标题 |
 | `public/tools/spriteforge/{index.html,app.js,tool.css,README.md}` | 原版 Vendor 副本（唯一来源，不再有同步脚本）：`README.md` 记着相对上游的三处改动——启动改由 `boot()` 触发（避免 TDZ）、四个导入入口走 `requestImport()`（本机 / 资产二选一）、导出弹层多「保存到资产」；抠像容差滑条收到 0–96（欧氏距离 0–441，实测本机绿幕素材背景噪声 ≤24、主体边缘从 ~32 起，96 够吃软边又不至于没法微调）；`tool.css` 是所有选择器都加了 `.sf-app` 前缀的那份 |
 | `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene(ctx, input, scale)`、`exportSize()`（画布 × 倍率，最长边上限 8192）、`upscaleRatio()`（超出原图像素时给警告）、分级降采样绘制、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
 | `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、导出倍率（1×/2×/4×，不进撤销栈）、撤销重做栈（只记参数，抠底有独立「还原」） |
 | `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现 |
-| `components/Sidebar.tsx` | 图标导航：首页 `/` / 资产 `/gallery` / 工具 `/tools` / 回收站 `/trash` / 图片 `/compose` / 视频 `/video` / 设置 `/settings`，`divider: true` 的项上方画一条细线 |
+| `components/Sidebar.tsx` | 图标导航：首页 `/` / 资产 `/gallery` / 工具 `/tools` / **抽帧台 `/tools/frames`** / 回收站 `/trash` / 图片 `/compose` / 视频 `/video` / 设置 `/settings`，`divider: true` 的项上方画一条细线 |
 | `app/trash/page.tsx` | 回收站页：`fetchRecycleBin({media})` 拉列表，「恢复」走 `POST /recycle-bin/restore`、单件「彻底删除」走 `DELETE /recycle-bin/{id}`、「清空回收站」走 `POST /recycle-bin/clear`；卡片显示缩略图、类型徽标、「还剩 N 天」（≤3 天转危险色）、删除时间与尺寸；两个动作都过一次 `ConfirmDialog`，成功后 invalidate `["recycle-bin"]` / `["generations"]` / `["images"]`，回到作品流立刻能看到恢复的图 |
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
 | `components/TopBar.tsx` | 标题与计数（`title` / `countText`）、搜索、日期、模型、仅收藏、网格/列表切换（`viewToggle={false}` 时隐藏）、右侧插槽 `actions`（管理按钮） |

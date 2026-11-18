@@ -544,7 +544,7 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 
 错误：后缀不在白名单 → 422 `素材只支持 PNG / JPEG / WebP / JSON / ZIP，收到 .txt`；空文件 → 422 `素材内容为空`；过大 → 422 `素材不能超过 64 MB，收到 65.0 MB`。
 
-素材落盘在 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`，和 `images/`、`videos/` 同级。
+素材落盘在 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`，和 `images/`、`videos/`、`frames/` 同级。
 
 ### `PUT /assets/{image_id}`
 
@@ -561,6 +561,30 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 ```
 
 **什么时候用哪条**：资产里点「在序列帧工坊打开」（`?asset=<id>`）或从工坊里「从资产选」图集 → 这条会话绑定该素材，导出弹层的按钮变成「保存并覆盖 #id」，走 `PUT`；本机导入、拖入文件、或从视频开始的新作品 → 未绑定，走 `POST` 新建一条（首次保存成功后也会自动绑定，同一次会话里再保存就是覆盖）。
+
+### `POST /frames`
+
+抽帧台把导出的序列帧打包上传，登记成一条**帧集**资产（`media_type = "frameset"`，`generation_type = "local_frameset"`）。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `bundle` | file | 必填。ZIP 包（`frames/0001.png…` + `frames.json`），≤ 256 MB |
+| `cover` | file | 必填。封面帧 PNG / JPEG，写成这张产物的缩略图 |
+| `name` | string | 必填。帧集名字，≤ 60 字；产物名是「名字 · 第 N 个」 |
+| `count` | int | 必填。帧数 1–2000 |
+| `width` / `height` | int | 必填。导出画布的尺寸（对齐后可能比原始帧略大） |
+| `fps` | float | 可选。抽帧时用的帧率 |
+| `source_video_id` | int | 可选。来源视频的产物 id（写进 `original_image_id`） |
+
+```json
+{ "generation_id": 73, "image_id": 105, "name": "走路测试", "frame_count": 22,
+  "fps": 12.0, "width": 757, "height": 736 }
+```
+
+- 整包入库，**不是**每帧一条 `images` 记录：73 帧 × 几条视频就足以把画廊与数据库冲垮。帧集在画廊里是一张卡，右上角标「N 帧」。
+- 落盘在 `<项目>/storage/frames/<generation_id>/<task_id>_0.zip`；`GET /images/{id}/thumbnail` 给封面、`GET /images/{id}/file` 直接吐 ZIP（`content-type: application/zip`）。
+- 帧集算「资产」：`GET /generations?media=asset` 与回收站的 `media=asset` 都能查到它；但图片选择器（`media=image`）与帧集互相排除，不会把 ZIP 当图选。
+- 错误：不是 ZIP → 400 `不是 ZIP 文件`；空包 → 400 `帧集压缩包是空的`；超 256 MB → 413 `帧集压缩包超过 256 MB`；帧数越界 → 400 `帧数要在 1–2000 之间`；名字为空 → 400 `帧集名字不能为空`。
 
 ## 回收站
 

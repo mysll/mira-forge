@@ -450,3 +450,71 @@ def create_local_asset(
     db.commit()
     db.refresh(generation)
     return generation, image
+
+
+def create_frame_set(
+    db: Session,
+    *,
+    content: bytes,
+    cover: bytes,
+    name: str,
+    count: int,
+    fps: float | None = None,
+    width: int = 0,
+    height: int = 0,
+    source_video_id: int | None = None,
+) -> tuple[Generation, Image]:
+    """把抽帧台导出的 ZIP 存成一条「帧集」资产。
+
+    帧集 = 一次抽帧的整包（PNG 序列 + frames.json），靠 media_type="frameset"
+    与 storage/frames/ 目录区分；缩略图用调用方给的封面帧。整包入库而不是每帧一条
+    images 记录，否则 73 帧 × 几条视频就能把画廊与数据库冲垮。
+    """
+    from app.services.image_service import store_image
+
+    now = utcnow()
+    generation = Generation(
+        prompt=f"帧集 · {name}",
+        name=name,
+        generation_type=str(GenerationType.LOCAL_FRAMESET),
+        model_name="framelab",
+        width=width,
+        height=height,
+        requested_count=1,
+        status=GenerationStatus.COMPLETED,
+        completed_at=now,
+    )
+    task = GenerationTask(
+        seed=None,
+        status=TaskStatus.COMPLETED,
+        progress=100,
+        started_at=now,
+        completed_at=now,
+    )
+    generation.tasks.append(task)
+    db.add(generation)
+    db.flush()
+
+    image = store_image(
+        db,
+        content=content,
+        generation_id=generation.id,
+        task_id=task.id,
+        index=0,
+        width=width,
+        height=height,
+        extension="zip",
+        media_type="frameset",
+        frame_count=count,
+        fps=fps,
+        poster=cover,
+    )
+    if source_video_id is not None:
+        source = db.get(Image, source_video_id)
+        if source is not None:
+            image.original_image_id = source.id
+            generation.reference_image_path = source.file_path
+    db.commit()
+    db.refresh(generation)
+    db.refresh(image)
+    return generation, image

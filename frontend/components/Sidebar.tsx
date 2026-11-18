@@ -78,6 +78,13 @@ const ToolsIcon = (
   </svg>
 );
 
+const FramesIcon = (
+  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
+    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+    <path d="M7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+);
+
 const TrashIcon = (
   <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
     <path
@@ -115,6 +122,8 @@ const ITEMS: NavItem[] = [
   // 工具是本地编辑器入口，和生成没有关系，所以紧挨着资产放
   { label: "工具", href: "/tools", icon: ToolsIcon, hint: "本地图片工具" },
   { label: "回收站", href: "/trash", icon: TrashIcon, hint: "删除的产物，30 天内可恢复" },
+  // 抽帧台是工具但不是「图片」，单独给一格入口，免得藏在工具二级页里
+  { label: "抽帧台", href: "/tools/frames", icon: FramesIcon, hint: "视频抽序列帧、对齐、存成帧集" },
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
   { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },

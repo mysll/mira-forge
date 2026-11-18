@@ -462,12 +462,15 @@ function AssetCard({
   const [imageFailed, setImageFailed] = useState(false);
   const isVideo = image.media_type === "video";
   const isAsset = image.media_type === "asset";
+  const isFrameSet = image.media_type === "frameset";
   const duration = image.duration_seconds;
-  // 素材可能是图集 PNG，也可能是 ZIP / JSON —— 后两种没法当图渲染。
-  const isRaster = !isAsset || /\.(png|jpe?g|webp|gif)$/i.test(image.file_path);
-  const suffix = isAsset ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
-  // 素材若是 ZIP，缩略图是服务端从图集第一页抽出来的；JSON 没有缩略图，加载失败就退回文件牌。
-  const canPreview = !isAsset || isRaster || !imageFailed;
+  // 素材可能是图集 PNG，也可能是 ZIP / JSON —— 后两种没法当图渲染。帧集同理（整包 zip）。
+  const isRaster =
+    (!isAsset && !isFrameSet) || /\.(png|jpe?g|webp|gif)$/i.test(image.file_path);
+  const suffix =
+    isAsset || isFrameSet ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
+  // 素材与帧集的缩略图都由服务端从封面帧抽出来；JSON 没有缩略图，加载失败就退回文件牌。
+  const canPreview = (!isAsset && !isFrameSet) || isRaster || !imageFailed;
   const studioHref = isVideo
     ? `/tools/spriteforge?video=${image.id}`
     : isAsset
@@ -542,7 +545,11 @@ function AssetCard({
           </>
         ) : null}
 
-        {isAsset ? (
+        {isFrameSet ? (
+          <span className="pointer-events-none absolute right-2 top-2 rounded bg-accent/85 px-1.5 py-0.5 text-[10px] font-medium text-black">
+            {image.frame_count ?? 0} 帧
+          </span>
+        ) : isAsset ? (
           <span className="pointer-events-none absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur">
             素材 · {suffix || "file"}
           </span>

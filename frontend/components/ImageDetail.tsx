@@ -49,12 +49,13 @@ export default function ImageDetail({
 
   const isVideo = image.media_type === "video";
   const isAsset = image.media_type === "asset";
+  const isFrameSet = image.media_type === "frameset";
   const isLocalEdit = generation.generation_type === "local_edit";
   // 一张图能做什么，取决于它是谁生的：AI 编辑要重新走 ComfyUI，本地编辑只要浏览器，
-  // 素材与视频则只有「拿去序列帧工坊」这一条下游动作。
-  const canAiEdit = !isVideo && !isAsset && !isLocalEdit;
-  const canLocalEdit = !isVideo && !isAsset;
-  const canRegenerate = !isAsset && !isLocalEdit;
+  // 素材、帧集与视频则只有下游动作（拿去工坊 / 下载整包）。
+  const canAiEdit = !isVideo && !isAsset && !isFrameSet && !isLocalEdit;
+  const canLocalEdit = !isVideo && !isAsset && !isFrameSet;
+  const canRegenerate = !isAsset && !isFrameSet && !isLocalEdit;
   const studioHref = isAsset
     ? `/tools/spriteforge?asset=${image.id}`
     : isVideo
@@ -62,7 +63,9 @@ export default function ImageDetail({
       : null;
   const typeLabel = isAsset
     ? "素材"
-    : isVideo
+    : isFrameSet
+      ? "帧集"
+      : isVideo
       ? generation.generation_type === "text_to_video"
         ? "文生视频"
         : "图生视频"
@@ -102,7 +105,9 @@ export default function ImageDetail({
   };
 
   const assetSuffix =
-    image.media_type === "asset" ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
+    image.media_type === "asset" || image.media_type === "frameset"
+      ? (image.file_path.split(".").pop() ?? "").toLowerCase()
+      : "";
   const isRasterAsset = !assetSuffix || /^(png|jpe?g|webp|gif)$/.test(assetSuffix);
 
   return (
@@ -127,7 +132,7 @@ export default function ImageDetail({
               playsInline
               className="max-h-[80vh] w-auto max-w-full rounded-lg bg-black"
             />
-          ) : image.media_type === "asset" && !isRasterAsset ? (
+          ) : (image.media_type === "asset" || image.media_type === "frameset") && !isRasterAsset ? (
             <div className="flex flex-col items-center gap-3 text-center">
               <span className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs uppercase tracking-wide text-muted">
                 {assetSuffix || "file"}
@@ -153,7 +158,13 @@ export default function ImageDetail({
           <div className="flex items-start justify-between gap-2 px-4 pb-2 pt-4">
             <div>
               <p className="text-[11px] text-muted">批次 #{generation.id}</p>
-              <p className="text-sm font-medium text-ink">{image.media_type === "video" ? "视频详情" : image.media_type === "asset" ? "素材详情" : "图片详情"}</p>
+              <p className="text-sm font-medium text-ink">{image.media_type === "video"
+                ? "视频详情"
+                : image.media_type === "asset"
+                  ? "素材详情"
+                  : image.media_type === "frameset"
+                    ? "帧集详情"
+                    : "图片详情"}</p>
             </div>
             <button type="button" onClick={onClose} className="icon-btn" title="关闭">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
@@ -306,7 +317,13 @@ export default function ImageDetail({
               onClick={() => onDelete(item)}
               className="btn-ghost col-span-2 !text-bad hover:!border-bad/50"
             >
-              {isVideo ? "删除这条视频" : isAsset ? "删除这个素材" : "删除这张图"}
+              {isVideo
+              ? "删除这条视频"
+              : isAsset
+                ? "删除这个素材"
+                : isFrameSet
+                  ? "删除这个帧集"
+                  : "删除这张图"}
             </button>
           </div>
         </div>

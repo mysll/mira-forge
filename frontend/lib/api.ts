@@ -341,6 +341,42 @@ export async function saveAsset(
   return (await JSON.parse(await body.text())) as AssetSaved;
 }
 
+export type FrameSetSaved = {
+  generation_id: number;
+  image_id: number;
+  name: string;
+  frame_count: number;
+  fps: number | null;
+  width: number;
+  height: number;
+};
+
+/** 抽帧台：把整包 ZIP 与封面帧存成一条「帧集」资产。 */
+export async function saveFrameSet(params: {
+  bundle: Blob;
+  cover: Blob;
+  name: string;
+  count: number;
+  width: number;
+  height: number;
+  fps?: number;
+  sourceVideoId?: number;
+}): Promise<FrameSetSaved> {
+  const form = new FormData();
+  form.set("bundle", params.bundle, `${params.name || "frames"}.zip`);
+  form.set("cover", params.cover, "cover.png");
+  form.set("name", params.name);
+  form.set("count", String(params.count));
+  form.set("width", String(params.width));
+  form.set("height", String(params.height));
+  if (params.fps) form.set("fps", String(params.fps));
+  if (params.sourceVideoId !== undefined) {
+    form.set("source_video_id", String(params.sourceVideoId));
+  }
+  const { blob } = await postImage("/frames", form);
+  return (await JSON.parse(await blob.text())) as FrameSetSaved;
+}
+
 /** 按产物 id 取回文件（连同像扩展名的文件名），用于塞进工坊的 file input。 */
 export async function imageAsNamedFile(image: { id: number }, name?: string): Promise<File> {
   const response = await fetch(imageFileUrl(image), { cache: "no-store" });

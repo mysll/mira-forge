@@ -22,7 +22,7 @@ class ImageStoreError(RuntimeError):
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 RASTER_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-_FOLDER_BY_MEDIA = {"image": "images", "video": "videos", "asset": "assets"}
+_FOLDER_BY_MEDIA = {"image": "images", "video": "videos", "asset": "assets", "frameset": "frames"}
 
 
 def storage_root_for(storage_root: Path | None = None) -> Path:
@@ -190,7 +190,7 @@ def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None
         if cached.is_file():
             return cached
 
-    if image.media_type in ("video", "asset") and not _is_raster(image.file_path):
+    if image.media_type in ("video", "asset", "frameset") and not _is_raster(image.file_path):
         # 视频与 zip/json 这类素材没法用 Pillow 解码；落库时已经给了封面帧
         raise ImageStoreError(f"产物缺少封面帧：{image.file_path}")
 

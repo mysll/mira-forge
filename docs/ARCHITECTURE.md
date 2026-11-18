@@ -19,7 +19,7 @@ FastAPI (8000)
 ComfyUI (8188)  ── 只有 Worker 访问
   │
   ▼
-data/projects/default/{storage/{images,videos,assets}, app.db}
+data/projects/default/{storage/{images,videos,assets,frames}, app.db}
 ```
 
 三条不可动摇的边界：
@@ -48,7 +48,7 @@ data/projects/
   catalog.json                  项目清单（id / 名称 / 创建时间 / 激活项），原子写
   default/
     app.db                      这个项目自己的 SQLite（WAL）
-    storage/{images,videos,assets,thumbnails,uploads}/
+    storage/{images,videos,assets,frames,thumbnails,uploads}/
   p-20261116-160248-cce4/       新建的项目同样一套
 ```
 
@@ -252,11 +252,24 @@ P9（视频二期，MiniMax H3）：`text_to_video` / `image_to_video` 两种类
 
 序列帧工坊导出的是 `.zip`（图集 + `atlas.json`）或单张 PNG，它们既要出现在资产库、又要能收藏 / 下载 / 删除。如果新开一张 `assets` 表，就得把 `GET /images`、`POST /images/{id}/favorite`、批量删除、清空工作区、缩略图、`/images/{id}/file` 全部复制一遍。
 
-所以素材就是 `images` 里 `media_type = "asset"` 的一行，文件落 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`（和 `images/`、`videos/` 同级，这也是用户要求的目录结构），并且：
+所以素材就是 `images` 里 `media_type = "asset"` 的一行，文件落 `<项目>/storage/assets/<generation_id>/<task_id>_0.<ext>`（和 `images/`、`videos/`、`frames/` 同级，这也是用户要求的目录结构），并且：
 
 - 每条素材同时有一条 `GenerationType.LOCAL_ASSET` 的 generation + 一条已完成的 task，`seed` 为 `null`——这样作品流的时间线、批次号、`GET /generations?media=asset` 都不用特殊分支；
 - 缩略图不一定是「解码出来的」：ZIP 由后端取里面第一张 PNG 交给 Pillow 压成 `thumbnails/`，JSON 没有图，`/thumbnail` 就返回 404，前端退化成文件牌；
 - `GET /images/{id}/file` 的 `Content-Type` 按后缀给（`application/zip` / `application/json` / 图片类型），否则浏览器会把 ZIP 当图片渲染失败。
+
+## 帧集：为什么整包入库、不按帧拆
+
+抽帧台导出的是一整包 PNG（`frames/0001.png…` + `frames.json`），一抽就是几十到几百帧。如果每帧都写一条 `images`，73 帧 × 十来条视频就是近千行记录、近千个文件——画廊会被同一次抽帧的几十张近似缩略图填满，`GET /images` 的分页、收藏、删除、回收站全都要跟着膨胀，而用户实际上永远按「这一套」而不是按「第 37 帧」来管理。
+
+所以一次抽帧 = **一条** `images` 记录：
+
+- `media_type = "frameset"`（与 `image` / `video` / `asset` 并列），`file_path` 指向 ZIP，`thumbnail_path` 指向封面帧压出来的 JPEG，`frame_count` / `fps` / `width` / `height` 描述这一套；
+- 落盘 `<项目>/storage/frames/<generation_id>/<task_id>_0.zip`，`GET /images/{id}/file` 直接吐 ZIP（`Content-Type: application/zip`），`/thumbnail` 给封面；
+- 同时有一条 `GenerationType.LOCAL_FRAMESET` 的 generation + 一条已完成 task（`model_name = "framelab"`），因此作品流、批次命名、`GET /generations?media=asset`、回收站都不用分支；
+- 画廊与选择器按 `media_type` 分开处理：帧集算「素材」（`media=asset` 查得到、卡片标「N 帧」），但图片选择器（`media=image`）会排除它——ZIP 不能被当成一张画选进创作框。
+
+拆开存的唯一好处是「单独取某一帧」，而这件事由下载 ZIP 在本地做更省事。
 
 ## 序列帧工坊的帧与图集约定
 

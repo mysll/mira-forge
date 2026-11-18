@@ -28,7 +28,7 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 
 - `backend/app/{api,services,repositories,models,schemas,workers,core}` — routers stay thin; logic lives in `services/`. The worker is deliberately single-coroutine (one 16 GB GPU, serial jobs).
 - `backend/workflows/*.json` (ComfyUI **API format**) + `backend/workflow_configs/*.yaml` (param bindings) + `registry.yaml` (the only model catalog; `GET /models` is generated from it and the `workflows` table resyncs at startup).
-- `frontend/app/<screen>/page.tsx` per route, `components/` (Composer, VideoComposer, Feed/FeedCard, ImageDetail, MaskEditor, ImagePicker), `stores/` (zustand), `types/api.ts` mirrors backend schemas **by hand** — change both sides.
+- `frontend/app/<screen>/page.tsx` per route, `components/` (Composer, VideoComposer, Feed/FeedCard, ImageDetail, MaskEditor, ImagePicker), `stores/` (zustand), `types/api.ts` mirrors backend schemas **by hand** — change both sides. Browser-side pixel work lives in `lib/` (`frames.ts` for the frame lab: extract/key/measure/align, `zip.ts` for packing a frame set).
 - Runtime state: `data/projects/<id>/{app.db,storage/}` (git-ignored), `data/projects/catalog.json` lists projects. `data/` also holds throwaway screenshots and probe scripts.
 - Docs: `docs/{PROJECT,ARCHITECTURE,API,FRONTEND,WORKFLOW_MAPPING,DEVELOPMENT,ENVIRONMENT_REPORT}.md`; `docs/PROJECT.md` is the original spec (may lag the code).
 
@@ -47,13 +47,14 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 | new endpoint | `app/api/<name>.py` and register in `app/api/__init__.py`; schema in `app/schemas/`; logic in `app/services/` (routers stay thin) |
 | new column | model + `alembic/versions/00NN_*.py`, `down_revision` = current head (`0010_generation_name`); startup runs `alembic upgrade head` per project |
 | new screen | `frontend/app/<route>/page.tsx` + a `Sidebar` entry (`components/Sidebar.tsx`) |
+| frame set (video → PNG sequence) | `app/tools/frames/page.tsx` + `lib/frames.ts` + `lib/zip.ts`; backend `app/api/frames.py` + `generation_service.create_frame_set()` |
 
 ## Data model in one glance
 
 - `generations` — one submitted batch: prompt, negative, model, `generation_type`, width/height, requested count, `name`, status, `deleted_at`.
 - `generation_tasks` — one product slot each: seed, status, progress, `comfy_prompt_id`, error.
-- `images` — the actual files: `media_type` ∈ `image | video | asset`, `file_path` (relative to the project's storage), thumbnail, favourite flag, `deleted_at`.
-- `generation_type` ∈ `text_to_image | image_to_image | image_edit | image_inpaint | text_to_video | image_to_video | local_edit | local_asset`.
+- `images` — the actual files: `media_type` ∈ `image | video | asset | frameset`, `file_path` (relative to the project's storage), thumbnail, favourite flag, `deleted_at`. A frame set is **one** row pointing at a ZIP under `storage/frames/` (never one row per frame).
+- `generation_type` ∈ `text_to_image | image_to_image | image_edit | image_inpaint | text_to_video | image_to_video | local_edit | local_asset | local_frameset`.
 - Each project owns its own SQLite + storage, and activating a project swaps the engine. Always get sessions from the `get_db` dependency / `active_project()`; never cache a session across projects.
 
 Everything lives under `/api/v1`; errors are `{"detail": "…"}`; deletes that have nothing to return answer `204`.
@@ -96,7 +97,7 @@ Everything lives under `/api/v1`; errors are `{"detail": "…"}`; deletes that h
 
 ## Verification recipe
 
-1. `cd backend; .\.venv\Scripts\python.exe -m pytest` — 165 tests, all green.
+1. `cd backend; .\.venv\Scripts\python.exe -m pytest` — 175 tests, all green.
 2. `cd frontend; npx tsc --noEmit`.
 3. For UI work: `tools/screenshot.mjs` or an `tools/e2e_*.mjs` script, then look at the PNG in `data/`. DOM assertions belong in `--eval`/e2e scripts — `--eval` runs *before* the screenshot, so don't rely on it to wait for popups.
 4. For generation changes: start the backend and submit through the API, then confirm the stored `comfy_prompt_id` / `/history` payload and the produced file. Do it in a throwaway project, delete it afterwards, and reactivate the user's project.

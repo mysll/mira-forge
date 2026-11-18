@@ -2,6 +2,7 @@
 const FALLBACK: Record<string, string> = {
   local_editor: "本地编辑器",
   spriteforge: "序列帧工坊",
+  framelab: "抽帧台",
 };
 
 export function modelLabel(name: string | null | undefined, labels?: Record<string, string>): string {

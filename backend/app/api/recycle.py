@@ -62,7 +62,7 @@ def _to_item(image: Image) -> RecycleItem:
 def list_recycle_bin(
     limit: int = Query(default=60, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    media: str | None = Query(default=None, pattern="^(image|video|asset)$"),
+    media: str | None = Query(default=None, pattern="^(image|video|asset|frameset)$"),
     db: Session = Depends(get_db),
 ) -> RecycleListResponse:
     """回收站列表。顺带清理过期的条目，所以打开页面就会自动过期。"""

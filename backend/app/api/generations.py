@@ -42,7 +42,7 @@ _IMAGE_TYPES = (
     "image_inpaint",
     "local_edit",
 )
-_ASSET_TYPES = ("local_asset",)
+_ASSET_TYPES = ("local_asset", "local_frameset")
 
 
 def _types_for_media(media: str | None) -> list[str] | None:

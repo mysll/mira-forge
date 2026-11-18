@@ -411,6 +411,14 @@ export default function FeedCard(props: Props) {
               {lengthLabel(image) ?? "视频"}
             </span>
           </>
+        ) : image.media_type === "frameset" ? (
+          // 帧集是整包 zip，缩略图只是封面帧：右上角标帧数，别让人以为是一张图
+          <span
+            className="pointer-events-none absolute right-2 top-2 rounded bg-accent/80 px-1.5 py-0.5 text-[10px] font-medium text-black"
+            data-frameset-badge
+          >
+            {image.frame_count ?? 0} 帧
+          </span>
         ) : null}
 
         {active ? (
@@ -438,6 +446,10 @@ export default function FeedCard(props: Props) {
           {image.media_type === "video" ? (
             <span className="ml-1.5 rounded bg-white/10 px-1 py-px text-[10px] text-ink/80">
               {image.fps ? `${Math.round(image.fps)}fps` : "视频"}
+            </span>
+          ) : image.media_type === "frameset" ? (
+            <span className="ml-1.5 rounded bg-accent/15 px-1 py-px text-[10px] text-accentSoft">
+              {image.frame_count ?? 0} 帧 · zip
             </span>
           ) : null}
           {generation.reference_images?.length && image.media_type !== "video" ? (

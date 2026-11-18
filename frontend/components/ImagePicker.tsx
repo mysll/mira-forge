@@ -63,7 +63,9 @@ export default function ImagePicker({
   }
 
   const items = (images.data?.items ?? []).filter((item) =>
-    kind === "video" ? item.media_type === "video" : item.media_type !== "video",
+    kind === "video"
+      ? item.media_type === "video"
+      : item.media_type !== "video" && item.media_type !== "frameset",
   );
   const isVideo = kind === "video";
   const unit = isVideo ? "条" : "张";
