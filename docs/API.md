@@ -572,7 +572,7 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 | `cover` | file | 必填。封面帧 PNG / JPEG，写成这张产物的缩略图 |
 | `name` | string | 必填。帧集名字，≤ 60 字；产物名是「名字 · 第 N 个」 |
 | `count` | int | 必填。帧数 1–2000 |
-| `width` / `height` | int | 必填。导出画布的尺寸（对齐后可能比原始帧略大） |
+| `width` / `height` | int | 必填。导出画布的尺寸，**恒等于源帧尺寸**（抽帧台不再缩放或裁到主体） |
 | `fps` | float | 可选。抽帧时用的帧率 |
 | `source_video_id` | int | 可选。来源视频的产物 id（写进 `original_image_id`） |
 
@@ -582,6 +582,7 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 ```
 
 - 整包入库，**不是**每帧一条 `images` 记录：73 帧 × 几条视频就足以把画廊与数据库冲垮。帧集在画廊里是一张卡，右上角标「N 帧」。
+- `frames.json` 记 `{ name, fps, width, height, stepX, stepY, fill, keying, tolerance, source, frames: [{ index, time, offsetX, offsetY, manual }] }`：`offset` 是这一帧在导出时被平移的像素，`manual` 标出哪些帧是手调过的（其余是按「选中顺序 × 步进」算的）。
 - 落盘在 `<项目>/storage/frames/<generation_id>/<task_id>_0.zip`；`GET /images/{id}/thumbnail` 给封面、`GET /images/{id}/file` 直接吐 ZIP（`content-type: application/zip`）。
 - 帧集算「资产」：`GET /generations?media=asset` 与回收站的 `media=asset` 都能查到它；但图片选择器（`media=image`）与帧集互相排除，不会把 ZIP 当图选。
 - 错误：不是 ZIP → 400 `不是 ZIP 文件`；空包 → 400 `帧集压缩包是空的`；超 256 MB → 413 `帧集压缩包超过 256 MB`；帧数越界 → 400 `帧数要在 1–2000 之间`；名字为空 → 400 `帧集名字不能为空`。

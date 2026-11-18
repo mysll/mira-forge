@@ -28,7 +28,7 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 
 - `backend/app/{api,services,repositories,models,schemas,workers,core}` — routers stay thin; logic lives in `services/`. The worker is deliberately single-coroutine (one 16 GB GPU, serial jobs).
 - `backend/workflows/*.json` (ComfyUI **API format**) + `backend/workflow_configs/*.yaml` (param bindings) + `registry.yaml` (the only model catalog; `GET /models` is generated from it and the `workflows` table resyncs at startup).
-- `frontend/app/<screen>/page.tsx` per route, `components/` (Composer, VideoComposer, Feed/FeedCard, ImageDetail, MaskEditor, ImagePicker), `stores/` (zustand), `types/api.ts` mirrors backend schemas **by hand** — change both sides. Browser-side pixel work lives in `lib/` (`frames.ts` for the frame lab: extract/key/measure/align, `zip.ts` for packing a frame set).
+- `frontend/app/<screen>/page.tsx` per route, `components/` (Composer, VideoComposer, Feed/FeedCard, ImageDetail, MaskEditor, ImagePicker), `stores/` (zustand), `types/api.ts` mirrors backend schemas **by hand** — change both sides. Browser-side pixel work lives in `lib/` (`frames.ts` for the frame lab: extract/key/measure/shift/ghost/align, `zip.ts` for packing a frame set).
 - Runtime state: `data/projects/<id>/{app.db,storage/}` (git-ignored), `data/projects/catalog.json` lists projects. `data/` also holds throwaway screenshots and probe scripts.
 - Docs: `docs/{PROJECT,ARCHITECTURE,API,FRONTEND,WORKFLOW_MAPPING,DEVELOPMENT,ENVIRONMENT_REPORT}.md`; `docs/PROJECT.md` is the original spec (may lag the code).
 
@@ -53,7 +53,7 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 
 - `generations` — one submitted batch: prompt, negative, model, `generation_type`, width/height, requested count, `name`, status, `deleted_at`.
 - `generation_tasks` — one product slot each: seed, status, progress, `comfy_prompt_id`, error.
-- `images` — the actual files: `media_type` ∈ `image | video | asset | frameset`, `file_path` (relative to the project's storage), thumbnail, favourite flag, `deleted_at`. A frame set is **one** row pointing at a ZIP under `storage/frames/` (never one row per frame).
+- `images` — the actual files: `media_type` ∈ `image | video | asset | frameset`, `file_path` (relative to the project's storage), thumbnail, favourite flag, `deleted_at`. A frame set is **one** row pointing at a ZIP under `storage/frames/` (never one row per frame). The frame lab exports at the **source frame size** — it shifts each frame inside a same-size canvas (gap filled with a sampled colour, or transparent when keyed) rather than scaling or cropping to the subject.
 - `generation_type` ∈ `text_to_image | image_to_image | image_edit | image_inpaint | text_to_video | image_to_video | local_edit | local_asset | local_frameset`.
 - Each project owns its own SQLite + storage, and activating a project swaps the engine. Always get sessions from the `get_db` dependency / `active_project()`; never cache a session across projects.
 

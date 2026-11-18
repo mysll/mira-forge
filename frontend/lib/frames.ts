@@ -205,171 +205,93 @@ export function measureSubject(canvas: HTMLCanvasElement, keyTolerance = 40): Su
   };
 }
 
-/** 以参考帧为基准算每帧该挪多少：锁水平对质心 X，锁垂直对脚底线（bottom）。 */
-export function computeOffsets(
-  frames: Frame[],
-  boxes: Map<number, SubjectBox>,
-  mode: AlignMode,
-  referenceIndex: number,
-): Map<number, Offset> {
-  const reference = boxes.get(referenceIndex);
-  const result = new Map<number, Offset>();
-  for (const frame of frames) {
-    if (mode === "none" || !reference) {
-      result.set(frame.index, { dx: 0, dy: 0 });
-      continue;
+/** 背景色：取四角 8x8 的中位数，返回 #rrggbb（不抠背景时用它填平移留下的缺口）。 */
+export function sampleBackground(canvas: HTMLCanvasElement): string {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return "#000000";
+  const { width, height } = canvas;
+  const size = Math.max(1, Math.min(8, Math.floor(Math.min(width, height) / 2)));
+  const spots = [
+    [0, 0],
+    [width - size, 0],
+    [0, height - size],
+    [width - size, height - size],
+  ];
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let count = 0;
+  for (const [x, y] of spots) {
+    const data = context.getImageData(x, y, size, size).data;
+    for (let i = 0; i < data.length; i += 4) {
+      red += data[i];
+      green += data[i + 1];
+      blue += data[i + 2];
+      count += 1;
     }
-    const box = boxes.get(frame.index);
-    if (!box) {
-      result.set(frame.index, { dx: 0, dy: 0 });
-      continue;
-    }
-    const dx = mode === "x" || mode === "both" ? Math.round(reference.centerX - box.centerX) : 0;
-    const dy = mode === "y" || mode === "both" ? reference.bottom - box.bottom : 0;
-    result.set(frame.index, { dx, dy });
   }
-  return result;
+  if (!count) return "#000000";
+  const hex = (value: number) => Math.round(value / count).toString(16).padStart(2, "0");
+  return `#${hex(red)}${hex(green)}${hex(blue)}`;
 }
 
-export type Bounds = { minX: number; minY: number; width: number; height: number };
-
-/** 把所有帧按各自的偏移摆进去之后的公共画布尺寸（保证谁都不被裁）。 */
-export function boundsFor(frames: Frame[], offsets: Map<number, Offset>): Bounds {
-  let minX = 0;
-  let minY = 0;
-  let maxX = 0;
-  let maxY = 0;
-  for (const frame of frames) {
-    const offset = offsets.get(frame.index) ?? { dx: 0, dy: 0 };
-    minX = Math.min(minX, offset.dx);
-    minY = Math.min(minY, offset.dy);
-    maxX = Math.max(maxX, frame.canvas.width + offset.dx);
-    maxY = Math.max(maxY, frame.canvas.height + offset.dy);
-  }
-  return {
-    minX,
-    minY,
-    width: Math.max(1, maxX - minX),
-    height: Math.max(1, maxY - minY),
-  };
-}
-
-export type LayoutOptions = {
-  /** 输出画布高度（px）。null = 跟着主体框走，不缩放。 */
-  height: number | null;
-  /** 主体脚底到画布底边的留白（输出像素） */
-  bottomPad: number;
-  /** 左右留白（输出像素） */
-  sidePad: number;
-  /** 主体头顶到画布顶边的留白（输出像素） */
-  topPad: number;
-};
-
-export type Layout = {
+export type ShiftOptions = {
+  /** 输出画布尺寸：严格等于源帧尺寸，导出前后不变 */
   width: number;
   height: number;
-  scale: number;
-  /** 脚底线（主体并集框的底边）在输出画布里的 y，画参考线用 */
-  baseline: number;
-  /** 主体并集框在「平移后」的坐标，渲染时用它把源图摆正 */
-  left: number;
-  top: number;
-  padX: number;
-  padY: number;
+  /** null = 透明底（抠了背景）；给颜色则先铺满这张画布再画帧 */
+  fill: string | null;
 };
 
 /**
- * 把「选中帧的主体框 + 对齐偏移」摊成一张统一的输出画布。
- *
- * 只做平移不够用：一段 736×736 的视频里角色可能只有 110px 宽，导出 736 的画布等于
- * 每帧都是「一大片透明 + 一个小人」，对齐挪的那十几像素根本看不出来。所以这里顺手把
- * 主体并集框缩放到指定高度，并留出底边/左右留白——游戏里要的正是这种固定尺寸贴图。
+ * 把一帧平移进一张与源帧等大的画布：越界的部分被裁掉，位移留下的缺口用 fill 填。
+ * 这里不缩放、不裁切画布，导出尺寸永远等于源视频的帧尺寸。
  */
-export function createLayout(
-  frames: Frame[],
-  boxes: Map<number, SubjectBox>,
-  offsets: Map<number, Offset>,
-  options: LayoutOptions,
-): Layout {
-  let unionLeft = Number.POSITIVE_INFINITY;
-  let unionTop = Number.POSITIVE_INFINITY;
-  let unionRight = Number.NEGATIVE_INFINITY;
-  let unionBottom = Number.NEGATIVE_INFINITY;
-  for (const frame of frames) {
-    const box = boxes.get(frame.index) ?? {
-      left: 0,
-      right: frame.canvas.width,
-      top: 0,
-      bottom: frame.canvas.height,
-      width: frame.canvas.width,
-      height: frame.canvas.height,
-      centerX: frame.canvas.width / 2,
-    };
-    const offset = offsets.get(frame.index) ?? { dx: 0, dy: 0 };
-    unionLeft = Math.min(unionLeft, box.left + offset.dx);
-    unionRight = Math.max(unionRight, box.right + offset.dx);
-    unionTop = Math.min(unionTop, box.top + offset.dy);
-    unionBottom = Math.max(unionBottom, box.bottom + offset.dy);
-  }
-  if (!Number.isFinite(unionLeft)) {
-    return { width: 1, height: 1, scale: 1, left: 0, top: 0, padX: 0, padY: 0, baseline: 1 };
-  }
-  const contentWidth = Math.max(1, unionRight - unionLeft);
-  const contentHeight = Math.max(1, unionBottom - unionTop);
-  const sidePad = Math.max(0, Math.round(options.sidePad));
-  const topPad = Math.max(0, Math.round(options.topPad));
-  const bottomPad = Math.max(0, Math.round(options.bottomPad));
-
-  if (options.height === null) {
-    return {
-      width: Math.round(contentWidth) + sidePad * 2,
-      height: Math.round(contentHeight) + topPad + bottomPad,
-      scale: 1,
-      baseline: topPad + contentHeight,
-      left: unionLeft,
-      top: unionTop,
-      padX: sidePad,
-      padY: topPad,
-    };
-  }
-
-  const height = Math.max(1, Math.round(options.height));
-  const usable = Math.max(1, height - topPad - bottomPad);
-  const scale = usable / contentHeight;
-  return {
-    width: Math.max(1, Math.round(contentWidth * scale) + sidePad * 2),
-    height,
-    scale,
-    baseline: topPad + usable,
-    left: unionLeft,
-    top: unionTop,
-    padX: sidePad,
-    padY: topPad,
-  };
-}
-
-/** 按 layout 把一帧画到输出画布上（缩放 + 平移一步到位）。 */
-export function renderInLayout(frame: Frame, offset: Offset, layout: Layout): HTMLCanvasElement {
+export function renderShifted(frame: Frame, offset: Offset, options: ShiftOptions): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = layout.width;
-  canvas.height = layout.height;
+  canvas.width = Math.max(1, Math.round(options.width));
+  canvas.height = Math.max(1, Math.round(options.height));
   const context = canvas.getContext("2d");
   if (!context) return canvas;
-  context.imageSmoothingQuality = "high";
-  context.translate((offset.dx - layout.left) * layout.scale + layout.padX, (offset.dy - layout.top) * layout.scale + layout.padY);
-  context.scale(layout.scale, layout.scale);
-  context.drawImage(frame.canvas, 0, 0);
+  if (options.fill) {
+    context.fillStyle = options.fill;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  context.drawImage(frame.canvas, Math.round(offset.dx), Math.round(offset.dy));
   return canvas;
 }
 
-export function renderAligned(frame: Frame, offset: Offset, bounds: Bounds): HTMLCanvasElement {
+/**
+ * 洋葱皮：把一帧里的主体（与四角底色差得够远的像素）染成一种颜色，其余全透明。
+ * 不抠背景的帧整张都是不透明的，直接叠上去会把画面糊成一片，所以要先「取出主体」。
+ */
+export function ghostCanvas(frame: Frame, tint = "rgba(90, 170, 255, 0.95)", cut = 32): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = bounds.width;
-  canvas.height = bounds.height;
-  const context = canvas.getContext("2d");
-  if (context) {
-    context.drawImage(frame.canvas, offset.dx - bounds.minX, offset.dy - bounds.minY);
+  canvas.width = frame.canvas.width;
+  canvas.height = frame.canvas.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return canvas;
+  context.drawImage(frame.canvas, 0, 0);
+  const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const background = sampleBackground(frame.canvas);
+  const keyRed = Number.parseInt(background.slice(1, 3), 16);
+  const keyGreen = Number.parseInt(background.slice(3, 5), 16);
+  const keyBlue = Number.parseInt(background.slice(5, 7), 16);
+  for (let offset = 0; offset < data.length; offset += 4) {
+    if (data[offset + 3] <= 8) {
+      data[offset + 3] = 0;
+      continue;
+    }
+    const dr = data[offset] - keyRed;
+    const dg = data[offset + 1] - keyGreen;
+    const db = data[offset + 2] - keyBlue;
+    if (Math.sqrt(dr * dr + dg * dg + db * db) <= cut) data[offset + 3] = 0;
   }
+  context.putImageData(image, 0, 0);
+  context.globalCompositeOperation = "source-atop";
+  context.fillStyle = tint;
+  context.fillRect(0, 0, canvas.width, canvas.height);
   return canvas;
 }
 
