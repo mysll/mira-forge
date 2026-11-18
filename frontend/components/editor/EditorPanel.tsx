@@ -316,7 +316,9 @@ export default function EditorPanel({
           </p>
         ) : null}
         <Row label="容差" suffix={String(tolerance)}>
-          <Slider value={tolerance} min={0} max={120} onChange={(value) => setParams({ tolerance: value }, { quiet: true })} />
+          {/* 上限 48：这里量的是「逐通道最大差」（0–255），后端给的建议值只到 48，
+              再往上滑基本只会连主体一起啃掉，还会让有用区间挤在滑条前 1/4。 */}
+          <Slider value={tolerance} min={0} max={48} onChange={(value) => setParams({ tolerance: value }, { quiet: true })} />
         </Row>
         <Row label="羽化" suffix={`${feather} px`}>
           <Slider value={feather} min={0} max={8} onChange={(value) => setParams({ feather: value }, { quiet: true })} />

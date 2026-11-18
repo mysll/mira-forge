@@ -38,7 +38,14 @@
    文件里所有 `document.addEventListener` / `window.addEventListener` 都换成 `onGlobal(...)`
    （`DOMContentLoaded` 那行除外），`destroy()` 时逐个摘掉，页面卸载不会留悬挂监听。
 
-5. **连续导入的保护**（`app.js` 的 `videoLoadToken`）
+5. **抠像容差上限**（`app.js` 的 `MAX_KEY_TOLERANCE` + `index.html` 的滑条）
+
+   原版滑到 0–220（欧氏 RGB 距离 0–441）。实测本机的绿幕素材：背景噪声在 24 以内就干净了，
+   主体边缘从 ~32 开始，220 把绝大部分色域都摊进滑条、有用区间挤在最前面没法微调。
+   现在上限 96（`app.js` 两处 `clamp(..., 0, MAX_KEY_TOLERANCE)` 与 `index.html` 的 `max` 一起改），
+   读取 `prefs` 时也继续按 96 收，老用户存的旧大值不会撑破滑条。
+
+6. **连续导入的保护**（`app.js` 的 `videoLoadToken`）
 
    `loadVideoFile()` 开头 `const token = ++videoLoadToken`，`loadedmetadata` 之后
    若 `token !== videoLoadToken` 就 `revokeObjectURL` 直接返回——连续导入两支视频时，

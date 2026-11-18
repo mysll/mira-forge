@@ -7,6 +7,9 @@
   const MAX_ATLAS_NAME = 64;
   const SEQ_COLORS = ['#ff9d4d', '#68e6cd', '#8eb6ff', '#e08bff', '#ffd166', '#ff7a9c', '#9ee37d', '#b9a2ff'];
   const FPS_CANDIDATES = [23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60];
+  // 抠像容差按欧氏 RGB 距离算（0–441）。实测本机的绿幕素材：背景噪声在 24 以内就干净了，
+  // 主体边缘从 ~32 开始，所以滑块上限定 96 —— 够吃掉软边，又不至于把整条色域摊平、没法微调。
+  const MAX_KEY_TOLERANCE = 96;
 
   const state = {
     videoFile: null,
@@ -303,7 +306,7 @@
       els.keyColorText.value = state.key.color;
     });
     els.toleranceInput.addEventListener('input', () => {
-      state.key.tolerance = clamp(Number(els.toleranceInput.value) || 0, 0, 220);
+      state.key.tolerance = clamp(Number(els.toleranceInput.value) || 0, 0, MAX_KEY_TOLERANCE);
       els.toleranceValue.value = state.key.tolerance;
       onKeySettingsChanged();
     });
@@ -552,7 +555,7 @@
       if (prefs.key) {
         state.key.enabled = Boolean(prefs.key.enabled);
         state.key.color = normalizeHex(prefs.key.color) || state.key.color;
-        state.key.tolerance = clamp(Number(prefs.key.tolerance) || 48, 0, 220);
+        state.key.tolerance = clamp(Number(prefs.key.tolerance) || 48, 0, MAX_KEY_TOLERANCE);
         state.key.feather = clamp(Number(prefs.key.feather) || 24, 0, 120);
       }
       if (typeof prefs.atlasName === 'string') state.atlas.name = normalizeAtlasName(prefs.atlasName);
