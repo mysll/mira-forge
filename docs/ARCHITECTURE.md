@@ -157,12 +157,12 @@ models:
     label: "Qwen Image 2.1 Turbo"
     default: true            # 前端下拉默认选中它
     defaults: { steps: 8, cfg: 1.0, sampler: euler, denoise: 1.0, width: 1024, height: 1024 }
-    capabilities: { exposes_steps: false, exposes_cfg: true, exposes_sampler: false }
+    capabilities: { exposes_steps: false, exposes_cfg: true, exposes_sampler: true }
     workflows:
       - { type: text_to_image, json: workflows/qwen_image_21_turbo_t2i.json, config: workflow_configs/qwen_image_21_turbo_t2i.yaml, validated: true }
 ```
 
-- `capabilities` 控制前端**显示哪些控件**，避免出现"调了不生效"的假参数。Turbo 的步数由固定 sigma 表决定，因此 `exposes_steps: false`；但它的 CFG 是 `CFGGuider.cfg`，与 sigma 表无关、改了真生效（>1 时负面提示词才进采样），所以 `exposes_cfg: true`。
+- `capabilities` 控制前端**显示哪些控件**，避免出现"调了不生效"的假参数。Turbo 的步数由固定 sigma 表决定，因此 `exposes_steps: false`；但它的 CFG 是 `CFGGuider.cfg`、采样器是 `KSamplerSelect.sampler_name`，两者都与 sigma 表无关、改了真生效（CFG>1 时负面提示词才进采样，换采样器仍沿用那张固定 8 步表），所以 `exposes_cfg` 与 `exposes_sampler` 都是 `true`。
 - `default` 标记默认模型；没有标记时前端取第一个。
 - `validated` 记录该工作流是否被真实执行过；`available` 由 JSON 文件是否存在决定。
 - 启动时 `sync_workflows()` 幂等 upsert 进 `workflows` 表。

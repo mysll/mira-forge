@@ -190,7 +190,7 @@ EmptyLatentImage(width,height,1) ─────────────┴─�
 1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0
 ```
 
-所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端不显示步数输入框，而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。CFG 则是**独立于 sigma 表**的参数（落在 `CFGGuider.cfg` 上），改了真生效，因此 `exposes_cfg: true`；只有默认 1.0（cfg1 优化会跳过 uncond 分支）时负面提示词不参与采样。
+所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端不显示步数输入框，而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。CFG 与采样器则是**独立于 sigma 表**的参数（分别落在 `CFGGuider.cfg` 与 `KSamplerSelect.sampler_name`），改了真生效，因此 `exposes_cfg` 与 `exposes_sampler` 都是 `true`；只有默认 CFG=1.0 时（cfg1 优化会跳过 uncond 分支）负面提示词不参与采样，而换采样器时用的仍是那张按 euler 调的 8 步表。
 
 ## 负面提示词与 CFG
 
@@ -234,7 +234,7 @@ def sampling_function(model, x, timestep, uncond, cond, cond_scale, model_option
 | `seed` | `KSampler.seed` / `RandomNoise.noise_seed` | 同左 |
 | `steps` | `KSampler.steps`（turbo 不可调，走固定 sigma 表） | 同左 |
 | `cfg` | `KSampler.cfg` / `CFGGuider.cfg`（turbo 也可调） | 同左 |
-| `sampler` | `KSampler.sampler_name` / `KSamplerSelect.sampler_name` | 同左 |
+| `sampler` | `KSampler.sampler_name` / `KSamplerSelect.sampler_name`（turbo 也可调） | 同左 |
 | `denoise` | `KSampler.denoise`（默认 1.0） | 同左 |
 | 参考图 | — | `LoadImage.image` → `images.image_N` |
 | 文件名 | `SaveImage.filename_prefix` | 同左 |

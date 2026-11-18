@@ -126,9 +126,9 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
     {
       "id": "qwen_image_21_turbo",
       "label": "Qwen Image 2.1 Turbo",
-      "description": "8 步蒸馏版，速度优先；步数由固定 sigma 表决定，CFG 可调（>1 时负面提示词才生效）",
+      "description": "8 步蒸馏版，速度优先；步数由固定 sigma 表决定，CFG 与采样器可调（sigma 表按 euler 调过）",
       "defaults": { "steps": 8, "cfg": 1.0, "sampler": "euler", "denoise": 1.0, "width": 1024, "height": 1024 },
-      "capabilities": { "exposes_steps": false, "exposes_cfg": true, "exposes_sampler": false },
+      "capabilities": { "exposes_steps": false, "exposes_cfg": true, "exposes_sampler": true },
       "workflows": [
         { "type": "text_to_image", "label": "文生图", "json_path": "D:/AI/MiraForge/backend/workflows/qwen_image_21_turbo_t2i.json", "config_path": "D:/AI/MiraForge/backend/workflow_configs/qwen_image_21_turbo_t2i.yaml", "validated": true, "available": true }
       ],

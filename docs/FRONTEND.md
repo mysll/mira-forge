@@ -122,7 +122,7 @@
 
 - **提示词默认是唯一的必填项**，负面提示词藏在「高级」里——绝大多数时候用不到，摆在明面上只会让人以为必须填。
 - **参数做成 pill**：模型 / 比例+分辨率 / 数量 / 高级。点开才是面板，收起时只占一行。
-- **高级设置按能力显隐**：`capabilities.exposes_steps / exposes_cfg / exposes_sampler / exposes_negative_prompt` 来自 `registry.yaml`。Turbo 的步数由固定 sigma 表决定，界面干脆不显示步数输入框，而不是让用户改了没效果；但它的 CFG 落在 `CFGGuider.cfg` 上，与 sigma 表无关，所以和标准版一样露出来。
+- **高级设置按能力显隐**：`capabilities.exposes_steps / exposes_cfg / exposes_sampler / exposes_negative_prompt` 来自 `registry.yaml`。Turbo 的步数由固定 sigma 表决定，界面干脆不显示步数输入框，而不是让用户改了没效果；但它的 CFG 落在 `CFGGuider.cfg`、采样器落在 `KSamplerSelect.sampler_name`，都与 sigma 表无关，所以和标准版一样露出来（采样器的表是按 euler 调的，换别的观感会变，默认仍是 euler）。
 - **负面提示词不占版面**：CFG=1 时 ComfyUI 会跳过负面分支，后端在「有负面提示词且用户没填 CFG」时会自动把 CFG 提到模型的 `negative_prompt_cfg`（标准 3.0 / Turbo 2.0）。这件事**不在创作框里解释**，只在详情弹窗的 CFG 字段里体现真实值——高级面板保持干净。
 - **Seed 两种模式**：随机（默认）或固定；固定值存在时，N 张按 `seed, seed+1, …` 递增，便于复现一批中的某一张。
 - **参考图**：点击或拖入，编辑模式下显示缩略图与移除按钮；**提交成功后清空**（图已经存到后端，下一次编辑应该重新选，否则容易拿旧图再提交一遍）。

@@ -52,20 +52,24 @@ def test_turbo_t2i_binds_params_without_steps() -> None:
     assert isinstance(prompt["10"]["inputs"]["sigmas"], str)
 
 
-def test_turbo_exposes_cfg_even_though_steps_are_fixed() -> None:
-    """CFG 落在 CFGGuider 上、与 ManualSigmas 无关，所以能给用户调；步数仍然锁死。"""
+def test_turbo_exposes_cfg_and_sampler_even_though_steps_are_fixed() -> None:
+    """CFG 落在 CFGGuider、采样器落在 KSamplerSelect，都与 ManualSigmas 无关，所以能给用户调；
+    步数仍然锁死（8 步表）。"""
     model, target = _target("qwen_image_21_turbo", "text_to_image")
     assert model.capabilities.exposes_cfg is True
+    assert model.capabilities.exposes_sampler is True
     assert model.capabilities.exposes_steps is False
 
     prompt = build_prompt(
         load_graph(target.json_path),
         load_workflow_config(target.config_path),
-        {"prompt": "x", "seed": 1, "cfg": 2.0},
+        {"prompt": "x", "seed": 1, "cfg": 2.0, "sampler": "dpmpp_2m"},
     )
 
     assert prompt["8"]["inputs"]["cfg"] == 2.0
+    assert prompt["9"]["inputs"]["sampler_name"] == "dpmpp_2m"
     assert "steps" not in prompt["10"]["inputs"]
+    assert isinstance(prompt["10"]["inputs"]["sigmas"], str)
 
 
 def test_standard_t2i_binds_ksampler_params() -> None:
