@@ -151,7 +151,30 @@ await waitFor(`(() => {
   return canvas && canvas.width > 32;
 })()`, 8000, "遮罩画布已按原图尺寸就绪");
 
-// 在画布中间横向涂一笔
+// 滚轮缩放：打开时是适应窗口，滚一下必须变大（并且不让页面跟着滚）
+const zoomBefore = await evaluate(`Number(document.querySelector("[data-mask-zoom]").value)`);
+const zoomCenter = await centerOf("[data-mask-canvas]");
+for (let step = 0; step < 2; step += 1) {
+  await send("Input.dispatchMouseEvent", {
+    type: "mouseWheel",
+    x: zoomCenter.x,
+    y: zoomCenter.y,
+    deltaX: 0,
+    deltaY: -120,
+  });
+  await sleep(120);
+}
+await sleep(200);
+const zoomAfter = await evaluate(`(() => ({
+  value: Number(document.querySelector("[data-mask-zoom]").value),
+  pageScrollY: Math.round(window.scrollY),
+  cssWidth: Math.round(document.querySelector("[data-mask-canvas]").getBoundingClientRect().width),
+}))()`);
+if (!(zoomAfter.value > zoomBefore)) {
+  throw new Error(`滚轮没有放大：${JSON.stringify({ zoomBefore, zoomAfter })}`);
+}
+
+// 在画布中间横向涂一笔（放大后落笔位置仍然要对）
 const canvas = await centerOf("[data-mask-canvas]");
 await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: canvas.x - 60, y: canvas.y, button: "none" });
 await send("Input.dispatchMouseEvent", { type: "mousePressed", x: canvas.x - 60, y: canvas.y, button: "left", clickCount: 1 });

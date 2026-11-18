@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+/** 缩放范围：10% – 400%，滑块按整数百分比走 */
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 4;
+const clampZoom = (value: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+
 export type MaskEditorResult = {
   /** 灰度 PNG：白色 = 要重绘 */
   file: File;
@@ -48,11 +53,16 @@ export default function MaskEditor({
     last: null,
   });
   const brushRef = useRef<HTMLCanvasElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const [size, setSize] = useState(48);
   const [tool, setTool] = useState<"brush" | "erase">("brush");
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [natural, setNatural] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   // 笔刷印章：中心不透明、边缘径向淡出
   const buildBrush = useCallback((diameter: number) => {
@@ -77,6 +87,72 @@ export default function MaskEditor({
     brushRef.current = buildBrush(size);
   }, [size, buildBrush]);
 
+  /** 滚轮/滑块缩放：给了鼠标坐标就以光标为锚点，放大时视线不跑 */
+  const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
+    const node = scrollerRef.current;
+    const target = clampZoom(next);
+    const current = zoomRef.current;
+    if (!node || clientX === undefined || clientY === undefined) {
+      setZoom(target);
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    const offsetX = clientX - rect.left + node.scrollLeft;
+    const offsetY = clientY - rect.top + node.scrollTop;
+    const ratio = target / current;
+    setZoom(target);
+    requestAnimationFrame(() => {
+      node.scrollLeft = Math.max(0, offsetX * ratio - (clientX - rect.left));
+      node.scrollTop = Math.max(0, offsetY * ratio - (clientY - rect.top));
+    });
+  }, []);
+
+  /** 滑块缩放：以可视区中心为锚点，免得一拉就跳到左上角 */
+  const zoomFromSlider = useCallback(
+    (value: number) => {
+      const node = scrollerRef.current;
+      if (!node) {
+        setZoom(clampZoom(value));
+        return;
+      }
+      const rect = node.getBoundingClientRect();
+      zoomTo(value, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    },
+    [zoomTo],
+  );
+
+  /** 让整张图落进可视区（不超过 100%，小图不放大） */
+  const fitToView = useCallback(() => {
+    const node = scrollerRef.current;
+    const { width, height } = sizeRef.current;
+    if (!node || !width || !height) {
+      return;
+    }
+    const boxWidth = Math.max(160, node.clientWidth - 24);
+    const boxHeight = Math.max(160, node.clientHeight - 24);
+    setZoom(clampZoom(Math.min(boxWidth / width, boxHeight / height, 1)));
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const node = scrollerRef.current;
+    if (!node) {
+      return;
+    }
+    // React 的 onWheel 是被动监听，preventDefault 无效，只能自己挂一个非被动的
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) {
+        return;
+      }
+      event.preventDefault();
+      zoomTo(zoomRef.current * (event.deltaY < 0 ? 1.12 : 1 / 1.12), event.clientX, event.clientY);
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => node.removeEventListener("wheel", onWheel);
+  }, [open, zoomTo]);
+
   // 打开时载入源图与已有遮罩
   useEffect(() => {
     if (!open) {
@@ -93,6 +169,9 @@ export default function MaskEditor({
       const width = image.naturalWidth;
       const height = image.naturalHeight;
       sizeRef.current = { width, height };
+      setNatural({ width, height });
+      // 每次载入新图都先适应窗口；之后的缩放由用户决定，不再覆盖
+      fitToView();
       const imageCanvas = imageCanvasRef.current;
       const maskCanvas = maskCanvasRef.current;
       if (!imageCanvas || !maskCanvas) {
@@ -138,7 +217,7 @@ export default function MaskEditor({
     return () => {
       cancelled = true;
     };
-  }, [open, imageUrl, initialMaskUrl]);
+  }, [open, imageUrl, initialMaskUrl, fitToView]);
 
   useEffect(() => {
     if (!open) {
@@ -373,13 +452,47 @@ export default function MaskEditor({
           </div>
         </div>
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#0b0d10] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-edge bg-surface2/40 px-4 py-2">
+          <div className="flex items-center gap-2 text-[11px] text-muted">
+            <span>缩放</span>
+            <input
+              type="range"
+              min={10}
+              max={400}
+              step={5}
+              value={Math.round(zoom * 100)}
+              onChange={(event) => zoomFromSlider(Number(event.target.value) / 100)}
+              className="w-32 accent-[rgb(var(--accent))]"
+              aria-label="缩放比例"
+              data-mask-zoom
+            />
+            <span className="w-10 tabular-nums text-ink/70">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              onClick={fitToView}
+              className="rounded border border-edge bg-surface2 px-1.5 py-0.5 text-[11px] text-ink/85 transition hover:border-accent/40"
+              data-mask-fit
+            >
+              适应窗口
+            </button>
+          </div>
+          <span className="text-[11px] text-muted/60">滚轮缩放，放大后拖滚动条移动</span>
+        </div>
+
+        <div
+          ref={scrollerRef}
+          className="relative flex min-h-0 flex-1 overflow-auto bg-[#0b0d10] p-3"
+          style={{ height: "62vh" }}
+        >
           <div
-            className="relative inline-block touch-none select-none rounded-lg border border-edge/70"
-            style={{ cursor: tool === "erase" ? "cell" : "crosshair" }}
+            className="relative m-auto block shrink-0 touch-none select-none rounded-lg border border-edge/70"
+            style={{
+              width: natural.width ? Math.round(natural.width * zoom) : undefined,
+              height: natural.height ? Math.round(natural.height * zoom) : undefined,
+              cursor: tool === "erase" ? "cell" : "crosshair",
+            }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <canvas ref={imageCanvasRef} className="block max-h-[62vh] w-auto max-w-full" />
+            <canvas ref={imageCanvasRef} className="block h-full w-full" />
             <canvas
               ref={maskCanvasRef}
               className="absolute inset-0 block h-full w-full"
