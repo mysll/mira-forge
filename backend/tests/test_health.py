@@ -48,7 +48,7 @@ def test_models_catalog_is_data_driven(client: TestClient) -> None:
     assert standard["capabilities"]["exposes_steps"] is True
     assert turbo["defaults"]["steps"] == 8
 
-    image_types = {"text_to_image", "image_to_image", "image_edit"}
+    image_types = {"text_to_image", "image_to_image", "image_edit", "image_inpaint"}
     for item in items:
         types = {workflow["type"] for workflow in item["workflows"]}
         if item["capabilities"]["media"] == "video":
@@ -91,6 +91,7 @@ def test_workflows_table_synced_from_registry(client: TestClient) -> None:
         "text_to_image",
         "image_to_image",
         "image_edit",
+        "image_inpaint",
         "text_to_video",
         "image_to_video",
     }

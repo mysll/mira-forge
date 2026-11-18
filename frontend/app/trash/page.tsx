@@ -29,6 +29,7 @@ const TYPE_LABELS: Record<string, string> = {
   text_to_image: "文生图",
   image_to_image: "参考图生成",
   image_edit: "图片编辑",
+  image_inpaint: "局部编辑",
   local_edit: "本地编辑",
   local_asset: "素材",
   text_to_video: "文生视频",

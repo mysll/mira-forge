@@ -387,6 +387,11 @@ export function imageThumbnailUrl(image: { id: number; created_at?: string }): s
   return `${API_BASE}/images/${image.id}/thumbnail${stamp(image.created_at)}`;
 }
 
+/** 局部编辑的遮罩（灰度 PNG，白色=重绘区域）；只有 image_inpaint 批次才有。 */
+export function maskImageUrl(generationId: number, createdAt?: string): string {
+  return `${API_BASE}/generations/${generationId}/mask${stamp(createdAt)}`;
+}
+
 export async function deleteImage(imageId: number): Promise<void> {
   const response = await fetch(`${API_BASE}/images/${imageId}`, {
     method: "DELETE",

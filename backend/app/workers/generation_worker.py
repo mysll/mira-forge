@@ -56,6 +56,8 @@ class _Plan:
     reference_paths: list[str] = field(default_factory=list)
     frames: dict[str, str] = field(default_factory=dict)
     is_video: bool = False
+    # 局部编辑的遮罩（相对 STORAGE_DIR）；没有遮罩就是普通编辑
+    mask_path: str | None = None
 
 
 def _video_length(duration_seconds: float | None, fps: float | None) -> int:
@@ -226,6 +228,21 @@ class GenerationWorker:
                 return
             frame_names[which] = name
 
+        mask_name: str | None = None
+        if plan.mask_path:
+            try:
+                content = read_storage_file(plan.mask_path, storage_root)
+                info = await self.client.upload_image(
+                    content, f"miraforge_mask_{task_id}{_suffix(plan.mask_path)}"
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._fail(project, task_id, f"上传遮罩失败：{exc}")
+                return
+            mask_name = info.get("name") or info.get("filename")
+            if not mask_name:
+                self._fail(project, task_id, f"ComfyUI 未返回遮罩文件名：{info}")
+                return
+
         try:
             prompt = build_prompt(
                 plan.graph,
@@ -233,6 +250,7 @@ class GenerationWorker:
                 plan.params,
                 reference_images=reference_names,
                 frames=frame_names,
+                mask_image=mask_name,
             )
         except PromptBuildError as exc:
             self._fail(project, task_id, str(exc))
@@ -392,6 +410,7 @@ class GenerationWorker:
 
             reference_paths: list[str] = []
             frames: dict[str, str] = {}
+            mask_path: str | None = None
             if generation.generation_type == GenerationType.IMAGE_TO_VIDEO:
                 # 首帧 / 尾帧按上传顺序：第一张当首帧，第二张当尾帧；只给一张就是首帧
                 paths = decode_reference_paths(
@@ -401,6 +420,7 @@ class GenerationWorker:
                     frames[which] = path
             elif generation.generation_type in (
                 GenerationType.IMAGE_EDIT,
+                GenerationType.IMAGE_INPAINT,
                 GenerationType.IMAGE_TO_IMAGE,
             ):
                 reference_paths = decode_reference_paths(
@@ -411,6 +431,11 @@ class GenerationWorker:
                     return None
                 # resolution 决定参考图被缩到多大再进编码器（见 WORKFLOW_MAPPING）
                 params["resolution"] = _edit_resolution(generation.width, generation.height)
+                if generation.generation_type == GenerationType.IMAGE_INPAINT:
+                    if not generation.mask_image_path:
+                        self._fail(project, task_id, "局部编辑缺少遮罩，无法执行")
+                        return None
+                    mask_path = generation.mask_image_path
 
             try:
                 graph = load_graph(target.json_path)
@@ -427,6 +452,7 @@ class GenerationWorker:
                 reference_paths=reference_paths,
                 frames=frames,
                 is_video=is_video,
+                mask_path=mask_path,
             )
 
     async def _wait_for_history(

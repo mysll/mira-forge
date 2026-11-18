@@ -147,6 +147,7 @@ def create_generation(
     *,
     reference_image_path: str | None = None,
     reference_image_paths: Sequence[str] | None = None,
+    mask_image_path: str | None = None,
 ) -> Generation:
     settings = get_settings()
     prompt = payload.prompt.strip()
@@ -170,6 +171,10 @@ def create_generation(
     generation_type = GenerationType(payload.generation_type)
     if generation_type == GenerationType.IMAGE_TO_VIDEO and not paths:
         generation_type = GenerationType.TEXT_TO_VIDEO
+    # 编辑带了遮罩：输入完全一样，只是换一张带 SetLatentNoiseMask 的图，
+    # 掩码外的像素由 VAEEncode 原样保留
+    if generation_type == GenerationType.IMAGE_EDIT and mask_image_path:
+        generation_type = GenerationType.IMAGE_INPAINT
     is_video = generation_type.is_video
 
     target = workflow_service.get_workflow_target(model, generation_type)
@@ -200,7 +205,7 @@ def create_generation(
             raise GenerationValidationError(
                 f"图生视频最多 {settings.max_reference_images} 张图（首帧 + 尾帧），收到 {len(paths)} 张"
             )
-    elif generation_type == GenerationType.IMAGE_EDIT:
+    elif generation_type in (GenerationType.IMAGE_EDIT, GenerationType.IMAGE_INPAINT):
         # 第 1 张定结构（必填），第 2 张可选的服装 / 材质参考
         if not paths:
             raise GenerationValidationError("图片编辑至少需要 1 张参考图（第 1 张定结构）")
@@ -251,6 +256,7 @@ def create_generation(
         status="pending",
         reference_image_path=paths[0] if paths else None,
         reference_image_paths=encode_reference_paths(paths),
+        mask_image_path=mask_image_path if generation_type == GenerationType.IMAGE_INPAINT else None,
         negative_prompt=negative_prompt,
         steps=payload.steps,
         cfg=cfg,

@@ -12,6 +12,18 @@ import {
 
 export type ComposerMode = "text_to_image" | "image_edit";
 
+/** 图片编辑的遮罩：编辑一次就存这三个东西。 */
+export type ComposerMask = {
+  /** 交给后端的灰度 PNG，白色 = 要重绘的区域 */
+  file: File;
+  /** 叠在源图上的红色预览，用作槽位里的缩略图 */
+  overlayUrl: string;
+  /** 灰度遮罩本身，再次打开编辑器时载入 */
+  maskUrl: string;
+  width: number;
+  height: number;
+};
+
 type ComposerState = {
   mode: ComposerMode;
   /** 两种模式各自保留未提交的提示词 */
@@ -30,6 +42,8 @@ type ComposerState = {
   cfg: string;
   sampler: string;
   advancedOpen: boolean;
+  /** 图片编辑的遮罩；有它这一单就走局部编辑 */
+  mask: ComposerMask | null;
   setMode: (mode: ComposerMode) => void;
   setPrompt: (prompt: string) => void;
   setModelId: (modelId: string) => void;
@@ -44,6 +58,8 @@ type ComposerState = {
   setCfg: (value: string) => void;
   setSampler: (value: string) => void;
   setAdvancedOpen: (open: boolean) => void;
+  setMask: (mask: ComposerMask | null) => void;
+  clearMask: () => void;
 };
 
 const initial = imageSizeFor(DEFAULT_RATIO, DEFAULT_TIER);
@@ -64,6 +80,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   cfg: "",
   sampler: "",
   advancedOpen: false,
+  mask: null,
 
   setMode: (mode) => set({ mode }),
   setPrompt: (prompt) =>
@@ -97,4 +114,21 @@ export const useComposerStore = create<ComposerState>((set) => ({
   setCfg: (cfg) => set({ cfg }),
   setSampler: (sampler) => set({ sampler }),
   setAdvancedOpen: (advancedOpen) => set({ advancedOpen }),
+  // 换遮罩时把旧的两个 blob URL 放掉，免得一直占内存
+  setMask: (mask) =>
+    set((state) => {
+      if (state.mask && state.mask !== mask) {
+        URL.revokeObjectURL(state.mask.overlayUrl);
+        URL.revokeObjectURL(state.mask.maskUrl);
+      }
+      return { mask };
+    }),
+  clearMask: () =>
+    set((state) => {
+      if (state.mask) {
+        URL.revokeObjectURL(state.mask.overlayUrl);
+        URL.revokeObjectURL(state.mask.maskUrl);
+      }
+      return { mask: null };
+    }),
 }));

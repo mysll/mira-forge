@@ -1,0 +1,32 @@
+# Qwen Image 2.1 局部编辑（编辑 + VAEEncode + SetLatentNoiseMask，25 步）
+#
+# 与 qwen_image_21_edit.yaml 的唯一区别是潜空间来源：这里不是编码器吐出的
+# 零张量，而是把第 1 张参考图 VAEEncode 成 latent，再用遮罩告诉采样器
+# 「只在这块区域重绘」。掩码外的像素保持原样，所以输出尺寸完全跟随参考图。
+#
+# 遮罩是一个独立的 LoadImage（节点 8）→ ImageToMask(red) → SetLatentNoiseMask.mask。
+# 灰度 PNG：白色 = 要改，黑色 = 保留。
+output_node: "13"
+
+reference_image:
+  encoder_node: "6"
+  encoder_input: images.image_1
+  loaders:
+    - node: "1"
+      input: image
+    - node: "20"
+      input: image
+
+mask: { node: "8", input: image }
+
+bindings:
+  prompt: { node: "6", input: prompt }
+  negative_prompt: { node: "6", input: negative_prompt }
+  resolution: { node: "6", input: resolution }
+  seed: { node: "11", input: seed }
+  steps: { node: "11", input: steps }
+  cfg: { node: "11", input: cfg }
+  sampler: { node: "11", input: sampler_name }
+  scheduler: { node: "11", input: scheduler }
+  denoise: { node: "11", input: denoise }
+  filename_prefix: { node: "13", input: filename_prefix }

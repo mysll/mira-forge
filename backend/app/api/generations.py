@@ -34,7 +34,13 @@ from app.services.recycle_service import soft_delete_generation
 router = APIRouter(prefix="/generations", tags=["generations"])
 
 _VIDEO_TYPES = ("text_to_video", "image_to_video")
-_IMAGE_TYPES = ("text_to_image", "image_to_image", "image_edit", "local_edit")
+_IMAGE_TYPES = (
+    "text_to_image",
+    "image_to_image",
+    "image_edit",
+    "image_inpaint",
+    "local_edit",
+)
 _ASSET_TYPES = ("local_asset",)
 
 
@@ -68,6 +74,7 @@ def _to_read(generation) -> GenerationRead:
     payload.reference_images = decode_reference_paths(
         generation.reference_image_paths, generation.reference_image_path
     )
+    payload.has_mask = bool(generation.mask_image_path)
     return payload
 
 
@@ -124,12 +131,14 @@ async def create_edit(
     cfg: float | None = Form(None, ge=0, le=30),
     sampler: str | None = Form(None, max_length=64),
     images: list[UploadFile] = File(default=[]),
+    mask: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
 ) -> GenerationRead:
     """创建一次图片编辑请求（multipart，1 张必填 + 1 张可选）。
 
     第 1 张决定被编辑的画面（潜空间与构图都跟它走），第 2 张只作为
     服装 / 材质 / 风格参考——用来做「把 A 的衣服换成 B 的」这类跨图编辑。
+    再带一张遮罩（白=要改）时改走局部编辑：掩码外的像素原样保留。
     """
     limit = get_settings().max_reference_images
     if not images:
@@ -150,6 +159,14 @@ async def create_edit(
         except ImageStoreError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    mask_path: str | None = None
+    if mask is not None:
+        content, extension = await _validated_upload(mask, "遮罩")
+        try:
+            mask_path = store_upload(content, extension=extension)
+        except ImageStoreError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     payload = GenerationCreate(
         prompt=prompt,
         model=model,
@@ -164,7 +181,9 @@ async def create_edit(
         sampler=sampler,
     )
     try:
-        generation = create_generation(db, payload, reference_image_paths=paths)
+        generation = create_generation(
+            db, payload, reference_image_paths=paths, mask_image_path=mask_path
+        )
     except GenerationValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _to_read(generation)
@@ -308,6 +327,25 @@ def get_reference(
     path = storage_root_for() / paths[index]
     if not path.is_file():
         raise HTTPException(status_code=404, detail=f"参考图文件缺失：{path}")
+    return FileResponse(path)
+
+
+@router.get("/{generation_id}/mask")
+def get_mask(
+    generation_id: int,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """回显该次局部编辑使用的遮罩（前端历史里用）。"""
+    generation = GenerationRepository(db).get(generation_id)
+    if generation is None:
+        raise HTTPException(status_code=404, detail=f"generation {generation_id} 不存在")
+    if not generation.mask_image_path:
+        raise HTTPException(
+            status_code=404, detail=f"generation {generation_id} 没有遮罩"
+        )
+    path = storage_root_for() / generation.mask_image_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"遮罩文件缺失：{path}")
     return FileResponse(path)
 
 

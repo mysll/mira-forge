@@ -38,6 +38,11 @@ models:
         json: workflows/qwen_image_21_edit.json
         config: workflow_configs/qwen_image_21_edit.yaml
         validated: true
+      - type: image_inpaint
+        label: 局部编辑
+        json: workflows/qwen_image_21_inpaint.json
+        config: workflow_configs/qwen_image_21_inpaint.yaml
+        validated: true
       - type: image_to_image
         label: 图生图
         json: workflows/qwen_image_21_i2i.json
@@ -75,6 +80,11 @@ models:
         json: workflows/qwen_image_21_turbo_edit.json
         config: workflow_configs/qwen_image_21_turbo_edit.yaml
         validated: false
+      - type: image_inpaint
+        label: 局部编辑
+        json: workflows/qwen_image_21_turbo_inpaint.json
+        config: workflow_configs/qwen_image_21_turbo_inpaint.yaml
+        validated: true
       - type: image_to_image
         label: 图生图
         json: workflows/qwen_image_21_turbo_i2i.json

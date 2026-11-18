@@ -31,6 +31,9 @@ class GenerationType(StrEnum):
     # 参考图引导：参考图只进条件，潜空间仍按 width/height 新开一张
     IMAGE_TO_IMAGE = "image_to_image"
     IMAGE_EDIT = "image_edit"
+    # 局部编辑：与图片编辑同一套输入，多一张遮罩；掩码外的像素由
+    # VAEEncode + SetLatentNoiseMask 原样保留（见 WORKFLOW_MAPPING）
+    IMAGE_INPAINT = "image_inpaint"
     # 本地编辑器保存的成品：不用模型、不排队，直接是一条已完成记录
     LOCAL_EDIT = "local_edit"
     LOCAL_ASSET = "local_asset"
@@ -59,6 +62,8 @@ class Generation(Base):
     reference_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # 参考图全部路径（JSON 数组），reference_image_path 是其中第一张，方便单图端点直接用
     reference_image_paths: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 局部编辑的遮罩（相对 STORAGE_DIR，灰度 PNG，白色=要改的区域）
+    mask_image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # 用户显式给出的生成参数；为 None 时回落到 registry.yaml 里模型默认值
     negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     steps: Mapped[int | None] = mapped_column(Integer, nullable=True)

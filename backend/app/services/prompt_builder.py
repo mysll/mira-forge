@@ -72,6 +72,7 @@ def build_prompt(
     params: dict[str, Any],
     reference_images: Sequence[str] | None = None,
     frames: dict[str, str] | None = None,
+    mask_image: str | None = None,
 ) -> dict[str, Any]:
     """返回可直接 POST /prompt 的图（不改动传入的 graph）。"""
     prompt = copy.deepcopy(graph)
@@ -97,7 +98,30 @@ def build_prompt(
     if config.frames is not None:
         _attach_frames(prompt, config, frames or {})
 
+    if config.mask is not None:
+        _attach_mask(prompt, config, mask_image)
+    elif mask_image is not None:
+        raise PromptBuildError("该工作流没有配置遮罩落点，收到遮罩却无处可写")
+
     return prompt
+
+
+def _attach_mask(
+    prompt: dict[str, Any], config: WorkflowConfig, mask_image: str | None
+) -> None:
+    """遮罩只写进自己的 LoadImage；没给遮罩就报错，绝不悄悄按整图重绘。"""
+    binding = config.mask
+    assert binding is not None
+    if not mask_image:
+        raise PromptBuildError("局部编辑需要遮罩，但本次任务没有提供")
+    loader = _node(prompt, binding.node, "遮罩节点")
+    inputs = loader.setdefault("inputs", {})
+    if binding.input not in inputs:
+        raise WorkflowConfigError(
+            f"遮罩节点 {binding.node} 没有输入 {binding.input}"
+            "（可用：" + ", ".join(sorted(inputs)) + "）"
+        )
+    inputs[binding.input] = mask_image
 
 
 def _attach_frames(

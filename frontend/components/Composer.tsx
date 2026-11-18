@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import CountMenu from "@/components/CountMenu";
 import ImagePicker from "@/components/ImagePicker";
+import MaskEditor from "@/components/MaskEditor";
 import Popover from "@/components/Popover";
 import SlotMenu from "@/components/SlotMenu";
 import {
@@ -43,6 +44,9 @@ export default function Composer({ models, onToast }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [slotMenu, setSlotMenu] = useState<SlotTarget | null>(null);
   const [picking, setPicking] = useState<SlotTarget | null>(null);
+  const [maskEditing, setMaskEditing] = useState(false);
+  /** 上一次第 1 张参考图的 key：换了图就把遮罩丢掉（遮罩是对着这张图画出来的）。 */
+  const maskSourceKey = useRef<string | null>(null);
   /** 本次「从本机上传」要落到哪个槽：点空槽时记下来，选完文件再消费。 */
   const pendingSlot = useRef<number | undefined>(undefined);
 
@@ -74,6 +78,9 @@ export default function Composer({ models, onToast }: Props) {
   const sampler = useComposerStore((state) => state.sampler);
   const setSampler = useComposerStore((state) => state.setSampler);
   const advancedOpen = useComposerStore((state) => state.advancedOpen);
+  const mask = useComposerStore((state) => state.mask);
+  const setMask = useComposerStore((state) => state.setMask);
+  const clearMask = useComposerStore((state) => state.clearMask);
   const setAdvancedOpen = useComposerStore((state) => state.setAdvancedOpen);
 
   const reference = useReferenceStore();
@@ -112,6 +119,15 @@ export default function Composer({ models, onToast }: Props) {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["generations"] });
   };
+
+  // 遮罩是对着第 1 张参考图画的：换图就作废，别把旧遮罩套到新图上
+  const firstRefKey = reference.items[0]?.key ?? null;
+  useEffect(() => {
+    if (maskSourceKey.current !== null && maskSourceKey.current !== firstRefKey) {
+      clearMask();
+    }
+    maskSourceKey.current = firstRefKey;
+  }, [firstRefKey, clearMask]);
 
   const submit = useMutation({
     // 把提交瞬间的提示词与模式带进来，成功后只清掉"还是同一句"的输入，
@@ -182,6 +198,10 @@ export default function Composer({ models, onToast }: Props) {
           item.source.kind === "file" ? item.source.file : await imageAsFile(item.source.id);
         form.append("images", file);
       }
+      // 有遮罩就带上去：后端据此换成局部编辑（只重绘遮罩里的地方）
+      if (mask) {
+        form.append("mask", mask.file);
+      }
       return createEditGeneration(form);
     },
     onSuccess: (created, variables) => {
@@ -192,6 +212,7 @@ export default function Composer({ models, onToast }: Props) {
       // 参考图是一次性输入：这一单已经把它们发出去了，留着只会让下一单重复带图
       reference.clear();
       genRefs.clear();
+      clearMask();
       setSlotMenu(null);
       setPicking(null);
       onToast(created.generation_type === "image_to_image" ? "已提交，参考图已生效" : "已提交，正在排队生成");
@@ -380,6 +401,25 @@ export default function Composer({ models, onToast }: Props) {
                     >
                       ×
                     </button>
+                    {index === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setMaskEditing(true)}
+                        title="画遮罩：只有涂到的地方会被重绘"
+                        className="absolute bottom-0 left-0 hidden items-center gap-0.5 bg-black/70 px-1 py-0.5 text-[9px] text-white group-hover:flex"
+                        data-mask-button
+                      >
+                        <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" aria-hidden>
+                          <path
+                            d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                        遮罩
+                      </button>
+                    ) : null}
                   </div>
                   <span className="absolute -bottom-4 left-0 text-[9px] text-muted/70">
                     {index === 0 ? "结构" : "参考"}
@@ -398,6 +438,45 @@ export default function Composer({ models, onToast }: Props) {
                   />
                 </div>
               ))}
+              {mask ? (
+                <div
+                  className="relative"
+                  data-slot
+                  data-mask-slot
+                  title={`遮罩 ${mask.width}×${mask.height}：只有涂过的地方会被重绘`}
+                >
+                  <div className="group relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-accent/60">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={mask.overlayUrl} alt="遮罩" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setMaskEditing(true)}
+                      title="重新画遮罩"
+                      className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+                        <path
+                          d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => clearMask()}
+                      title="移除遮罩（改回普通图片编辑）"
+                      className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <span className="absolute -bottom-4 left-0 text-[9px] text-accentSoft/80">
+                    遮罩
+                  </span>
+                </div>
+              ) : null}
               {reference.items.length < MAX_EDIT_REFS ? (
                 <div className="relative" data-slot>
                   <button
@@ -864,6 +943,18 @@ export default function Composer({ models, onToast }: Props) {
           onChange={(event) => {
             handleFiles(event.target.files);
             event.target.value = "";
+          }}
+        />
+
+        <MaskEditor
+          open={maskEditing && reference.items.length > 0}
+          imageUrl={reference.items[0]?.previewUrl ?? ""}
+          initialMaskUrl={mask?.maskUrl ?? null}
+          onClose={() => setMaskEditing(false)}
+          onApply={(result) => {
+            setMask(result);
+            setMaskEditing(false);
+            onToast("遮罩已就绪：这一单只重绘涂到的地方");
           }}
         />
 

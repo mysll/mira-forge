@@ -192,6 +192,33 @@ EmptyLatentImage(width,height,1) ─────────────┴─�
 
 所以 Turbo **不可调步数**，注册表里 `capabilities.exposes_steps: false`，前端不显示步数输入框，而不是放一个无效的输入框。Turbo 走 `SamplerCustomAdvanced(noise=RandomNoise, guider=CFGGuider(cfg=1), sampler=KSamplerSelect(euler), sigmas=ManualSigmas, latent_image=…)`，不使用 `KSampler`。CFG 与采样器则是**独立于 sigma 表**的参数（分别落在 `CFGGuider.cfg` 与 `KSamplerSelect.sampler_name`），改了真生效，因此 `exposes_cfg` 与 `exposes_sampler` 都是 `true`；只有默认 CFG=1.0 时（cfg1 优化会跳过 uncond 分支）负面提示词不参与采样，而换采样器时用的仍是那张按 euler 调的 8 步表。
 
+## 局部编辑（遮罩）：VAEEncode + SetLatentNoiseMask
+
+Qwen Image 2.1 没有官方的 inpaint 模板，但它不需要专门的重绘模型：把「源图编码成 latent」再给它套一张噪声掩码，采样时掩码外的 latent 就保持原样。这条链路是两个模型各自多一张图，节点结构完全一致，只有采样段不同。
+
+```text
+1 LoadImage(源图) ─┬─→ 6 TextEncodeQwenImage21.images.image_1
+                   │                    └─→ [0] 正向条件  [1] 负向条件
+                   └─→ 7 VAEEncode(pixels, vae ← 4)
+                                            │
+8 LoadImage(遮罩) ──→ 9 ImageToMask(red) ──→ 10 SetLatentNoiseMask(samples ← 7)
+                                            │
+11 KSampler(latent_image ← 10, denoise 1.0) ─→ 12 VAEDecode ─→ 13 SaveImage
+```
+
+- 标准版 `qwen_image_21_inpaint.json`：`11 KSampler(steps 25, cfg 1.0, euler/simple)`，`output_node "13"`。
+- turbo 版 `qwen_image_21_turbo_inpaint.json`：`11 RandomNoise → 12 CFGGuider → 13 KSamplerSelect → 14 ManualSigmas → 15 SamplerCustomAdvanced → 16 VAEDecode → 17 SaveImage`，`output_node "17"`，与 turbo 的编辑图一致。
+- 两份 YAML 都多一个 `mask: { node: "8", input: image }`，`prompt_builder` 只往这个 `LoadImage` 里写遮罩名；`reference_image` 段沿用编辑那张图（编码器 `6`，两个 `LoadImage` 槽位 `1` / `20`）。
+- 遮罩是灰度 PNG：白色 = 要重绘。`ImageToMask(channel=red)` 直接取红通道，所以软边笔刷的过渡会被当成 0–1 的覆盖度，接缝比硬边遮罩自然。
+
+实测（RTX 5070 Ti，1024×1024，遮罩为躯干矩形）：
+| 模型 | 耗时 | 掩码外像素差 >8 的占比 | 掩码内 >24 的占比 |
+| --- | --- | --- | --- |
+| qwen_image_21_turbo | 10.1 s | 0.21% | 16.4% |
+| qwen_image_21 | 18.1 s | 0.2% | 13.9% |
+
+也就是说，改动基本被限制在遮罩里；掩码外那 0.2% 是 VAEDecode 的整体微调，肉眼看不出来。
+
 ## 负面提示词与 CFG
 
 **默认 CFG=1 时，负面提示词完全不参与计算。** ComfyUI 的 `comfy/samplers.py:610`：

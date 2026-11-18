@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { imageFileUrl, imageThumbnailUrl, referenceImageUrl } from "@/lib/api";
+import { imageFileUrl, imageThumbnailUrl, maskImageUrl, referenceImageUrl } from "@/lib/api";
 import { formatBytes, formatTime } from "@/lib/date";
 import { modelLabel } from "@/lib/models";
 import type { FeedItem } from "@/types/api";
@@ -42,8 +42,10 @@ export default function ImageDetail({
 }: Props) {
   const { image, generation, seed } = item;
 
-  // 参考图点开看大图：详情里的缩略图只有 64px，想确认构图细节就得放大。
-  const [previewRef, setPreviewRef] = useState<number | null>(null);
+  // 参考图 / 遮罩点开看大图：详情里的缩略图只有 64px，想确认细节就得放大。
+  const [zoom, setZoom] = useState<{ kind: "reference"; index: number } | { kind: "mask" } | null>(
+    null,
+  );
 
   const isVideo = image.media_type === "video";
   const isAsset = image.media_type === "asset";
@@ -64,8 +66,10 @@ export default function ImageDetail({
       ? generation.generation_type === "text_to_video"
         ? "文生视频"
         : "图生视频"
-      : generation.generation_type === "image_edit"
-        ? "图片编辑"
+      : generation.generation_type === "image_inpaint"
+        ? "局部编辑"
+        : generation.generation_type === "image_edit"
+          ? "图片编辑"
         : generation.generation_type === "image_to_image"
           ? "参考图生成"
           : generation.generation_type === "local_edit"
@@ -78,15 +82,15 @@ export default function ImageDetail({
         return;
       }
       // 大图打开时 Esc 先关大图，再按一次才关详情。
-      if (previewRef !== null) {
-        setPreviewRef(null);
+      if (zoom !== null) {
+        setZoom(null);
         return;
       }
       onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, previewRef]);
+  }, [onClose, zoom]);
 
   const copy = async (text: string, label: string) => {
     try {
@@ -190,7 +194,7 @@ export default function ImageDetail({
                     <button
                       key={index}
                       type="button"
-                      onClick={() => setPreviewRef(index)}
+                      onClick={() => setZoom({ kind: "reference", index })}
                       title="点击看大图"
                       className="relative overflow-hidden rounded-lg border border-edge transition hover:border-accent/60 focus-visible:border-accent/60"
                     >
@@ -203,6 +207,28 @@ export default function ImageDetail({
                     </button>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {generation.has_mask ? (
+              <div className="mt-2 rounded-xl border border-accent/30 bg-accent/5 p-2.5">
+                <p className="label mb-1.5">
+                  遮罩
+                  <span className="ml-1 font-normal text-muted/60">（只重绘涂到的地方）</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setZoom({ kind: "mask" })}
+                  title="点击看大图"
+                  className="relative overflow-hidden rounded-lg border border-edge transition hover:border-accent/60 focus-visible:border-accent/60"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={maskImageUrl(generation.id, generation.created_at)}
+                    alt="遮罩"
+                    className="h-16 w-16 cursor-zoom-in object-cover transition hover:scale-[1.04]"
+                  />
+                </button>
               </div>
             ) : null}
 
@@ -287,23 +313,31 @@ export default function ImageDetail({
       </div>
     </div>
 
-    {previewRef !== null ? (
+    {zoom !== null ? (
       <div
         className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/90 p-8"
-        onClick={() => setPreviewRef(null)}
+        onClick={() => setZoom(null)}
         role="presentation"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={referenceImageUrl(generation.id, generation.created_at, previewRef)}
-          alt={`参考图 ${previewRef + 1}`}
+          src={
+            zoom.kind === "mask"
+              ? maskImageUrl(generation.id, generation.created_at)
+              : referenceImageUrl(generation.id, generation.created_at, zoom.index)
+          }
+          alt={zoom.kind === "mask" ? "遮罩" : `参考图 ${zoom.index + 1}`}
           className="max-h-[82vh] max-w-full rounded-lg object-contain shadow-pop"
         />
         <p className="text-[11px] text-white/60">
-          参考图 {previewRef + 1}
-          {generation.reference_images && generation.reference_images.length > 1
-            ? ` / ${generation.reference_images.length}`
-            : ""} · 点任意处关闭
+          {zoom.kind === "mask"
+            ? "遮罩（白色区域会被重绘）"
+            : `参考图 ${zoom.index + 1}${
+                generation.reference_images && generation.reference_images.length > 1
+                  ? ` / ${generation.reference_images.length}`
+                  : ""
+              }`}
+          {" · 点任意处关闭"}
         </p>
       </div>
     ) : null}

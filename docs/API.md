@@ -142,7 +142,7 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 - `available`：该模型至少一种工作流的 JSON 落地了。
 - `is_default`：前端下拉默认选中项（对应 `registry.yaml` 的 `default: true`）。
 - `validated`：该工作流是否真实跑通过。当前图片侧 9 条（Qwen Image 2.1 三条、Qwen Turbo 三条、Z-Image Turbo / Klein Distilled / Klein Base 各一条文生图）都是 `true`，视频两条是 `true`。
-- 当前注册表里有 6 个模型、11 条工作流：Qwen Image 2.1（3）、Qwen Image 2.1 Turbo（3）、Z-Image Turbo（1）、FLUX.2 Klein 4B Distilled（1）、FLUX.2 Klein 4B Base（1）、MiniMax H3（2）。
+- 当前注册表里有 6 个模型、13 条工作流：Qwen Image 2.1（4）、Qwen Image 2.1 Turbo（4）、Z-Image Turbo（1）、FLUX.2 Klein 4B Distilled（1）、FLUX.2 Klein 4B Base（1）、MiniMax H3（2）。
 
 ### `GET /models/{model_id}`
 
@@ -263,7 +263,9 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 
 ### `POST /generations/edit`
 
-图片编辑：`multipart/form-data`。除参考图外字段与 `POST /generations` 相同，`generation_type` 固定为 `image_edit`。
+图片编辑：`multipart/form-data`。除参考图外字段与 `POST /generations` 相同。
+
+带 `mask` 时返回的 `generation_type` 是 **`image_inpaint`**（局部编辑）：只有遮罩涂到的地方会被重绘，其余像素由 `VAEEncode + SetLatentNoiseMask` 原样保留；不带 `mask` 就还是 `image_edit`（整图重绘）。前端「图片编辑」页签下面这两个是同一个输入区，区别只在于画不画遮罩。
 
 **第 1 张决定被编辑的画面**（结构、比例、构图都跟着它），**第 2 张可选**，只当补充信息用——典型用法是「第 1 张放角色、第 2 张放服装」，让模型把第 2 张的衣服换到第 1 张身上。
 
@@ -274,6 +276,7 @@ ComfyUI 不可达时不抛 5xx，而是 `{"ok": false, "detail": "ConnectionErro
 | `images` | 是 | 1–2 张（第 2 张可选）；PNG / JPEG / WEBP；单张 ≤ 20 MB；按文件魔数校验 |
 | `count` | 否 | 1–8，同一次编辑出多张变体 |
 | `width` / `height` | 否 | 只决定像素量级：Worker 传 `resolution = round(sqrt(w×h)/32)×32`（夹在 256–4096） |
+| `mask` | 否 | 遮罩 PNG（灰度：**白色 = 要重绘**，黑色 = 保持原样），尺寸建议与第 1 张参考图一致；带上就走局部编辑 |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
@@ -282,6 +285,13 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
   -F "count=1" \
   -F "images=@D:/AI/MiraForge/data/case-ref1.png" \
   -F "images=@D:/AI/MiraForge/data/case-ref2.png"
+
+# 局部编辑：只有遮罩覆盖的地方会被重绘
+curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
+  -F "prompt=胸口加一条红围巾，其余保持不变" \
+  -F "model=qwen_image_21_turbo" \
+  -F "images=@D:/AI/MiraForge/data/case-ref1.png" \
+  -F "mask=@D:/AI/MiraForge/data/case-mask.png"
 ```
 
 返回结构与 `POST /generations` 相同（`201`）。错误：
@@ -294,6 +304,14 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
 ```
 
 工作流侧：两张图分别接到编码器的 `images.image_1` / `images.image_2`，潜空间取编码器输出的 `[6, 2]`（**按第 1 张的尺寸对齐**，所以编辑结果的尺寸跟随第 1 张，与 `width` / `height` 无关）；只给 1 张时第二个 `LoadImage` 节点与 `images.image_2` 会被自动摘掉。
+
+局部编辑换一套图（`qwen_image_21_inpaint.json` / `qwen_image_21_turbo_inpaint.json`）：第 1 张参考图同时进编码器条件与 `VAEEncode`，遮罩进独立的 `LoadImage` → `ImageToMask(red)` → `SetLatentNoiseMask`，采样在带噪声掩码的 latent 上跑。遮罩缺失或工作流没配 `mask` 落点时直接拒绝（`422`），不会静默退化成整图重绘。
+
+### `GET /generations/{id}/mask`
+
+回吐这条局部编辑的遮罩 PNG（`image/png`）。只对 `image_inpaint` 有意义，其余类型返回 `404 {"detail": "generation 12 没有遮罩"}`；记录在但文件被挪走时返回 `404 {"detail": "遮罩文件缺失：uploads/xxx.png"}`。
+
+`GenerationRead` 里的 `has_mask` 就是这条记录的摘要位——前端据此在详情里画「遮罩」缩略图，不必先请求字节。
 
 ### `POST /generations/image-to-image`
 

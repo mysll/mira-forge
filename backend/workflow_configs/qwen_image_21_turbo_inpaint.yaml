@@ -1,0 +1,28 @@
+# Qwen Image 2.1 Turbo 局部编辑（编辑 + VAEEncode + SetLatentNoiseMask，8 步蒸馏）
+#
+# 与 qwen_image_21_turbo_edit.yaml 的唯一区别是潜空间来源：第 1 张参考图
+# VAEEncode 成 latent，遮罩走 SetLatentNoiseMask，掩码外保持原样。
+#
+# 步数由固定的 9 点 sigma 表决定（没有 steps 落点）；CFG 与采样器仍可调，
+# 它们分别落在 CFGGuider 和 KSamplerSelect 上。
+output_node: "17"
+
+reference_image:
+  encoder_node: "6"
+  encoder_input: images.image_1
+  loaders:
+    - node: "1"
+      input: image
+    - node: "20"
+      input: image
+
+mask: { node: "8", input: image }
+
+bindings:
+  prompt: { node: "6", input: prompt }
+  negative_prompt: { node: "6", input: negative_prompt }
+  resolution: { node: "6", input: resolution }
+  seed: { node: "11", input: noise_seed }
+  cfg: { node: "12", input: cfg }
+  sampler: { node: "13", input: sampler_name }
+  filename_prefix: { node: "17", input: filename_prefix }

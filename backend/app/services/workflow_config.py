@@ -80,6 +80,8 @@ class WorkflowConfig(BaseModel):
     bindings: dict[str, ParamBinding] = Field(default_factory=dict)
     reference_image: ReferenceImageBinding | None = None
     frames: FrameBinding | None = None
+    # 局部编辑的遮罩：一个只放遮罩的 LoadImage（不进编码器，接 SetLatentNoiseMask）
+    mask: LoaderBinding | None = None
 
 
 def resolve_workflow_path(relative: str) -> Path:

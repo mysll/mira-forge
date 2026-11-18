@@ -144,6 +144,8 @@ export type GenerationRead = {
   reference_image_path: string | null;
   /** 本次生成用到的全部参考图（相对 STORAGE_DIR），图生图最多 2 张 */
   reference_images: string[];
+  /** 局部编辑是否带遮罩（遮罩字节走 /generations/{id}/mask） */
+  has_mask: boolean;
   steps: number | null;
   cfg: number | null;
   sampler: string | null;

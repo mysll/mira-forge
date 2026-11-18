@@ -85,6 +85,7 @@ workflows 1 ──< generations 1 ──< generation_tasks 1 ──< images
 - **image_edit 的宽高只决定像素量级**：Qwen Image 2.1 编辑链路的潜空间由参考图编码器输出决定（`TextEncodeQwenImage21` 的第 3 个输出），宽高仅在切换到空 latent 时才生效。因此编辑时 `width/height` 不会写进 `EmptyLatentImage`，而是换算成 `resolution = round(sqrt(w×h)/32)×32` 交给编码器——输出比例跟随参考图，像素量级由用户选的尺寸决定。前端据此显示"输出比例跟随这张图"。
 - **image_to_image 复用同一条编码链路，只换潜空间**：参考图仍然接到 `TextEncodeQwenImage21.images`（1–2 个槽位），但 `latent_image` 来自 `EmptyLatentImage`，所以宽高生效、输出比例由用户决定，参考图只影响条件。三种生成类型因此共用同一套节点与绑定 YAML，区别只在 latent 的来源（编辑 = `["6",2]`，图生图/文生图 = `["6",0]`）。
 - **参考图的槽位是配置驱动的**：`workflow_configs/*.yaml` 里 `reference_image.loaders` 列出 `[20, 21]` 两个 `LoadImage`，`prompt_builder` 按张数保留/摘除节点——给 1 张时节点 `21` 与被它引用的 `images.image_2` 一起消失，避免 ComfyUI 去找模版占位文件 `placeholder.png`。
+- **局部编辑是同一套输入多一张遮罩**：前端不设单独页签，`POST /generations/edit` 带 `mask` 时 `generation_type` 被提升为 `image_inpaint`，工作流换成 `*_inpaint.json`——第 1 张参考图既进编码器条件、又进 `VAEEncode`，遮罩经 `ImageToMask` → `SetLatentNoiseMask` 叠在 latent 上，所以掩码外的像素由解码器原样还原，没有被「重画一遍」。遮罩本身走 `generations.mask_image_path`（迁移 `0008_inpaint_mask`），`WorkflowConfig.mask` 指明落点 `LoadImage`，`prompt_builder` 只写那一个输入。
 - **相对路径一律以项目根为基准**：`PROJECTS_DIR=./data/projects` 由 `config.py` 解析成绝对路径，因此从任何目录启动 uvicorn 都指向同一批项目；每个项目的库与 storage 再由项目目录推导，不靠环境变量。
 
 ## 状态机
