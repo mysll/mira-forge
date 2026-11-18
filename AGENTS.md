@@ -32,6 +32,32 @@ Backend commands run from `backend/`, frontend commands from `frontend/`.
 - Runtime state: `data/projects/<id>/{app.db,storage/}` (git-ignored), `data/projects/catalog.json` lists projects. `data/` also holds throwaway screenshots and probe scripts.
 - Docs: `docs/{ARCHITECTURE,API,FRONTEND,WORKFLOW_MAPPING,DEVELOPMENT}.md`; `doc/PROJECT.md` is the original spec (may lag the code).
 
+## How a request flows
+
+1. The composer posts to `/api/v1/generations` (JSON for text-to-image, multipart for reference images / masks / first-last frames). `generation_service.create_generation()` resolves the workflow with `get_workflow_target(model, type)`, then writes **one `generation` + N `generation_tasks`** — one task per requested product, each with its own seed.
+2. The worker loop (`backend/app/workers/generation_worker.py`) round-robins the projects, claims the oldest pending task, builds the graph with `prompt_builder.build_prompt()`, uploads reference/mask images to ComfyUI, submits, polls `/history`, downloads the outputs, writes `images` rows + files, and broadcasts task state on `ws://…/api/v1/ws/tasks`.
+3. The frontend reads through react-query and `hooks/useTaskEvents` (websocket, with polling fallback) invalidates `["generations"]` / `["images"]` — so an API write usually needs no manual cache surgery, just `refresh()` after a mutation.
+
+## Where to change what
+
+| change | touch |
+| --- | --- |
+| new model / workflow | `workflow_configs/registry.yaml` + `workflows/*.json` + `workflow_configs/*.yaml` — **no Python** |
+| new generation type | `GenerationType` enum, registry + JSON + YAML, `_build_plan()` in the worker, the route that accepts it, `types/api.ts`, composer, `ImageDetail` label chain, `app/trash` `TYPE_LABELS` |
+| new endpoint | `app/api/<name>.py` and register in `app/api/__init__.py`; schema in `app/schemas/`; logic in `app/services/` (routers stay thin) |
+| new column | model + `alembic/versions/00NN_*.py`, `down_revision` = current head (`0010_generation_name`); startup runs `alembic upgrade head` per project |
+| new screen | `frontend/app/<route>/page.tsx` + a `Sidebar` entry (`components/Sidebar.tsx`) |
+
+## Data model in one glance
+
+- `generations` — one submitted batch: prompt, negative, model, `generation_type`, width/height, requested count, `name`, status, `deleted_at`.
+- `generation_tasks` — one product slot each: seed, status, progress, `comfy_prompt_id`, error.
+- `images` — the actual files: `media_type` ∈ `image | video | asset`, `file_path` (relative to the project's storage), thumbnail, favourite flag, `deleted_at`.
+- `generation_type` ∈ `text_to_image | image_to_image | image_edit | image_inpaint | text_to_video | image_to_video | local_edit | local_asset`.
+- Each project owns its own SQLite + storage, and activating a project swaps the engine. Always get sessions from the `get_db` dependency / `active_project()`; never cache a session across projects.
+
+Everything lives under `/api/v1`; errors are `{"detail": "…"}`; deletes that have nothing to return answer `204`.
+
 ## Rules that are easy to get wrong
 
 **A new model is data, not code.** Add a workflow JSON + a binding YAML + a `registry.yaml` entry; `validated: true` only after a real run. If you find yourself editing Python to support one, something is misplaced.
