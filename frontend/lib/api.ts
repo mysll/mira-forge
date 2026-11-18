@@ -392,6 +392,59 @@ export function maskImageUrl(generationId: number, createdAt?: string): string {
   return `${API_BASE}/generations/${generationId}/mask${stamp(createdAt)}`;
 }
 
+export type PromptTemplate = {
+  id: number;
+  label: string;
+  prompt: string;
+  sort_order: number;
+};
+
+/** 视频创作框下面那排「动作模板」按钮 */
+export async function fetchPromptTemplates(): Promise<PromptTemplate[]> {
+  const body = await request<{ items: PromptTemplate[] }>("/prompt-templates");
+  return body.items;
+}
+
+export function createPromptTemplate(payload: {
+  label: string;
+  prompt: string;
+}): Promise<PromptTemplate> {
+  return request<PromptTemplate>("/prompt-templates", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePromptTemplate(
+  id: number,
+  payload: { label?: string; prompt?: string },
+): Promise<PromptTemplate> {
+  return request<PromptTemplate>(`/prompt-templates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deletePromptTemplate(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/prompt-templates/${id}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (response.status === 204) {
+    return;
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, `删除模板失败（${response.status}）`);
+  }
+}
+
+export async function resetPromptTemplates(): Promise<PromptTemplate[]> {
+  const body = await request<{ items: PromptTemplate[] }>("/prompt-templates/reset", {
+    method: "POST",
+  });
+  return body.items;
+}
+
 export async function deleteImage(imageId: number): Promise<void> {
   const response = await fetch(`${API_BASE}/images/${imageId}`, {
     method: "DELETE",

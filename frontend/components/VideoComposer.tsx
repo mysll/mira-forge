@@ -1,13 +1,20 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import CountMenu from "@/components/CountMenu";
 import ImagePicker from "@/components/ImagePicker";
 import Popover from "@/components/Popover";
 import SlotMenu from "@/components/SlotMenu";
-import { createGeneration, createImageToVideoGeneration, imageAsFile, imageThumbnailUrl } from "@/lib/api";
+import {
+  createGeneration,
+  createImageToVideoGeneration,
+  fetchPromptTemplates,
+  imageAsFile,
+  imageThumbnailUrl,
+  type PromptTemplate,
+} from "@/lib/api";
 import {
   VIDEO_DURATION_MAX,
   VIDEO_DURATION_MIN,
@@ -38,6 +45,11 @@ export default function VideoComposer({
   onToast: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const { data: templates } = useQuery({
+    queryKey: ["prompt-templates"],
+    queryFn: fetchPromptTemplates,
+    staleTime: 30_000,
+  });
   const [modelId, setModelId] = useState("");
   const [prompt, setPrompt] = useState("");
   const [ratioKey, setRatioKey] = useState<VideoRatioKey>("auto");
@@ -288,6 +300,32 @@ export default function VideoComposer({
   }, [menu]);
 
   const disabled = !prompt.trim() || !model || submit.isPending;
+
+  /**
+   * 模板按钮：默认整段覆盖（一个动作就是一句完整提示词）；
+   * 按住 ⌘/Ctrl 点则是追加，方便在同一句里叠动作之外的描述。
+   */
+  const applyTemplate = (template: PromptTemplate, append: boolean) => {
+    const body = template.prompt.trim();
+    setPrompt((current) => {
+      const text = current.trim();
+      if (!append || !text) {
+        return body;
+      }
+      if (text.includes(body)) {
+        return current;
+      }
+      return `${text} ${body}`;
+    });
+    requestAnimationFrame(() => {
+      const node = textareaRef.current;
+      if (!node) {
+        return;
+      }
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    });
+  };
 
   const go = () => {
     if (disabled) {
@@ -597,6 +635,26 @@ export default function VideoComposer({
           >
             {submit.isPending ? "提交中…" : "生成视频"}
           </button>
+        </div>
+
+        {/* 动作模板：2D 游戏抽帧常用的那几个动作，点一下填进上面的输入框 */}
+        <div className="flex flex-wrap items-center gap-1.5" data-prompt-templates>
+          <span className="text-[10px] text-muted/60">动作模板</span>
+          {(templates ?? []).map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={(event) => applyTemplate(template, event.metaKey || event.ctrlKey)}
+              title={`${template.label}：点击填入提示词（⌘/Ctrl+点击追加）`}
+              className="rounded-full border border-edge/70 bg-white/[0.02] px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/50 hover:text-ink"
+              data-prompt-template={template.label}
+            >
+              {template.label}
+            </button>
+          ))}
+          {templates && templates.length === 0 ? (
+            <span className="text-[10px] text-muted/50">还没有模板，到设置页里加几条</span>
+          ) : null}
         </div>
       </div>
     </div>

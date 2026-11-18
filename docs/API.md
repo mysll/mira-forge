@@ -606,6 +606,43 @@ body `{"ids": [12, 13]}`（最多 500 个）。恢复的图重新出现在作品
 { "deleted": 7 }
 ```
 
+## 提示词模板
+
+视频创作框下面那排「动作模板」按钮的数据源。一条 = 一个动作，`prompt` 里已经写死了 2D 抽帧要用的约束（严格侧视、朝右、定点不位移、镜头不动、背景干净），所以在视频页点一下就能直接用。
+
+首次启动（或新项目第一次跑）会补齐 9 条默认模板：待机 / 走路 / 跑步 / 攻击 / 跳跃 / 下落 / 受伤 / 死亡 / 翻滚。
+
+字段：`id`、`label`（最多 40 字）、`prompt`（最多 2000 字）、`sort_order`（列表顺序，新模板追加在末尾）。
+
+### `GET /prompt-templates`
+
+```json
+{
+  "items": [
+    { "id": 1, "label": "待机", "prompt": "A character standing idle, …, strict side view with the character facing right, …", "sort_order": 0 },
+    { "id": 2, "label": "走路", "prompt": "A character walking in place, …, strict side view with the character facing right, …", "sort_order": 1 }
+  ]
+}
+```
+
+### `POST /prompt-templates`
+
+body `{"label": "施法", "prompt": "A character casting a spell, …"}` → `201` + 新模板。`sort_order` 自动取「现有条数」，所以新加的按钮排在最后。
+
+空名字 / 空提示词 / 超长 → `400 {"detail": "模板名字不能为空"}`、`"模板提示词不能为空"`、`"模板名字最多 40 个字"`、`"模板提示词最多 2000 个字"`。
+
+### `PATCH /prompt-templates/{id}`
+
+只传要改的字段（`label` 和 / 或 `prompt`）。返回改完的模板；id 不存在 → `404 {"detail": "模板 7 不存在"}`。
+
+### `DELETE /prompt-templates/{id}`
+
+删一条，返回 `204`。视频创作框里那个按钮跟着消失。
+
+### `POST /prompt-templates/reset`
+
+清掉现有模板，重新写回默认 9 条（id 会变）。返回和 `GET` 一样的 `{"items": [...]}`，方便前端直接替换。
+
 ## WebSocket
 
 ### `WS /ws/tasks`

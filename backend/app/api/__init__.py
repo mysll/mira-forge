@@ -9,6 +9,7 @@ from app.api import (
     health,
     images,
     projects,
+    prompt_templates,
     recycle,
     tasks,
     workflows,
@@ -24,5 +25,6 @@ api_router.include_router(images.router)
 api_router.include_router(recycle.router)
 api_router.include_router(editor.router)
 api_router.include_router(assets.router)
+api_router.include_router(prompt_templates.router)
 
 __all__ = ["api_router"]

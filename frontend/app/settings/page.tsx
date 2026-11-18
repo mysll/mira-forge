@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import PromptTemplateSettings from "@/components/PromptTemplateSettings";
 import { fetchHealth, unloadComfyModels } from "@/lib/api";
 import { formatBytes } from "@/lib/date";
 
@@ -216,6 +217,8 @@ export default function SettingsPage() {
             { label: "结构", value: "images/<批次>/ 原图 · thumbnails/ 缩略图 · uploads/ 参考图" },
           ]}
         />
+
+        <PromptTemplateSettings />
 
         <section className="panel p-4 text-xs leading-relaxed text-muted">
           <h2 className="mb-2 text-sm text-ink">关于</h2>

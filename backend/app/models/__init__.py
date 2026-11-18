@@ -3,6 +3,7 @@
 from app.models.database import Base, SessionLocal, get_db
 from app.models.generation import Generation, GenerationStatus, GenerationType
 from app.models.image import Image
+from app.models.prompt_template import PromptTemplate
 from app.models.task import GenerationTask, TaskStatus
 from app.models.workflow import Workflow
 
@@ -14,6 +15,7 @@ __all__ = [
     "GenerationStatus",
     "GenerationType",
     "Image",
+    "PromptTemplate",
     "GenerationTask",
     "TaskStatus",
     "Workflow",
