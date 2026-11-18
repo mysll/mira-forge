@@ -151,6 +151,9 @@ await waitFor(`(() => {
   return canvas && canvas.width > 32;
 })()`, 8000, "遮罩画布已按原图尺寸就绪");
 
+// 打开后会先「适应窗口」——那个 effect 在布局提交后才跑，等它落定再读基准值
+await sleep(600);
+
 // 滚轮缩放：打开时是适应窗口，滚一下必须变大（并且不让页面跟着滚）
 const zoomBefore = await evaluate(`Number(document.querySelector("[data-mask-zoom]").value)`);
 const zoomCenter = await centerOf("[data-mask-canvas]");

@@ -60,32 +60,45 @@ export default function MaskEditor({
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [natural, setNatural] = useState({ width: 0, height: 0 });
+  const [brushShape, setBrushShape] = useState<"soft" | "square">("soft");
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const [loadSeq, setLoadSeq] = useState(0);
+  const [panning, setPanning] = useState(false);
+  const cursorRef = useRef<HTMLDivElement | null>(null);
+  const spaceRef = useRef(false);
+  const panRef = useRef({ active: false, x: 0, y: 0, left: 0, top: 0 });
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
 
-  // 笔刷印章：中心不透明、边缘径向淡出
-  const buildBrush = useCallback((diameter: number) => {
-    const radius = Math.max(1, diameter / 2);
+  // 笔刷印章：圆笔刷中心不透明、边缘径向淡出；方笔刷是硬边（刷直边、矩形块用）
+  const buildBrush = useCallback((diameter: number, shape: "soft" | "square") => {
+    const side = Math.max(2, Math.round(diameter));
     const sprite = document.createElement("canvas");
-    sprite.width = Math.ceil(radius * 2);
-    sprite.height = Math.ceil(radius * 2);
+    sprite.width = side;
+    sprite.height = side;
     const context = sprite.getContext("2d");
     if (!context) {
       return null;
     }
+    if (shape === "square") {
+      context.fillStyle = "rgba(255, 80, 80, 1)";
+      context.fillRect(0, 0, side, side);
+      return sprite;
+    }
+    const radius = side / 2;
     const gradient = context.createRadialGradient(radius, radius, radius * 0.35, radius, radius, radius);
     gradient.addColorStop(0, "rgba(255, 80, 80, 1)");
     gradient.addColorStop(0.65, "rgba(255, 80, 80, 0.85)");
     gradient.addColorStop(1, "rgba(255, 80, 80, 0)");
     context.fillStyle = gradient;
-    context.fillRect(0, 0, sprite.width, sprite.height);
+    context.fillRect(0, 0, side, side);
     return sprite;
   }, []);
 
   useEffect(() => {
-    brushRef.current = buildBrush(size);
-  }, [size, buildBrush]);
+    brushRef.current = buildBrush(size, brushShape);
+  }, [size, brushShape, buildBrush]);
 
   /** 滚轮/滑块缩放：给了鼠标坐标就以光标为锚点，放大时视线不跑 */
   const zoomTo = useCallback((next: number, clientX?: number, clientY?: number) => {
@@ -106,6 +119,75 @@ export default function MaskEditor({
       node.scrollTop = Math.max(0, offsetY * ratio - (clientY - rect.top));
     });
   }, []);
+
+  // 空格按住 = 抓手模式（和绘图软件一致）
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space") {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName ?? "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        return;
+      }
+      spaceRef.current = true;
+      setSpaceHeld(true);
+      if (tag !== "BUTTON" && tag !== "A") {
+        event.preventDefault();
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space") {
+        return;
+      }
+      spaceRef.current = false;
+      setSpaceHeld(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [open]);
+
+  // 跟随鼠标的笔刷轮廓：大小 = 笔刷直径 × 缩放，形状跟着笔刷走
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const node = scrollerRef.current;
+    const cursor = cursorRef.current;
+    if (!node || !cursor) {
+      return;
+    }
+    const move = (event: PointerEvent) => {
+      const rect = node.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+        cursor.style.opacity = "0";
+        return;
+      }
+      const side = Math.max(4, Math.round(size * zoomRef.current));
+      cursor.style.width = `${side}px`;
+      cursor.style.height = `${side}px`;
+      cursor.style.left = `${event.clientX - rect.left + node.scrollLeft - side / 2}px`;
+      cursor.style.top = `${event.clientY - rect.top + node.scrollTop - side / 2}px`;
+      cursor.style.opacity = "1";
+    };
+    const leave = () => {
+      cursor.style.opacity = "0";
+    };
+    node.addEventListener("pointermove", move);
+    node.addEventListener("pointerleave", leave);
+    return () => {
+      node.removeEventListener("pointermove", move);
+      node.removeEventListener("pointerleave", leave);
+    };
+  }, [open, size]);
 
   /** 滑块缩放：以可视区中心为锚点，免得一拉就跳到左上角 */
   const zoomFromSlider = useCallback(
@@ -153,6 +235,14 @@ export default function MaskEditor({
     return () => node.removeEventListener("wheel", onWheel);
   }, [open, zoomTo]);
 
+  // 每次打开或换图都回到「适应窗口」：effect 在布局提交后跑，这时才量得到可视区宽度
+  useEffect(() => {
+    if (!open || !loadSeq) {
+      return;
+    }
+    fitToView();
+  }, [open, loadSeq, fitToView]);
+
   // 打开时载入源图与已有遮罩
   useEffect(() => {
     if (!open) {
@@ -170,8 +260,7 @@ export default function MaskEditor({
       const height = image.naturalHeight;
       sizeRef.current = { width, height };
       setNatural({ width, height });
-      // 每次载入新图都先适应窗口；之后的缩放由用户决定，不再覆盖
-      fitToView();
+      setLoadSeq((value) => value + 1);
       const imageCanvas = imageCanvasRef.current;
       const maskCanvas = maskCanvasRef.current;
       if (!imageCanvas || !maskCanvas) {
@@ -272,6 +361,18 @@ export default function MaskEditor({
     }
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    const scroller = scrollerRef.current;
+    if ((spaceRef.current || event.button === 1) && scroller) {
+      panRef.current = {
+        active: true,
+        x: event.clientX,
+        y: event.clientY,
+        left: scroller.scrollLeft,
+        top: scroller.scrollTop,
+      };
+      setPanning(true);
+      return;
+    }
     const point = pointToImage(event);
     if (!point) {
       return;
@@ -281,6 +382,15 @@ export default function MaskEditor({
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (panRef.current.active) {
+      const scroller = scrollerRef.current;
+      if (!scroller) {
+        return;
+      }
+      scroller.scrollLeft = panRef.current.left - (event.clientX - panRef.current.x);
+      scroller.scrollTop = panRef.current.top - (event.clientY - panRef.current.y);
+      return;
+    }
     const state = drawingRef.current;
     if (!state.active || !state.last) {
       return;
@@ -295,6 +405,8 @@ export default function MaskEditor({
 
   const endStroke = () => {
     drawingRef.current = { active: false, last: null };
+    panRef.current.active = false;
+    setPanning(false);
   };
 
   const clearMask = () => {
@@ -428,6 +540,30 @@ export default function MaskEditor({
                 </button>
               ))}
             </div>
+            <div className="flex overflow-hidden rounded-lg border border-edge">
+              {(
+                [
+                  { key: "soft", label: "圆" },
+                  { key: "square", label: "方" },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setBrushShape(item.key)}
+                  className={[
+                    "px-2.5 py-1 text-[11px] transition",
+                    brushShape === item.key
+                      ? "bg-accent/20 text-accentSoft"
+                      : "text-muted hover:bg-surface2 hover:text-ink",
+                  ].join(" ")}
+                  data-mask-shape={item.key}
+                  title={item.key === "soft" ? "圆笔刷：边缘羽化，接缝自然" : "方笔刷：硬边，适合直边与矩形块"}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             <label className="flex items-center gap-1.5 text-[11px] text-muted">
               笔刷
               <input
@@ -476,7 +612,7 @@ export default function MaskEditor({
               适应窗口
             </button>
           </div>
-          <span className="text-[11px] text-muted/60">滚轮缩放，放大后拖滚动条移动</span>
+          <span className="text-[11px] text-muted/60">滚轮缩放 · 按住空格拖动平移画布</span>
         </div>
 
         <div
@@ -489,7 +625,7 @@ export default function MaskEditor({
             style={{
               width: natural.width ? Math.round(natural.width * zoom) : undefined,
               height: natural.height ? Math.round(natural.height * zoom) : undefined,
-              cursor: tool === "erase" ? "cell" : "crosshair",
+              cursor: panning ? "grabbing" : spaceHeld ? "grab" : "none",
             }}
           >
             <canvas ref={imageCanvasRef} className="block h-full w-full" />
@@ -509,11 +645,17 @@ export default function MaskEditor({
               </span>
             ) : null}
           </div>
+          <div
+            ref={cursorRef}
+            data-mask-cursor
+            className="pointer-events-none absolute left-0 top-0 z-20 border border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.55)]"
+            style={{ opacity: 0, borderRadius: brushShape === "square" ? 2 : 9999 }}
+          />
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-edge px-4 py-3">
           <p className="text-[11px] text-muted/80">
-            提示：笔刷边缘自带羽化，接缝会比硬边遮罩自然得多。
+            提示：圆笔刷边缘羽化，接缝更自然；方笔刷是硬边，适合规整的矩形区域。
           </p>
           <div className="flex gap-2">
             <button
