@@ -275,10 +275,27 @@ export default function FramesPage() {
   };
 
   const toggleFrame = (index: number) => {
-    setOrder((current) =>
-      current.includes(index) ? current.filter((value) => value !== index) : [...current, index],
-    );
+    setOrder((current) => {
+      if (current.includes(index)) return current.filter((value) => value !== index);
+      // 补选的帧按帧号插进去：先选了 1/40，再补 12/20，不该永远排在队尾
+      return [...current, index].sort((a, b) => a - b);
+    });
   };
+
+  /** 挪动某个已选帧的导出位置（它同时决定步进累加的次序）。 */
+  const moveInOrder = (index: number, delta: number) => {
+    setOrder((current) => {
+      const from = current.indexOf(index);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= current.length) return current;
+      const next = [...current];
+      next[from] = next[to];
+      next[to] = index;
+      return next;
+    });
+  };
+
+  const sortOrder = () => setOrder((current) => [...current].sort((a, b) => a - b));
 
   const previewFrame = useMemo(() => {
     if (hovered !== null) {
@@ -803,9 +820,20 @@ export default function FramesPage() {
                 >
                   微调选中帧（{order.length}）
                 </button>
+                <button
+                  type="button"
+                  onClick={sortOrder}
+                  disabled={order.length < 2}
+                  data-frames-sort
+                  title="把已选帧按帧号从小到大排（覆盖手动的挪动）"
+                  className="rounded border border-edge px-2 py-1 text-[11px] text-muted transition hover:border-accent/60 hover:text-ink disabled:opacity-40"
+                >
+                  按帧顺序重排
+                </button>
               </div>
               <p className="text-[10px] leading-relaxed text-muted">
-                步进按「选中顺序」累加：第 1 个选中的帧偏移 0，第 n 个偏移 (n−1) × 步进；手动调过的帧不再被步进覆盖。
+                步进按列表顺序累加：第 1 个的偏移 0，第 n 个偏移 (n−1) × 步进；手动调过的帧不再被步进覆盖。
+                补选的帧会按帧号插进列表，想改导出顺序用每行的 ▲ ▼，或点「按帧顺序重排」还原。
                 不抠背景时，平移留下的缺口用上面的颜色填满。画布始终等于源帧尺寸 {sourceWidth} × {sourceHeight}。
               </p>
               {order.length > 0 ? (
@@ -815,24 +843,50 @@ export default function FramesPage() {
                     if (!frame) return null;
                     const offset = offsetFor(index);
                     return (
-                      <button
+                      <div
                         key={index}
-                        type="button"
-                        onClick={() => setAdjustIndex(index)}
                         data-offset-item={index}
-                        title={`打开第 ${index + 1} 帧的微调面板`}
-                        className="flex items-center gap-2 rounded border border-edge/60 bg-surface2/60 py-1 pl-1 pr-2 text-[10px] text-muted transition hover:border-accent/50 hover:text-ink"
+                        className="flex items-center gap-1 rounded border border-edge/60 bg-surface2/60 py-1 pl-1 pr-1 text-[10px] text-muted transition hover:border-accent/50"
                       >
-                        <OffsetThumb frame={frame} box={boxes.get(index)} />
-                        <span className="text-ink">#{position + 1}</span>
-                        <span>第 {index + 1} 帧</span>
-                        <span className="font-mono">
-                          {offset.dx >= 0 ? `+${offset.dx}` : offset.dx} / {offset.dy >= 0 ? `+${offset.dy}` : offset.dy}
+                        <button
+                          type="button"
+                          onClick={() => setAdjustIndex(index)}
+                          title={`打开第 ${index + 1} 帧的微调面板`}
+                          className="flex items-center gap-2 pr-1 text-left text-muted transition hover:text-ink"
+                        >
+                          <OffsetThumb frame={frame} box={boxes.get(index)} />
+                          <span className="text-ink">#{position + 1}</span>
+                          <span>第 {index + 1} 帧</span>
+                          <span className="font-mono">
+                            {offset.dx >= 0 ? `+${offset.dx}` : offset.dx} / {offset.dy >= 0 ? `+${offset.dy}` : offset.dy}
+                          </span>
+                          {offsets.has(index) ? (
+                            <span className="rounded bg-accent/25 px-1 text-accentSoft">手动</span>
+                          ) : null}
+                        </button>
+                        <span className="flex flex-col overflow-hidden rounded border border-edge/70">
+                          <button
+                            type="button"
+                            onClick={() => moveInOrder(index, -1)}
+                            disabled={position === 0}
+                            aria-label={`把第 ${index + 1} 帧往前挪`}
+                            title="往前挪一位"
+                            className="px-1 text-[9px] leading-4 text-muted transition hover:bg-surface hover:text-ink disabled:opacity-30"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveInOrder(index, 1)}
+                            disabled={position === order.length - 1}
+                            aria-label={`把第 ${index + 1} 帧往后挪`}
+                            title="往后挪一位"
+                            className="border-t border-edge/70 px-1 text-[9px] leading-4 text-muted transition hover:bg-surface hover:text-ink disabled:opacity-30"
+                          >
+                            ▼
+                          </button>
                         </span>
-                        {offsets.has(index) ? (
-                          <span className="rounded bg-accent/25 px-1 text-accentSoft">手动</span>
-                        ) : null}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
