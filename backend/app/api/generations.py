@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.generation import GenerationType
 from app.models.task import TaskStatus
 from app.services.image_service import storage_root_for
 from app.models.database import get_db
@@ -75,6 +76,9 @@ def _to_read(generation) -> GenerationRead:
     payload.reference_images = decode_reference_paths(
         generation.reference_image_paths, generation.reference_image_path
     )
+    # 帧集的来源是视频，不是参考图；老数据里可能留过 reference_image_path，读的时候挡掉
+    if generation.generation_type == GenerationType.LOCAL_FRAMESET:
+        payload.reference_images = []
     payload.has_mask = bool(generation.mask_image_path)
     # 产物名：批次名（或「批次 #id」）+ 批内序号，资产选择器里用来区分同款
     base = (generation.name or "").strip() or f"批次 #{generation.id}"

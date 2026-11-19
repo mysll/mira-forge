@@ -512,8 +512,9 @@ def create_frame_set(
     if source_video_id is not None:
         source = db.get(Image, source_video_id)
         if source is not None:
+            # 只记「这包帧是从哪条视频抽的」，不要写 reference_image_path：
+            # 那是「参考图」的落点，详情弹窗会把它当图片渲染，而视频文件根本画不出来。
             image.original_image_id = source.id
-            generation.reference_image_path = source.file_path
     db.commit()
     db.refresh(generation)
     db.refresh(image)

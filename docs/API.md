@@ -581,6 +581,7 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
   "fps": 12.0, "width": 757, "height": 736 }
 ```
 
+- 只把来源视频记在 `images.original_image_id`，**不占用 `generations.reference_images`**：帧集不是「参考了这张图」，早先这么写会让详情弹窗把 mp4 当参考图画成破图（读接口对 `local_frameset` 也会直接返回空数组兜住老数据）。
 - 整包入库，**不是**每帧一条 `images` 记录：73 帧 × 几条视频就足以把画廊与数据库冲垮。帧集在画廊里是一张卡，右上角标「N 帧」。
 - `frames.json` 记 `{ name, fps, width, height, stepX, stepY, fill, keying, tolerance, source, frames: [{ index, time, offsetX, offsetY, manual }] }`：`offset` 是这一帧在导出时被平移的像素，`manual` 标出哪些帧是手调过的（其余是按「选中顺序 × 步进」算的）。
 - 落盘在 `<项目>/storage/frames/<generation_id>/<task_id>_0.zip`；`GET /images/{id}/thumbnail` 给封面、`GET /images/{id}/file` 直接吐 ZIP（`content-type: application/zip`）。

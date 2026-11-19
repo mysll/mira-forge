@@ -8,6 +8,9 @@ import zipfile
 
 from fastapi.testclient import TestClient
 
+from app.models.database import SessionLocal
+from app.models.image import Image
+
 API = "/api/v1"
 
 TINY_PNG = base64.b64decode(
@@ -102,3 +105,25 @@ def test_frame_set_rejects_an_empty_name(client: TestClient) -> None:
     status, payload = _save(client, name="   ")
     assert status == 400, payload
     assert "名字" in payload["detail"]
+
+
+def test_frame_set_does_not_show_the_source_video_as_a_reference(client: TestClient) -> None:
+    """从资产里的视频抽帧时，来源视频只存 original_image_id，不该出现在「参考图」里。"""
+    db = SessionLocal()
+    source = Image(file_path="videos/source.mp4", media_type="video", width=736, height=736, file_size=1)
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    source_id = source.id
+    db.close()
+
+    status, payload = _save(client, source_video_id=source_id)
+    assert status == 201, payload
+    generation = client.get(f"{API}/generations/{payload['generation_id']}").json()
+    assert generation["reference_images"] == []
+
+    db = SessionLocal()
+    saved = db.get(Image, payload["image_id"])
+    assert saved is not None
+    assert saved.original_image_id == source_id
+    db.close()
