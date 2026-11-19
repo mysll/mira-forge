@@ -18,6 +18,8 @@
     duration: 0,
     videoWidth: 0,
     videoHeight: 0,
+    // 帧集导入（抽帧台存下来的 ZIP）：没有视频，帧已经是解好的图。
+    sequence: null,
     frames: [],
     track: [],
     current: -1,
@@ -118,6 +120,7 @@
       'videoInput', 'atlasInput', 'helpBtn', 'importAtlasBtn', 'importVideoBtnTop', 'exportBtn', 'exportBadge',
       'statusDot', 'projectSummary',
       'videoBadge', 'sourceScroll', 'videoEmpty', 'importVideoBtn', 'videoLoaded', 'video', 'videoRes',
+      'framesetInput', 'extractSettings', 'sequencePoster',
       'videoName', 'videoMeta', 'resetRangeBtn', 'fpsInput', 'detectFpsBtn', 'frameEstimate', 'startTimeInput',
       'endTimeInput', 'extractBtn', 'extractProgress', 'extractLabel', 'cancelExtractBtn', 'extractBar',
       'extractSub', 'frameCount', 'selectAllBtn', 'clearSelectionBtn', 'frameGrid', 'frameEmpty', 'previewMeta',
@@ -170,6 +173,11 @@
     if (!choice) return;
     if (choice.action === 'local') return pickLocal(kind);
     if (choice.action === 'asset' && choice.file) injectFile(kind, choice.file);
+    // 帧集：宿主已经读好了（或用户要去选本机 ZIP），交给帧集载入流程。
+    if (choice.action === 'frameset') {
+      if (choice.file) return loadFrameSetFile(choice.file);
+      els.framesetInput.click();
+    }
   }
 
   function bindEvents() {
@@ -180,6 +188,13 @@
       const file = event.target.files && event.target.files[0];
       event.target.value = '';
       if (file) loadVideoFile(file);
+    });
+
+    // MiraForge: 帧集（抽帧台导出的 ZIP）走自己的输入框 —— 它没有视频，只有一段图。
+    els.framesetInput.addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) loadFrameSetFile(file);
     });
 
     els.atlasInput.addEventListener('change', (event) => {
@@ -634,6 +649,7 @@
       state.videoFile = file;
       state.videoUrl = url;
       state.videoReady = true;
+      state.sequence = null;
       state.duration = probe.duration;
       state.videoWidth = probe.videoWidth;
       state.videoHeight = probe.videoHeight;
@@ -650,6 +666,7 @@
       els.videoMeta.textContent = `${formatBytes(file.size)}  ·  ${state.duration.toFixed(2)} s`;
       els.videoBadge.textContent = '已载入';
       els.videoBadge.className = 'chip chip-live';
+      syncSequenceUI();
       els.startTimeInput.value = '0';
       els.endTimeInput.value = state.duration.toFixed(2);
       els.video.currentTime = Math.min(0.04, state.duration / 2);
@@ -673,6 +690,124 @@
       probe.removeAttribute('src');
       try { probe.load(); } catch (error) { /* noop */ }
     }
+  }
+
+  /* ---- MiraForge 帧集（抽帧台导出的 ZIP） --------------------------------
+     帧集里没有视频轨：ZIP 里的 PNG 已经是排好序的序列帧，直接进左侧帧列表。
+     抽帧设置这一段没有意义，整块收起来；其余（轨道、图集、导出）与视频完全一致。
+     ---------------------------------------------------------------------- */
+  async function loadFrameSetFile(file) {
+    if (state.extracting) {
+      showToast('请先等待当前提取结束，或取消提取。', 'warn');
+      return;
+    }
+    if (state.busy.active) return;
+    const bridge = readBridge();
+    if (!bridge || typeof bridge.readFrameSet !== 'function') {
+      showToast('帧集导入要在 MiraForge 里用：独立打开时读不了 ZIP。', 'warn', 4500);
+      return;
+    }
+
+    stopPlayback();
+    const token = ++videoLoadToken;
+    showBusy('正在读取帧集', file.name);
+    try {
+      const set = await bridge.readFrameSet(file);
+      if (token !== videoLoadToken) return;
+      const frames = [];
+      const maxSide = 800;
+      for (const entry of set.frames || []) {
+        const bitmap = entry.bitmap;
+        const sourceWidth = entry.width || bitmap.width;
+        const sourceHeight = entry.height || bitmap.height;
+        const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+        const width = Math.max(1, Math.round(sourceWidth * scale));
+        const height = Math.max(1, Math.round(sourceHeight * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'high';
+        context.drawImage(bitmap, 0, 0, width, height);
+        if (typeof bitmap.close === 'function') bitmap.close();
+
+        let thumbURL;
+        try {
+          thumbURL = canvas.toDataURL('image/webp', 0.92);
+          if (!thumbURL.startsWith('data:image/webp')) thumbURL = canvas.toDataURL('image/png');
+        } catch (error) {
+          thumbURL = canvas.toDataURL('image/png');
+        }
+
+        frames.push({
+          index: frames.length,
+          time: Number(entry.time) || 0,
+          width: sourceWidth,
+          height: sourceHeight,
+          thumbURL,
+          _image: null,
+          _keyed: null,
+          _keySig: ''
+        });
+      }
+      if (!frames.length) throw new Error('这个 ZIP 里没有 PNG 帧。');
+      if (token !== videoLoadToken) return;
+
+      const fps = clamp(Number(set.fps) || 24, 1, 120);
+      state.sequence = { name: set.name || file.name.replace(/\.zip$/i, ''), fps, count: frames.length };
+      state.videoReady = false;
+      state.videoFile = null;
+      state.duration = frames.length / fps;
+      state.videoWidth = frames[0].width;
+      state.videoHeight = frames[0].height;
+      state.frames = frames;
+      state.track = [];
+      state.current = -1;
+      state.extractToken++;
+      state.previewFps = fps;
+      els.previewFpsInput.value = String(Math.round(fps));
+      invalidateKeyCache();
+      if (!state.atlas.sequences.length) els.sequenceName.value = '序列 1';
+
+      syncSequenceUI();
+      renderFrameGrid();
+      renderTrack();
+      syncPreviewUI();
+      syncVideoUI();
+      updateFrameEstimate();
+      syncAtlasDependentUI();
+      drawPreview();
+      showToast(`已导入帧集「${state.sequence.name}」· ${frames.length} 帧`, 'ok');
+    } catch (error) {
+      console.error(error);
+      showToast(`无法读取帧集：${error.message || 'ZIP 解析失败'}`, 'error', 4500);
+    } finally {
+      hideBusy();
+    }
+  }
+
+  function syncSequenceUI() {
+    const active = Boolean(state.sequence);
+    if (els.extractSettings) els.extractSettings.hidden = active;
+    if (els.video) els.video.hidden = active;
+    if (els.sequencePoster) {
+      els.sequencePoster.hidden = !active;
+      if (active) {
+        const frame = state.frames[0];
+        els.sequencePoster.src = frame ? frame.thumbURL : '';
+      } else {
+        els.sequencePoster.removeAttribute('src');
+      }
+    }
+    if (!active) return;
+    els.videoLoaded.hidden = false;
+    els.videoEmpty.hidden = true;
+    els.videoName.textContent = state.sequence.name;
+    els.videoRes.textContent = `${state.videoWidth} × ${state.videoHeight}`;
+    els.videoMeta.textContent = `${state.sequence.count} 帧  ·  ${state.sequence.fps} fps  ·  ${state.duration.toFixed(2)} s`;
+    els.videoBadge.textContent = '帧集';
+    els.videoBadge.className = 'chip chip-live';
   }
 
   function videoErrorMessage(video) {
@@ -1043,11 +1178,13 @@
   }
 
   function syncVideoUI() {
-    const ready = state.videoReady;
+    const sequence = Boolean(state.sequence);
+    const ready = state.videoReady || sequence;
     els.videoLoaded.hidden = !ready;
     els.videoEmpty.hidden = ready;
-    els.extractBtn.disabled = !ready || state.extracting || state.detecting;
-    els.detectFpsBtn.disabled = !ready || state.extracting || state.detecting;
+    // 帧集没有视频可抽帧，抽帧相关的按钮一律禁用（整块设置也收起来了）。
+    els.extractBtn.disabled = !state.videoReady || state.extracting || state.detecting;
+    els.detectFpsBtn.disabled = !state.videoReady || state.extracting || state.detecting;
     if (!state.extracting) {
       els.extractBtn.querySelector('span').textContent = '提取序列帧';
     }
@@ -1953,7 +2090,7 @@
     if (state.extracting) return showToast('请先等待提取完成。', 'warn');
     if (state.busy.active || state.detecting) return;
     if (!state.track.length) return showToast('轨道为空，请先从左侧选择帧。', 'warn');
-    if (!state.videoReady) return showToast('视频未就绪，无法重新读取原始帧。', 'warn');
+    if (!state.videoReady && !state.sequence) return showToast('视频未就绪，无法重新读取原始帧。', 'warn');
 
     let config = state.atlas.config;
     const createNew = state.atlas.pages.length === 0;
@@ -2030,11 +2167,11 @@
       for (let index = 0; index < count; index++) {
         if (canceled) throw { canceled: true };
         const placement = placements[index];
-        await seekVideo(els.video, placement.frame.time);
+        const source = await frameSourceFor(placement.frame);
         if (canceled) throw { canceled: true };
 
-        drawVideoFrameToCell(
-          els.video,
+        drawFrameToCell(
+          source,
           stagedPages[placement.pageIndex].canvas,
           placement,
           config,
@@ -2113,7 +2250,21 @@
     }
   }
 
-  function drawVideoFrameToCell(video, pageCanvas, placement, config, key) {
+  // 一帧的像素来源：视频要按时间重新 seek；帧集直接拿它那张图。
+  async function frameSourceFor(frame) {
+    if (state.videoReady && !state.sequence) {
+      await seekVideo(els.video, frame.time);
+      return { image: els.video, width: state.videoWidth, height: state.videoHeight };
+    }
+    const image = await getFrameImageAsync(frame);
+    return {
+      image,
+      width: frame.width || image.naturalWidth || image.width,
+      height: frame.height || image.naturalHeight || image.height
+    };
+  }
+
+  function drawFrameToCell(source, pageCanvas, placement, config, key) {
     const cellWidth = config.cellWidth;
     const cellHeight = config.cellHeight;
     const temp = document.createElement('canvas');
@@ -2124,12 +2275,14 @@
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
 
-    const scale = Math.min(cellWidth / video.videoWidth, cellHeight / video.videoHeight);
-    const drawWidth = video.videoWidth * scale;
-    const drawHeight = video.videoHeight * scale;
+    const sourceWidth = source.width || 1;
+    const sourceHeight = source.height || 1;
+    const scale = Math.min(cellWidth / sourceWidth, cellHeight / sourceHeight);
+    const drawWidth = sourceWidth * scale;
+    const drawHeight = sourceHeight * scale;
     const dx = (cellWidth - drawWidth) / 2;
     const dy = (cellHeight - drawHeight) / 2;
-    context.drawImage(video, dx, dy, drawWidth, drawHeight);
+    context.drawImage(source.image, dx, dy, drawWidth, drawHeight);
     applyChromaKey(context, cellWidth, cellHeight, key);
 
     const pageContext = pageCanvas.getContext('2d');
@@ -3431,6 +3584,11 @@
       }
     },
     importFile(kind, file) {
+      // MiraForge: 帧集不是视频、也不是图集，走自己的载入流程。
+      if (kind === 'frameset') {
+        void loadFrameSetFile(file);
+        return true;
+      }
       return injectFile(kind, file);
     },
     // 给自动化和排查用：一眼看到载入状态（不影响界面）。
@@ -3438,6 +3596,7 @@
       return {
         duration: state.duration,
         videoName: state.videoFile ? state.videoFile.name : null,
+        sequence: state.sequence ? { ...state.sequence } : null,
         frames: state.frames.length,
         track: state.track.length,
         playing: state.playing,

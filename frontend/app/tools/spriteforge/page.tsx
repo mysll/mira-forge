@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import ImagePicker from "@/components/ImagePicker";
 import { imageFileUrl, saveAsset as saveAssetToLibrary } from "@/lib/api";
+import { readZip } from "@/lib/zip";
 import type { ImageBrief } from "@/types/api";
 
 /** 取回资产文件，按响应类型给它一个像样的名字（工坊靠后缀判断是视频还是图集）。 */
@@ -47,12 +48,22 @@ const CSS_URL = "/tools/spriteforge/tool.css";
 const SCRIPT_URL = "/tools/spriteforge/app.js";
 
 type SourceKind = "video" | "atlas";
-type ImportChoice = { action: "local" } | { action: "asset"; file: File };
+type PickingKind = SourceKind | "frameset";
+type ImportChoice =
+  | { action: "local" }
+  | { action: "asset"; file: File }
+  | { action: "frameset"; file: File };
+
+type FrameSetResult = {
+  name: string;
+  fps: number;
+  frames: { index: number; time: number; width: number; height: number; bitmap: ImageBitmap }[];
+};
 
 type SpriteForgeApi = {
   boot?: () => void;
   destroy?: () => void;
-  importFile?: (kind: SourceKind, file: File) => boolean;
+  importFile?: (kind: SourceKind | "frameset", file: File) => boolean;
 };
 
 const api = (): SpriteForgeApi | null =>
@@ -68,7 +79,8 @@ export default function SpriteForgePage() {
 
   const [toastText, setToastText] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ kind: SourceKind; left: number; top: number } | null>(null);
-  const [picking, setPicking] = useState<SourceKind | null>(null);
+  const [picking, setPicking] = useState<PickingKind | null>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bound, setBound] = useState<number | null>(null);
@@ -78,6 +90,42 @@ export default function SpriteForgePage() {
     setBound(assetId);
   }, []);
 
+
+  /**
+   * 帧集（抽帧台导出的 ZIP）→ 交给工坊的一组帧。
+   *
+   * 工坊是原版脚本，没有 ZIP 解析器；这里用抽帧台打/读同一套 store-only 格式解开，
+   * 顺序按文件名里的编号排（frames/0001.png…），fps 取 frames.json。
+   */
+  const readFrameSet = useCallback(async (file: File): Promise<FrameSetResult> => {
+    const entries = await readZip(file);
+    const manifestEntry = entries.find((entry) => /\.json$/i.test(entry.name));
+    let manifest: { name?: string; fps?: number } = {};
+    if (manifestEntry) {
+      try {
+        manifest = JSON.parse(new TextDecoder().decode(manifestEntry.data)) as { name?: string; fps?: number };
+      } catch {
+        manifest = {};
+      }
+    }
+    const pngs = entries
+      .filter((entry) => /\.png$/i.test(entry.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!pngs.length) throw new Error("这个 ZIP 里没有 PNG 帧");
+    const fps = Number(manifest.fps) || 24;
+    const frames: FrameSetResult["frames"] = [];
+    for (const entry of pngs) {
+      const bitmap = await createImageBitmap(new Blob([entry.data.slice()], { type: "image/png" }));
+      frames.push({
+        index: frames.length,
+        time: frames.length / fps,
+        width: bitmap.width,
+        height: bitmap.height,
+        bitmap,
+      });
+    }
+    return { name: manifest.name || file.name.replace(/\.zip$/i, ""), fps, frames };
+  }, []);
 
   const toast = useCallback((text: string) => {
     setToastText(text);
@@ -112,6 +160,7 @@ export default function SpriteForgePage() {
   useEffect(() => {
     const bridge = {
       chooseSource,
+      readFrameSet,
       // 导出弹层上的按钮文案：有绑定素材时改成「保存并覆盖」。
       saveLabel: () => (boundRef.current ? `保存并覆盖 #${boundRef.current}` : "保存到资产"),
       saveAsset: async (blob: Blob, name: string) => {
@@ -135,7 +184,7 @@ export default function SpriteForgePage() {
     return () => {
       delete (window as unknown as { MiraForgeToolBridge?: unknown }).MiraForgeToolBridge;
     };
-  }, [chooseSource, queryClient, bindAsset]);
+  }, [chooseSource, readFrameSet, queryClient, bindAsset]);
 
 
   // 拉源码、注入标记与样式、执行脚本；卸载时调工坊自己的 destroy 摘掉全局监听。
@@ -174,6 +223,18 @@ export default function SpriteForgePage() {
         const params = new URLSearchParams(window.location.search);
         const videoId = Number(params.get("video"));
         const assetId = Number(params.get("asset"));
+        // ?frameset=<id>：把抽帧台存下的那一包帧直接铺进左侧帧列表（不是编辑那条素材）
+        const framesetId = Number(params.get("frameset"));
+        if (framesetId) {
+          try {
+            const file = await fileFromAsset(framesetId);
+            tool?.importFile?.("frameset", file);
+            bindAsset(null);
+          } catch {
+            toast("读取帧集失败，请重试");
+          }
+          return;
+        }
         const deepId = videoId || assetId;
         if (deepId) {
           try {
@@ -237,16 +298,27 @@ export default function SpriteForgePage() {
       const kind = picking;
       setPicking(null);
       if (!kind) return;
-      // 挑图集 = 打开这条素材（保存时覆盖它）；挑视频 = 新作品
+      // 挑图集 = 打开这条素材（保存时覆盖它）；挑视频 / 帧集 = 新作品
       bindAsset(kind === "atlas" ? image.id : null);
       try {
-        settle({ action: "asset", file: await fileFromAsset(image.id) });
+        const file = await fileFromAsset(image.id);
+        settle(kind === "frameset" ? { action: "frameset", file } : { action: "asset", file });
       } catch {
         toast("读取这个文件失败，请重试");
         settle(null);
       }
     },
     [picking, settle, toast, bindAsset],
+  );
+
+  // 帧集也可以直接选本机 ZIP：宿主读、工坊用，和资产里的帧集走同一条路。
+  const onLocalZip = useCallback(
+    (file: File | null | undefined) => {
+      if (!file) return;
+      bindAsset(null);
+      settle({ action: "frameset", file });
+    },
+    [settle, bindAsset],
   );
 
   return (
@@ -313,8 +385,22 @@ export default function SpriteForgePage() {
               setMenu(null);
             }}
           >
-            从资产选
+            {menu.kind === "video" ? "从资产选（视频）" : "从资产选"}
           </button>
+          {menu.kind === "video" ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-sf-menu-frameset
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-muted hover:bg-white/[0.06] hover:text-ink"
+              onClick={() => {
+                setPicking("frameset");
+                setMenu(null);
+              }}
+            >
+              从帧集导入
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -324,11 +410,38 @@ export default function SpriteForgePage() {
         </div>
       ) : null}
 
+      {/* 帧集也可以从本机选一个 ZIP：宿主解包后和资产里的帧集走同一条路。 */}
+      <input
+        ref={zipInputRef}
+        type="file"
+        accept=".zip,application/zip"
+        hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          setPicking(null);
+          onLocalZip(file);
+        }}
+      />
+
       <ImagePicker
         open={picking !== null}
-        title={picking === "video" ? "从资产导入视频" : "从资产导入图集"}
-        hint={picking === "video" ? "只列出视频产物" : "选一个图集 ZIP，或素材里的图集"}
-        kind={picking === "video" ? "video" : "image"}
+        title={
+          picking === "video"
+            ? "从资产导入视频"
+            : picking === "frameset"
+              ? "从资产导入帧集"
+              : "从资产导入图集"
+        }
+        hint={
+          picking === "video"
+            ? "只列出视频产物"
+            : picking === "frameset"
+              ? "只列出帧集（视频抽帧后存下的序列帧）"
+              : "选一个图集 ZIP，或素材里的图集"
+        }
+        kind={picking === "video" ? "video" : picking === "frameset" ? "frameset" : "image"}
+        onUpload={picking === "frameset" ? () => zipInputRef.current?.click() : undefined}
         onClose={() => {
           setPicking(null);
           settle(null);

@@ -51,12 +51,26 @@
    若 `token !== videoLoadToken` 就 `revokeObjectURL` 直接返回——连续导入两支视频时，
    晚到的旧一次载入不会覆盖新的那支。
 
+7. **帧集导入**（`app.js` 的 `loadFrameSetFile()` + `syncSequenceUI()` + `frameSourceFor()`）
+
+   抽帧台存下的每一包帧集都是 ZIP，工坊自己没有 ZIP 解析器，所以解包放在宿主：
+   `bridge.readFrameSet(file)` 返回 `{ name, fps, frames: [{ index, time, width, height, bitmap }] }`。
+   工具接住之后**不再有视频**——`state.sequence` 记住 `{ name, fps, count }`，帧直接被写进
+   `state.frames`（缩到最长边 800、转 webp 存 `thumbURL`），抽帧设置整块收起，
+   视频位置改成显示首帧封面（`#sequencePoster`），标识牌写「帧集」。
+
+   图集写入原本只认 `els.video`，现在走 `frameSourceFor(frame)`：视频回 `seekVideo` 后的
+   `<video>`，帧集回 `getFrameImageAsync(frame)` 的位图；`drawFrameToCell()` 按来源自己的宽高缩放。
+   导入菜单多一项「从帧集导入」（只在「导入视频」那组出现），本机 ZIP 与资产里的帧集都走这条路。
+
+   `?frameset=<id>` 深链会直接把那包帧铺进来；它**不绑定素材**，所以保存是新建而不是覆盖。
+
 ## 另外两处
 
 - `tool.css` 是 `styles.css` 加了 `.sf-app` 前缀的那一份（`:root`/`html`/`body` → `.sf-app`，
   `body::before` 丢掉），末尾追加了让 `.workspace` 跟随容器高度的覆盖规则。
   只改这一份，不再重新生成。
-- `index.html` 没改，页面只取它的 `<body>` 标记；宿主也不再叠标题栏，回工具走左侧栏。
+- `index.html` 除了品牌与结构，只多了三处：`#framesetInput`（隐藏的帧集文件框）、`#sequencePoster`（帧集模式下代替视频显示首帧封面）、以及把「抽帧设置」整块包进 `#extractSettings`（帧集模式下收起）。页面只取它的 `<body>` 标记；宿主也不再叠标题栏，回工具走左侧栏。
 
 ## 怎么验证
 
@@ -65,7 +79,17 @@ cd D:\AI\MiraForge
 node tools/e2e_spriteforge_1to1.mjs     # 菜单 → 本机/资产导入 → 抽帧 → 轨道 → 播放 → 图集 → 导出 → 保存到资产 → ?asset= 重开
 ```
 
-`MiraSpriteForge.snapshot()` 会返回 `{ duration, videoName, frames, track, playing, current, atlasPages, atlasCells }`，
-排查「帧时间全 0」「轨道没进帧」这类问题时先看它。
+`MiraSpriteForge.snapshot()` 会返回 `{ duration, videoName, sequence, frames, track, playing, current, atlasPages, atlasCells }`，
+排查「帧时间全 0」「轨道没进帧」这类问题时先看它（`sequence` 非空表示这轮是从帧集进来的）。
+
+宿主桥接 `window.MiraForgeToolBridge` 的契约（缺哪个就回退到原版行为）：
+
+| 方法 | 签名 | 用途 |
+| --- | --- | --- |
+| `chooseSource` | `(kind: "video" \| "atlas", anchor: HTMLElement) => Promise<{action:"local"} \| {action:"asset", file:File} \| {action:"frameset", file:File} \| null>` | 导入前先问「本机 / 资产 / 帧集」 |
+| `readFrameSet` | `(file: File) => Promise<{ name:string; fps:number; frames: Array<{index:number; time:number; width:number; height:number; bitmap:ImageBitmap}> }>` | 解开帧集 ZIP |
+| `saveAsset` | `(blob: Blob, name: string) => Promise<unknown>` | 导出弹层的「保存到资产 / 保存并覆盖 #id」 |
+| `saveLabel` | `() => string` | 保存按钮文案 |
+| `saved` | `(payload: {name:string}) => string` | 保存成功后的 toast 文案 |
 
 **播放要在「追加到图集」之前测**：追加会清空轨道，之后按播放自然什么都不动。

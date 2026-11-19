@@ -56,6 +56,7 @@
 
   <div class="top-actions">
     <input type="file" id="videoInput" accept="video/*,.mp4,.webm,.mov,.m4v,.ogv" hidden>
+    <input type="file" id="framesetInput" accept=".zip,application/zip" hidden>
     <input type="file" id="atlasInput" accept=".zip,.json,image/png" multiple hidden>
     <button class="btn btn-ghost" id="helpBtn" title="使用说明">
       <svg class="icon"><use href="#i-info"/></svg><span>使用说明</span>
@@ -98,6 +99,7 @@
       <div class="video-loaded" id="videoLoaded" hidden>
         <div class="video-frame">
           <video id="video" playsinline muted preload="auto"></video>
+          <img id="sequencePoster" alt="" hidden>
           <div class="video-res" id="videoRes">—</div>
         </div>
         <div class="video-file">
@@ -105,6 +107,7 @@
           <div class="video-meta" id="videoMeta">—</div>
         </div>
 
+        <div id="extractSettings">
         <div class="section-label first">
           <span>抽帧设置</span>
           <button class="text-btn" id="resetRangeBtn">重置范围</button>
@@ -135,6 +138,7 @@
         <button class="btn btn-primary btn-block" id="extractBtn">
           <svg class="icon"><use href="#i-spark"/></svg><span>提取序列帧</span>
         </button>
+        </div>
 
         <div class="extract-progress" id="extractProgress" hidden>
           <div class="progress-top">

@@ -28,14 +28,15 @@ export default function ImagePicker({
   onClose: () => void;
   onPick: (image: ImageBrief) => void;
   onUpload?: () => void;
-  kind?: "image" | "video";
+  kind?: "image" | "video" | "frameset";
 }) {
   const labelOf = (image: ImageBrief) =>
     image.label || `作品 #${image.id}`;
 
   const images = useQuery({
     queryKey: ["images", "picker"],
-    queryFn: () => fetchImages({ limit: 60 }),
+    // 帧集混在产物里、数量又少，多取一些，免得老帧集被最近的一批图挤出窗口。
+    queryFn: () => fetchImages({ limit: kind === "frameset" ? 100 : 60 }),
     enabled: open,
     staleTime: 10_000,
   });
@@ -65,13 +66,18 @@ export default function ImagePicker({
   const items = (images.data?.items ?? []).filter((item) =>
     kind === "video"
       ? item.media_type === "video"
-      : item.media_type !== "video" && item.media_type !== "frameset",
+      : kind === "frameset"
+        ? item.media_type === "frameset"
+        : item.media_type !== "video" && item.media_type !== "frameset",
   );
   const isVideo = kind === "video";
-  const unit = isVideo ? "条" : "张";
+  const isFrameSet = kind === "frameset";
+  const unit = isVideo ? "条" : isFrameSet ? "包" : "张";
   const emptyCopy = isVideo
     ? "还没有生成过视频，先用「视频」工作台生成一条，或者直接上传本机视频。"
-    : "还没有生成过图片，先用「图片」工作台生成一张，或者直接上传本机图片。";
+    : isFrameSet
+      ? "还没有帧集，先在抽帧台把一段视频抽成序列帧存下来。"
+      : "还没有生成过图片，先用「图片」工作台生成一张，或者直接上传本机图片。";
 
   if (!mounted) {
     return null;
@@ -166,7 +172,11 @@ export default function ImagePicker({
         <div className="flex items-center justify-between gap-2 border-t border-edge/70 px-4 py-3">
           <p className="text-[11px] text-muted">
             共 {items.length} {unit}
-            {isVideo ? "视频，点一下就选为视频" : "图片，点一下就选为画面"}
+            {isVideo
+              ? "视频，点一下就选为视频"
+              : isFrameSet
+                ? "帧集，点一下就铺成序列帧"
+                : "图片，点一下就选为画面"}
           </p>
           <div className="flex items-center gap-2">
             {onUpload ? (
