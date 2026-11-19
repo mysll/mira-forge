@@ -104,7 +104,8 @@ export default function FramesPage() {
   const [onionMode, setOnionMode] = useState<"previous" | "anchor">("previous");
   const [onionAlpha, setOnionAlpha] = useState("35");
   const [hovered, setHovered] = useState<number | null>(null);
-  const [zoomSubject, setZoomSubject] = useState(true);
+  // 预览默认整幅：切到「看主体」才按主体框裁（裁切只影响预览，不影响导出）
+  const [zoomSubject, setZoomSubject] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   // 从资产里重新打开的帧集：导出时覆盖这一条，而不是新建一条
@@ -713,10 +714,11 @@ export default function FramesPage() {
                   type="button"
                   onClick={() => setZoomSubject((current) => !current)}
                   className="ml-auto rounded border border-edge px-2 py-1 text-[11px] text-muted transition hover:border-accent/60 hover:text-ink"
+                  title={zoomSubject ? "预览按主体框裁切，点一下恢复整幅" : "预览显示整幅，点一下只放大主体"}
                   data-frames-zoom
                   data-zoom-mode={zoomSubject ? "subject" : "frame"}
                 >
-                  {zoomSubject ? "看主体" : "整幅"}
+                  {zoomSubject ? "看整幅" : "看主体"}
                 </button>
               ) : null}
             </div>
