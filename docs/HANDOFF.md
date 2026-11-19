@@ -24,7 +24,7 @@
 ## 现在有什么（P1–P11 + 工具链）
 - **生成**：文生图 / 参考图生成（最多 2 张）/ 图片编辑（1–2 张参考图）/ **局部重绘**（在第 1 张编辑图上画遮罩，只改遮罩内）/ 文生视频 / 图生视频（首尾帧），一次 1–8 张图、1–4 条视频。
 - **提示词模板**：视频创作框下方一排动作模板（走路 / 跑步 / 攻击 / 跳跃 / 下落 / 受伤 / 死亡 / 翻滚…），点一下写进提示词；设置页可增删改，也能一键恢复默认。
-- **模型**（6 个，全在 `backend/workflow_configs/registry.yaml`，加模型只改数据）：`qwen_image_21`、`qwen_image_21_turbo`、`z_image_turbo`、`flux2_klein_distilled`、`flux2_klein_base`、`minimax_h3`；共 12 条工作流（Klein Base 多一条局部编辑）。
+- **模型**（6 个，全在 `backend/workflow_configs/registry.yaml`，加模型只改数据）：`qwen_image_21`、`qwen_image_21_turbo`、`z_image_turbo`、`flux2_klein_distilled`、`flux2_klein_base`、`minimax_h3`；共 14 条工作流。
 - **项目**：一个项目一个文件夹（`data/projects/<id>/{app.db,storage}`），左侧可切换 / 新建 / 删除。
 - **资产库**：图片 / 视频 / 素材（精灵图）/ 序列帧，卡片左上角名称、右上角类型；支持收藏、下载、批量删除、一键清空。
 - **回收站**：所有删除都是软删除（`deleted_at`），30 天内可恢复（恢复会连带解冻任务与批次），可单件彻底删除或清空；过期由启动和每次列表请求清理。
