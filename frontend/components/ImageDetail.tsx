@@ -64,6 +64,8 @@ export default function ImageDetail({
         ? `/tools/spriteforge?video=${image.id}`
         : null;
   // 批次改过名就用那个名字当标题；没有别名才显示「图片详情」这类通用标题。
+  // 整包素材 / 帧集没有可预览的图，只能拿服务端抽出来的封面帧当预览。
+  const [coverFailed, setCoverFailed] = useState(false);
   const alias = (generation.name ?? "").trim();
   const detailKind = isVideo
     ? "视频详情"
@@ -73,7 +75,11 @@ export default function ImageDetail({
         ? "帧集详情"
         : "图片详情";
   const typeLabel = isAsset
-    ? "素材"
+    ? generation.model_name === "spriteforge"
+      ? "精灵图"
+      : generation.model_name === "local_editor"
+        ? "本地编辑"
+        : "素材"
     : isFrameSet
       ? "帧集"
       : isVideo
@@ -144,17 +150,22 @@ export default function ImageDetail({
               className="max-h-[80vh] w-auto max-w-full rounded-lg bg-black"
             />
           ) : (image.media_type === "asset" || image.media_type === "frameset") && !isRasterAsset ? (
-            <div className="flex flex-col items-center gap-3 text-center">
-              <span className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs uppercase tracking-wide text-muted">
-                {assetSuffix || "file"}
-              </span>
-              <p className="max-w-xs text-xs leading-relaxed text-muted">
-                素材文件没法在浏览器里预览，下载后到序列帧工坊或游戏引擎里使用。
-              </p>
-              <button type="button" onClick={() => onDownload(item)} className="btn-primary">
-                下载{assetSuffix ? ` .${assetSuffix}` : "文件"}
-              </button>
-            </div>
+            // 整包（ZIP / JSON）没法当图打开，但封面帧能：直接把封面显示出来，别再加一层说明框。
+            coverFailed ? (
+              <div className="flex flex-col items-center gap-3 text-center">
+                <span className="rounded-lg border border-edge bg-surface px-3 py-2 text-xs uppercase tracking-wide text-muted">
+                  {assetSuffix || "file"}
+                </span>
+              </div>
+            ) : (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={imageThumbnailUrl(image)}
+                alt={generation.prompt}
+                onError={() => setCoverFailed(true)}
+                className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
+              />
+            )
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img

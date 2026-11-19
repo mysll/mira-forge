@@ -149,6 +149,15 @@ def test_asset_keeps_the_atlas_name_as_the_batch_name(client: TestClient) -> Non
     assert generation["images"][0]["label"] == "角色战斗图集 · 第 1 个"
 
 
+def test_asset_name_drops_the_file_extension(client: TestClient) -> None:
+    """工坊传过来的是导出文件名（boy_1312.zip），卡片上不该带 .zip。"""
+    status, payload = _save(client, "atlas_79.png", TINY_PNG, name="boy_1312.zip")
+    assert status == 201, payload
+
+    generation = client.get(f"{API}/generations/{payload['generation_id']}").json()
+    assert generation["name"] == "boy_1312"
+
+
 def test_overwriting_an_asset_updates_its_name(client: TestClient) -> None:
     status, payload = _save(client, "atlas_78.png", TINY_PNG, name="旧图集名")
     assert status == 201

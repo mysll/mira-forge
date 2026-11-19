@@ -370,7 +370,7 @@ def replace_local_asset(
 
     if prompt:
         generation.prompt = prompt
-    asset_name = (name or Path(filename).stem or "").strip()[:60]
+    asset_name = _asset_name(name, filename)
     if asset_name:
         generation.name = asset_name
     generation.width = width
@@ -395,6 +395,20 @@ def replace_local_asset(
     db.refresh(replaced)
     return generation, replaced
 
+_ASSET_NAME_SUFFIXES = (".zip", ".png", ".jpg", ".jpeg", ".webp", ".json")
+
+
+def _asset_name(name: str | None, filename: str) -> str | None:
+    """卡片左上角显示的就是这个名字：去掉扩展名，别让卡片叫 boy_20261119_1312.zip。"""
+    candidate = (name or "").strip() or Path(filename).stem
+    lowered = candidate.lower()
+    for suffix in _ASSET_NAME_SUFFIXES:
+        if lowered.endswith(suffix):
+            candidate = candidate[: -len(suffix)]
+            break
+    return candidate.strip()[:60] or None
+
+
 def create_local_asset(
     db: Session,
     *,
@@ -416,7 +430,7 @@ def create_local_asset(
     from app.services.image_service import store_image
 
     suffix = Path(filename).suffix.lower() or ".bin"
-    asset_name = (name or Path(filename).stem or "").strip()[:60] or None
+    asset_name = _asset_name(name, filename)
     now = utcnow()
     generation = Generation(
         prompt=prompt,
