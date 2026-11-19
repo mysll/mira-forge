@@ -120,7 +120,12 @@ function ActionBar({
       icon: <IconStar filled={item.image.is_favorite} />,
       run: () => onFavorite(item),
     },
-    { key: "edit", title: "继续编辑", icon: <IconEdit />, run: () => onEdit(item) },
+    {
+      key: "edit",
+      title: item.image.media_type === "frameset" ? "在抽帧台打开" : "继续编辑",
+      icon: <IconEdit />,
+      run: () => onEdit(item),
+    },
     { key: "download", title: "下载", icon: <IconDownload />, run: () => onDownload(item) },
     { key: "delete", title: "只删这张图", icon: <IconTrash />, run: () => onDelete(item) },
   ];

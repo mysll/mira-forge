@@ -471,11 +471,15 @@ function AssetCard({
     isAsset || isFrameSet ? (image.file_path.split(".").pop() ?? "").toLowerCase() : "";
   // 素材与帧集的缩略图都由服务端从封面帧抽出来；JSON 没有缩略图，加载失败就退回文件牌。
   const canPreview = (!isAsset && !isFrameSet) || isRaster || !imageFailed;
-  const studioHref = isVideo
-    ? `/tools/spriteforge?video=${image.id}`
-    : isAsset
-      ? `/tools/spriteforge?asset=${image.id}`
-      : null;
+  // 下游工具：帧集回抽帧台调偏移，视频 / 素材进序列帧工坊
+  const studioHref = isFrameSet
+    ? `/tools/frames?frameset=${image.id}`
+    : isVideo
+      ? `/tools/spriteforge?video=${image.id}`
+      : isAsset
+        ? `/tools/spriteforge?asset=${image.id}`
+        : null;
+  const studioLabel = isFrameSet ? "在抽帧台打开" : "在序列帧工坊打开";
 
   return (
     <div
@@ -587,18 +591,18 @@ function AssetCard({
           <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
             <StarIcon filled={image.is_favorite} />
           </CellAction>
-          {isVideo || isAsset ? null : (
+          {isVideo || isAsset || isFrameSet ? null : (
             <CellAction label="继续编辑（AI）" onClick={onEdit}>
               <EditIcon />
             </CellAction>
           )}
-          {isVideo || isAsset ? null : (
+          {isVideo || isAsset || isFrameSet ? null : (
             <CellAction label="本地编辑（抠底 / 画布）" href={`/tools/editor?image=${image.id}`}>
               <CropIcon />
             </CellAction>
           )}
           {studioHref ? (
-            <CellAction label="在序列帧工坊打开" href={studioHref}>
+            <CellAction label={studioLabel} href={studioHref}>
               <GridIcon />
             </CellAction>
           ) : null}

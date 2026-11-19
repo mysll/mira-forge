@@ -175,6 +175,13 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
 
   const edit = useCallback(
     (item: AssetRef) => {
+      // 帧集不是一张图：继续编辑 = 回抽帧台调偏移，塞进创作框当参考图没有意义
+      if (item.image.media_type === "frameset") {
+        onEdited?.();
+        router.push(`/tools/frames?frameset=${item.image.id}`);
+        onToast("在抽帧台里调偏移，保存会覆盖这条帧集");
+        return;
+      }
       onEdited?.();
       const store = useReferenceStore.getState();
       store.clear();
@@ -182,7 +189,7 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
       onToast("已作为参考图，写在下方提示词里描述要改成什么");
       goCompose();
     },
-    [goCompose, onEdited, onToast],
+    [goCompose, onEdited, onToast, router],
   );
 
   const regenerate = useCallback(

@@ -79,7 +79,7 @@
 | `public/tools/spriteforge/{index.html,app.js,tool.css,README.md}` | 原版 Vendor 副本（唯一来源，不再有同步脚本）：`README.md` 记着相对上游的三处改动——启动改由 `boot()` 触发（避免 TDZ）、四个导入入口走 `requestImport()`（本机 / 资产二选一）、导出弹层多「保存到资产」；抠像容差滑条收到 0–96（欧氏距离 0–441，实测本机绿幕素材背景噪声 ≤24、主体边缘从 ~32 起，96 够吃软边又不至于没法微调）；`tool.css` 是所有选择器都加了 `.sf-app` 前缀的那份 |
 | `lib/editor.ts` | 纯几何与导出：`placementFor()` **只按高度算尺寸、宽度按原图比例推**（所以永不变形）、`drawScene(ctx, input, scale)`、`exportSize()`（画布 × 倍率，最长边上限 8192）、`upscaleRatio()`（超出原图像素时给警告）、分级降采样绘制、`canvasToBlob()`、`downloadBlob()`、`loadImageElement()` |
 | `stores/editor.ts` | 编辑器状态：源图 / 主体 / 抠底结果、画布与主体参数、导出倍率（1×/2×/4×，不进撤销栈）、撤销重做栈（只记参数，抠底有独立「还原」） |
-| `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现。下载文件名 `miraforge-<id>.<后缀>`，后缀取 `image.file_path` 的后缀（帧集 `.zip`、视频 `.mp4`、素材 `.png/.json/.zip`），取不到才按 `media_type` 兜底 |
+| `hooks/useImageActions.ts` | 收藏 / 下载 / 删除 / 继续编辑 / 重新生成，创作页与资产页共用一份实现。「继续编辑」对帧集不是塞进创作框，而是跳 `/tools/frames?frameset=<id>` 回抽帧台调偏移（卡片与详情弹窗都这么走）。下载文件名 `miraforge-<id>.<后缀>`，后缀取 `image.file_path` 的后缀（帧集 `.zip`、视频 `.mp4`、素材 `.png/.json/.zip`），取不到才按 `media_type` 兜底 |
 | `components/Sidebar.tsx` | 图标导航：首页 `/` / 资产 `/gallery` / 工具 `/tools` / 回收站 `/trash` / 图片 `/compose` / 视频 `/video` / 设置 `/settings`，`divider: true` 的项上方画一条细线 |
 | `app/trash/page.tsx` | 回收站页：`fetchRecycleBin({media})` 拉列表，「恢复」走 `POST /recycle-bin/restore`、单件「彻底删除」走 `DELETE /recycle-bin/{id}`、「清空回收站」走 `POST /recycle-bin/clear`；卡片显示缩略图、类型徽标、「还剩 N 天」（≤3 天转危险色）、删除时间与尺寸；两个动作都过一次 `ConfirmDialog`，成功后 invalidate `["recycle-bin"]` / `["generations"]` / `["images"]`，回到作品流立刻能看到恢复的图 |
 | `components/ProjectSwitcher.tsx` | 顶栏最左的项目下拉：当前项目名 + 列表（激活项带勾）+ 新建 / 重命名 / 删除；切换后 `queryClient.clear()` 重拉整套数据 |
