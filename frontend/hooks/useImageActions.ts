@@ -9,10 +9,12 @@ import {
   deleteImage,
   deleteTask,
   imageFileUrl,
+  referenceImageUrl,
   renameGeneration,
   setImageFavorite,
 } from "@/lib/api";
 import { useComposerStore } from "@/stores/composer";
+import { useGenerationRefStore } from "@/stores/generationRefs";
 import { useReferenceStore } from "@/stores/reference";
 import type { GenerationRead, ImageBrief } from "@/types/api";
 
@@ -39,6 +41,34 @@ function downloadSuffix(image: ImageBrief): string {
   if (image.media_type === "video") return "mp4";
   if (image.media_type === "frameset") return "zip";
   return image.media_type === "asset" ? "bin" : "png";
+}
+
+/**
+ * 把上一单的参考图从服务端取回来，做成能再提交的 File。
+ * 取不到的跳过，绝不挡住提示词与参数的填充。
+ */
+async function referenceFiles(generation: GenerationRead): Promise<File[]> {
+  const count = generation.reference_images?.length ?? 0;
+  const files: File[] = [];
+  for (let index = 0; index < count; index += 1) {
+    try {
+      const response = await fetch(
+        referenceImageUrl(generation.id, generation.created_at, index),
+      );
+      if (!response.ok) {
+        continue;
+      }
+      const blob = await response.blob();
+      const type = blob.type || "image/png";
+      const extension = type.split("/")[1] || "png";
+      files.push(
+        new File([blob], `reference-${index + 1}.${extension}`, { type }),
+      );
+    } catch {
+      // 少一张也比什么都不填强
+    }
+  }
+  return files;
 }
 
 export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
@@ -196,14 +226,45 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     (item: AssetRef) => {
       const store = useComposerStore.getState();
       const { generation } = item;
-      store.setMode(generation.generation_type === "image_edit" ? "image_edit" : "text_to_image");
+      const editing =
+        generation.generation_type === "image_edit" ||
+        generation.generation_type === "image_inpaint";
+      store.setMode(editing ? "image_edit" : "text_to_image");
       store.setPrompt(generation.prompt);
       store.setModelId(generation.model_name);
       if (generation.width && generation.height) {
         store.setCustomSize(generation.width, generation.height);
       }
+      store.setNegative(generation.negative_prompt ?? "");
+      store.setSteps(generation.steps === null ? "" : String(generation.steps));
+      store.setCfg(generation.cfg === null ? "" : String(generation.cfg));
+      store.setSampler(generation.sampler ?? "");
+      // 遮罩不跟着回填：那是画在上一张构图上的，换一批图就没意义了
+      store.setMask(null);
+
+      // 参考图也从服务端取回来：图生图进「参考图」槽位，编辑进第 1/2 张
+      const expected = generation.reference_images?.length ?? 0;
+      useReferenceStore.getState().clear();
+      useGenerationRefStore.getState().clear();
+      if (expected > 0) {
+        void referenceFiles(generation).then((files) => {
+          if (!files.length) {
+            return;
+          }
+          if (editing) {
+            useReferenceStore.getState().putFiles(files);
+          } else {
+            useGenerationRefStore.getState().addFiles(files);
+          }
+        });
+      }
+
       onEdited?.();
-      onToast("参数已填回创作框，点「生成」即可再跑一批");
+      onToast(
+        expected > 0
+          ? "提示词、参数和参考图已填回创作框，点「生成」即可再跑一批"
+          : "参数已填回创作框，点「生成」即可再跑一批",
+      );
       goCompose();
     },
     [goCompose, onEdited, onToast],

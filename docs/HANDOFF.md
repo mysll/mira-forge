@@ -22,7 +22,8 @@
 `npm` 需 `npm_config_cache=D:\AI\MiraForge\.npm-cache`。
 
 ## 现在有什么（P1–P11 + 工具链）
-- **生成**：文生图 / 参考图生成（最多 2 张）/ 图片编辑（1–2 张参考图）/ 文生视频 / 图生视频（首尾帧），一次 1–8 张图、1–4 条视频。
+- **生成**：文生图 / 参考图生成（最多 2 张）/ 图片编辑（1–2 张参考图）/ **局部重绘**（在第 1 张编辑图上画遮罩，只改遮罩内）/ 文生视频 / 图生视频（首尾帧），一次 1–8 张图、1–4 条视频。
+- **提示词模板**：视频创作框下方一排动作模板（走路 / 跑步 / 攻击 / 跳跃 / 下落 / 受伤 / 死亡 / 翻滚…），点一下写进提示词；设置页可增删改，也能一键恢复默认。
 - **模型**（6 个，全在 `backend/workflow_configs/registry.yaml`，加模型只改数据）：`qwen_image_21`、`qwen_image_21_turbo`、`z_image_turbo`、`flux2_klein_distilled`、`flux2_klein_base`、`minimax_h3`；共 11 条工作流。
 - **项目**：一个项目一个文件夹（`data/projects/<id>/{app.db,storage}`），左侧可切换 / 新建 / 删除。
 - **资产库**：图片 / 视频 / 素材（精灵图）/ 序列帧，卡片左上角名称、右上角类型；支持收藏、下载、批量删除、一键清空。
@@ -31,7 +32,7 @@
 
 ## 数据与接口要点
 - 表：`generations`（一次提交）/ `generation_tasks`（一条任务，通常一件产物）/ `images`（`media_type` = image / video / asset / frameset）。
-- `generation_type`：`text_to_image` / `image_to_image` / `image_edit` / `local_edit` / `local_asset` / `local_frameset` / `text_to_video` / `image_to_video`。
+- `generation_type`：`text_to_image` / `image_to_image` / `image_edit` / `image_inpaint` / `local_edit` / `local_asset` / `local_frameset` / `text_to_video` / `image_to_video`。
 - 图片 URL 一律带 `?v=<created_at epoch>`（SQLite 会复用 id，不带版本号会命中旧缓存）。
 - 前端拿到的时间没有时区，必须 `parseIso()` 补 `Z`。
 - 工作流 = JSON（API 格式）+ 同名 YAML（`output_node` / `bindings` / `reference_image` / `poster_node` / `frames`），`prompt_builder` 只按 YAML 落值，写错槽位会直接报「参数 X 的落点 Y 在工作中不存在」。
@@ -50,7 +51,7 @@
 - 图片 / 视频跨端访问都用后端 8000，前端 3000 只做壳。
 
 ## 待办 / 可以接着做的
-1. **遮罩局部重绘（已调研，待拍板）**：`SetLatentNoiseMask` + `VAEEncode` 已验证能让 Qwen 2.1 只改掩码内（掩码外 p99 差异 3/255），Klein 也有现成链路；缺的是前端**遮罩编辑器**（画笔 / 橡皮 / 清空 / 羽化），后端要加 `mask_image_path` 与一套 `*_inpaint.json`。
-2. `批量改尺寸`、`九宫格切图` 两张工具卡还是占位（`ready: false`）。
-3. 图片侧的「重新生成」只回填提示词 / 模型 / 尺寸，没有像视频那样把参考图取回来。
-4. 视频二期剩余：时长上限、更多运镜模板、音频输出开关（当前音视频同出）。
+1. `批量改尺寸`、`九宫格切图` 两张工具卡还是占位（`frontend/app/tools/page.tsx` 里 `ready: false`）。
+2. 局部重绘目前只接了 Qwen 2.1 与 turbo 两套工作流（`qwen_image_21_inpaint.json` / `qwen_image_21_turbo_inpaint.json`）；FLUX.2 Klein 的 `SetLatentNoiseMask` 链路已调研但没有对应 JSON，想接就照同样的「VAEEncode + 遮罩 LoadImage」结构加一套。
+3. 视频二期剩余：时长上限放开、更多运镜模板、音频输出开关（当前音视频同出）。
+4. 图片 / 视频「重新生成」现在都会回填参考图；遮罩故意不回填（画在旧构图上没意义），要复用得重新画。
