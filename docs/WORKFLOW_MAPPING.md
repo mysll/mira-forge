@@ -219,6 +219,23 @@ Qwen Image 2.1 没有官方的 inpaint 模板，但它不需要专门的重绘�
 
 也就是说，改动基本被限制在遮罩里；掩码外那 0.2% 是 VAEDecode 的整体微调，肉眼看不出来。
 
+### FLUX.2 Klein Base 的局部编辑
+
+Klein 没有 Qwen 那种「参考图进条件」的编码器，源图只走一条路：`VAEEncode` 变成 latent。所以它的 inpaint 图比 Qwen 那两张还短，`reference_image` 段绑的是 `VAEEncode.pixels`（而不是某个编码节点的 AUTOGROW 槽位）。
+
+```text
+4 LoadImage(源图) ─┬─→ 5 VAEEncode(pixels, vae ← 3) ─→ 8 SetLatentNoiseMask(samples ← 5)
+                   └─→ 11 GetImageSize ─→ 12 Flux2Scheduler(steps, width, height) ─→ 13 SplitSigmasDenoise
+6 LoadImage(遮罩) ──→ 7 ImageToMask(red) ─────────────→ 8 (mask ← 7)
+9/10 CLIPTextEncode(正/负) ─→ 16 CFGGuider(model ← 1, cfg) ─→ 17 SamplerCustomAdvanced(sigmas ← 13, latent ← 8)
+                                                            └─→ 18 VAEDecode ─→ 19 SaveImage
+```
+
+- `flux2_klein_base_inpaint.json` / `flux2_klein_base_inpaint.yaml`：`output_node "19"`，`mask: { node: "6", input: image }`，`reference_image.encoder_node "5"` / `encoder_input pixels`。
+- 与用户自己的 `02_FLUX_Klein_Base_Inpainting.json` 的区别只有掩码来源：那份是 clipspace 手绘的带 alpha 图 → `ThresholdMask(0.5)` → `GrowMask(8)` → `MaskToImage` → `ImageBlur(2,1)` → `ImageToMask`，MiraForge 直接吃前端画好的灰度 PNG。
+- `cfg` 默认 10（用户那张图调出来的值）；`steps` 20、`denoise` 1.0 可调，采样器固定 euler。
+- 实测（1024×1024，遮罩为腿部矩形，20 步）：18.1 s；掩码外 mean 差 1.15 / p99 = 10 / >8 占 0.18%，掩码内 >24 占 38.7%。
+
 ## 负面提示词与 CFG
 
 **默认 CFG=1 时，负面提示词完全不参与计算。** ComfyUI 的 `comfy/samplers.py:610`：

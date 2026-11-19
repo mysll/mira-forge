@@ -1,0 +1,31 @@
+# FLUX.2 Klein 4B Base 局部编辑（源图 VAEEncode + SetLatentNoiseMask，20 步）
+#
+# 结构照用户自己的 02_FLUX_Klein_Base_Inpainting.json，只换掉掩码来源：
+# 那份是「clipspace 手绘的带 alpha 图 → ThresholdMask → GrowMask → MaskToImage
+# → ImageBlur → ImageToMask」，这里直接吃 MiraForge 画出来的灰度 PNG
+# （白 = 要重绘），所以掩码那条链只剩 LoadImage → ImageToMask(red)。
+#
+# 尺寸跟源图走：GetImageSize 喂 Flux2Scheduler（它按面积算 sigma），
+# 潜空间来自 VAEEncode 的源图，所以没有 width/height 落点。
+# cfg 取 10（用户那张图调出来的值，官方编辑模板是 5）。
+output_node: "19"
+
+reference_image:
+  # 源图既进 CLIP 之外的条件（这里是 VAEEncode 的像素），又是 latent 的来源
+  encoder_node: "5"
+  encoder_input: pixels
+  loaders:
+    - node: "4"
+      input: image
+
+mask: { node: "6", input: image }
+
+bindings:
+  prompt: { node: "9", input: text }
+  negative_prompt: { node: "10", input: text }
+  steps: { node: "12", input: steps }
+  denoise: { node: "13", input: denoise }
+  sampler: { node: "14", input: sampler_name }
+  seed: { node: "15", input: noise_seed }
+  cfg: { node: "16", input: cfg }
+  filename_prefix: { node: "19", input: filename_prefix }

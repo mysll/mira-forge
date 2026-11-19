@@ -26,7 +26,13 @@ def test_new_models_are_in_the_catalog() -> None:
         model = models[model_id]
         assert model.available, f"{model_id} 的工作流 JSON 不存在"
         assert model.capabilities.media == "image"
-        assert [target.type for target in model.workflows] == ["text_to_image"]
+        assert model.workflows[0].type == "text_to_image"
+
+    # 只有基础版额外接了局部编辑（蒸馏版没有配套的 inpaint 图）
+    assert [target.type for target in models["flux2_klein_base"].workflows] == [
+        "text_to_image",
+        "image_inpaint",
+    ]
 
     assert models["z_image_turbo"].capabilities.exposes_negative_prompt is False
     assert models["flux2_klein_distilled"].capabilities.exposes_negative_prompt is False
@@ -99,3 +105,46 @@ def test_klein_distilled_ignores_negative_prompt_and_steps() -> None:
     assert prompt["5"]["class_type"] == "ConditioningZeroOut"
     assert prompt["9"]["inputs"]["steps"] == 4
     assert prompt["12"]["inputs"]["cfg"] == 1.0
+
+
+def _built_inpaint(params: dict, mask: str | None) -> dict:
+    model = workflow_service.get_model("flux2_klein_base")
+    assert model is not None
+    target = workflow_service.get_workflow_target(model, "image_inpaint")
+    assert target is not None and target.available
+    graph = load_graph(target.json_path)
+    config = load_workflow_config(target.config_path)
+    return build_prompt(
+        graph, config, params, reference_images=["miraforge_ref_1.png"], mask_image=mask
+    )
+
+
+def test_klein_inpaint_wires_the_source_into_the_latent_and_the_mask_into_the_noise() -> None:
+    prompt = _built_inpaint(
+        {"prompt": "add a tombstone", "negative_prompt": "blurry", "seed": 11, "cfg": 9.0},
+        "miraforge_mask_1.png",
+    )
+
+    # 源图：LoadImage 收文件名，VAEEncode 拿它当像素，SetLatentNoiseMask 拿它当 latent
+    assert prompt["4"]["inputs"]["image"] == "miraforge_ref_1.png"
+    assert prompt["5"]["inputs"]["pixels"] == ["4", 0]
+    assert prompt["8"]["inputs"]["samples"] == ["5", 0]
+    # 遮罩：独立 LoadImage → ImageToMask(red) → SetLatentNoiseMask.mask
+    assert prompt["6"]["inputs"]["image"] == "miraforge_mask_1.png"
+    assert prompt["7"]["inputs"]["image"] == ["6", 0]
+    assert prompt["8"]["inputs"]["mask"] == ["7", 0]
+    assert prompt["17"]["inputs"]["latent_image"] == ["8", 0]
+    # 正负两个编码器分别进 CFGGuider
+    assert prompt["9"]["inputs"]["text"] == "add a tombstone"
+    assert prompt["10"]["inputs"]["text"] == "blurry"
+    assert prompt["16"]["inputs"]["positive"] == ["9", 0]
+    assert prompt["16"]["inputs"]["negative"] == ["10", 0]
+    assert prompt["16"]["inputs"]["cfg"] == 9.0
+    assert prompt["15"]["inputs"]["noise_seed"] == 11
+
+
+def test_klein_inpaint_refuses_to_run_without_a_mask() -> None:
+    with pytest.raises(Exception) as error:
+        _built_inpaint({"prompt": "x"}, None)
+
+    assert "遮罩" in str(error.value)

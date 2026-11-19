@@ -24,7 +24,7 @@
 ## 现在有什么（P1–P11 + 工具链）
 - **生成**：文生图 / 参考图生成（最多 2 张）/ 图片编辑（1–2 张参考图）/ **局部重绘**（在第 1 张编辑图上画遮罩，只改遮罩内）/ 文生视频 / 图生视频（首尾帧），一次 1–8 张图、1–4 条视频。
 - **提示词模板**：视频创作框下方一排动作模板（走路 / 跑步 / 攻击 / 跳跃 / 下落 / 受伤 / 死亡 / 翻滚…），点一下写进提示词；设置页可增删改，也能一键恢复默认。
-- **模型**（6 个，全在 `backend/workflow_configs/registry.yaml`，加模型只改数据）：`qwen_image_21`、`qwen_image_21_turbo`、`z_image_turbo`、`flux2_klein_distilled`、`flux2_klein_base`、`minimax_h3`；共 11 条工作流。
+- **模型**（6 个，全在 `backend/workflow_configs/registry.yaml`，加模型只改数据）：`qwen_image_21`、`qwen_image_21_turbo`、`z_image_turbo`、`flux2_klein_distilled`、`flux2_klein_base`、`minimax_h3`；共 12 条工作流（Klein Base 多一条局部编辑）。
 - **项目**：一个项目一个文件夹（`data/projects/<id>/{app.db,storage}`），左侧可切换 / 新建 / 删除。
 - **资产库**：图片 / 视频 / 素材（精灵图）/ 序列帧，卡片左上角名称、右上角类型；支持收藏、下载、批量删除、一键清空。
 - **回收站**：所有删除都是软删除（`deleted_at`），30 天内可恢复（恢复会连带解冻任务与批次），可单件彻底删除或清空；过期由启动和每次列表请求清理。
@@ -52,6 +52,6 @@
 
 ## 待办 / 可以接着做的
 1. `批量改尺寸`、`九宫格切图` 两张工具卡还是占位（`frontend/app/tools/page.tsx` 里 `ready: false`）。
-2. 局部重绘目前只接了 Qwen 2.1 与 turbo 两套工作流（`qwen_image_21_inpaint.json` / `qwen_image_21_turbo_inpaint.json`）；FLUX.2 Klein 的 `SetLatentNoiseMask` 链路已调研但没有对应 JSON，想接就照同样的「VAEEncode + 遮罩 LoadImage」结构加一套。
+2. 局部重绘已接 Qwen 2.1、Qwen turbo 与 FLUX.2 Klein Base 三套；蒸馏版 Klein 没有配套 inpaint 图（要的话照 `flux2_klein_base_inpaint.json` 换权重与采样器即可）。
 3. 视频二期剩余：时长上限放开、更多运镜模板、音频输出开关（当前音视频同出）。
 4. 图片 / 视频「重新生成」现在都会回填参考图；遮罩故意不回填（画在旧构图上没意义），要复用得重新画。

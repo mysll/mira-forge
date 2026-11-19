@@ -305,7 +305,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/generations/edit \
 
 工作流侧：两张图分别接到编码器的 `images.image_1` / `images.image_2`，潜空间取编码器输出的 `[6, 2]`（**按第 1 张的尺寸对齐**，所以编辑结果的尺寸跟随第 1 张，与 `width` / `height` 无关）；只给 1 张时第二个 `LoadImage` 节点与 `images.image_2` 会被自动摘掉。
 
-局部编辑换一套图（`qwen_image_21_inpaint.json` / `qwen_image_21_turbo_inpaint.json`）：第 1 张参考图同时进编码器条件与 `VAEEncode`，遮罩进独立的 `LoadImage` → `ImageToMask(red)` → `SetLatentNoiseMask`，采样在带噪声掩码的 latent 上跑。遮罩缺失或工作流没配 `mask` 落点时直接拒绝（`422`），不会静默退化成整图重绘。
+局部编辑换一套图（`qwen_image_21_inpaint.json` / `qwen_image_21_turbo_inpaint.json` / `flux2_klein_base_inpaint.json`）：第 1 张参考图同时进编码器条件与 `VAEEncode`，遮罩进独立的 `LoadImage` → `ImageToMask(red)` → `SetLatentNoiseMask`，采样在带噪声掩码的 latent 上跑。遮罩缺失或工作流没配 `mask` 落点时直接拒绝（`422`），不会静默退化成整图重绘。
 
 ### `GET /generations/{id}/mask`
 

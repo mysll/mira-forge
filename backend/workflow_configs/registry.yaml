@@ -158,6 +158,11 @@ models:
         json: workflows/flux2_klein_base_t2i.json
         config: workflow_configs/flux2_klein_base_t2i.yaml
         validated: true
+      - type: image_inpaint
+        label: 局部编辑
+        json: workflows/flux2_klein_base_inpaint.json
+        config: workflow_configs/flux2_klein_base_inpaint.yaml
+        validated: true
 
   # ---- 视频（二期）----
   - id: minimax_h3
