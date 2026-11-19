@@ -255,7 +255,7 @@ export default function FramesPage() {
       setAdjustIndex(null);
       setHovered(null);
       setFillColor(sampleBackground(nextFrames[0].canvas));
-      toast(`抽出 ${nextFrames.length} 帧，在下面的帧条里点选要导出的`);
+      toast(`抽出 ${nextFrames.length} 帧，在下面的时间轴里点选要导出的`);
     } catch (error) {
       toast(error instanceof Error ? error.message : "抽帧失败");
     } finally {
@@ -312,7 +312,7 @@ export default function FramesPage() {
   const previewLabel = previewFrame
     ? hovered !== null
       ? `第 ${previewFrame.index + 1} 帧 · ${previewFrame.time.toFixed(3)} 秒`
-      : `第 ${previewFrame.index + 1} 帧（鼠标移到下面的帧条上可逐帧看）`
+      : `第 ${previewFrame.index + 1} 帧（鼠标移到下面的时间轴上可逐帧看）`
     : "";
 
   const adjustFrame = adjustIndex === null ? null : frames.find((frame) => frame.index === adjustIndex) ?? null;
@@ -682,6 +682,69 @@ export default function FramesPage() {
           </section>
 
           {frames.length > 0 ? (
+            <section className="panel flex flex-col gap-2 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xs font-medium text-ink">时间轴</h2>
+                <span className="text-[11px] text-muted" data-frames-count>
+                  已选 {order.length} / 共 {frames.length}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setOrder(frames.map((frame) => frame.index))}
+                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrder([])}
+                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
+                  >
+                    全不选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOrder((current) => {
+                        const picked = new Set(current);
+                        return frames
+                          .map((frame) => frame.index)
+                          .filter((index) => !picked.has(index));
+                      })
+                    }
+                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
+                  >
+                    反选
+                  </button>
+                </div>
+              </div>
+              <div
+                className="scroll-thin flex gap-2 overflow-x-auto pb-2"
+                data-frames-track
+                onMouseLeave={() => setHovered(null)}
+              >
+                {frames.map((frame) => {
+                  const position = order.indexOf(frame.index);
+                  const active = position >= 0;
+                  return (
+                    <FrameChip
+                      key={frame.index}
+                      frame={frame}
+                      box={boxes.get(frame.index)}
+                      active={active}
+                      position={position}
+                      manual={offsets.has(frame.index)}
+                      onToggle={() => toggleFrame(frame.index)}
+                      onHover={() => setHovered(frame.index)}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {frames.length > 0 ? (
             <section className="panel flex flex-col gap-3 p-4" data-frames-offsets>
               <div className="flex flex-wrap items-end gap-3">
                 <h2 className="text-xs font-medium text-ink">偏移</h2>
@@ -762,74 +825,10 @@ export default function FramesPage() {
                   })}
                 </div>
               ) : (
-                <p className="text-[11px] text-muted">还没选帧：在下面的帧条里点选要导出的帧（默认不选）。</p>
+                <p className="text-[11px] text-muted">还没选帧：在上面的时间轴里点选要导出的帧（默认不选）。</p>
               )}
             </section>
           ) : null}
-
-          {frames.length > 0 ? (
-            <section className="panel flex flex-col gap-2 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-xs font-medium text-ink">帧条</h2>
-                <span className="text-[11px] text-muted" data-frames-count>
-                  已选 {order.length} / 共 {frames.length}
-                </span>
-                <div className="ml-auto flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setOrder(frames.map((frame) => frame.index))}
-                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
-                  >
-                    全选
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOrder([])}
-                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
-                  >
-                    全不选
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOrder((current) => {
-                        const picked = new Set(current);
-                        return frames
-                          .map((frame) => frame.index)
-                          .filter((index) => !picked.has(index));
-                      })
-                    }
-                    className="rounded border border-edge px-2 py-0.5 text-[10px] text-muted transition hover:border-accent/60 hover:text-ink"
-                  >
-                    反选
-                  </button>
-                </div>
-              </div>
-              <div
-                className="scroll-thin flex gap-2 overflow-x-auto pb-2"
-                data-frames-track
-                onMouseLeave={() => setHovered(null)}
-              >
-                {frames.map((frame) => {
-                  const position = order.indexOf(frame.index);
-                  const active = position >= 0;
-                  return (
-                    <FrameChip
-                      key={frame.index}
-                      frame={frame}
-                      box={boxes.get(frame.index)}
-                      active={active}
-                      position={position}
-                      manual={offsets.has(frame.index)}
-                      onToggle={() => toggleFrame(frame.index)}
-                      onHover={() => setHovered(frame.index)}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
-
           <section className="panel flex flex-wrap items-end gap-3 p-4">
             <label className="flex flex-col gap-1 text-[11px] text-muted">
               帧集名字
