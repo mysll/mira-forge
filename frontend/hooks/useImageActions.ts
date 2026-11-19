@@ -30,6 +30,17 @@ type Options = {
  * 作品流和资产库共用的一批图片操作：收藏、下载、删除、作为参考图、参数回填。
  * 两处页面的差别只在「操作之后要不要关弹窗」，用回调留给调用方决定。
  */
+/**
+ * 下载时用的扩展名：优先取 file_path 的后缀，取不到再按 media_type 兜底。
+ */
+function downloadSuffix(image: ImageBrief): string {
+  const match = /\.([a-z0-9]+)$/i.exec(image.file_path ?? "");
+  if (match) return match[1].toLowerCase();
+  if (image.media_type === "video") return "mp4";
+  if (image.media_type === "frameset") return "zip";
+  return image.media_type === "asset" ? "bin" : "png";
+}
+
 export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -71,7 +82,9 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = `miraforge-${item.image.id}.png`;
+        // 扩展名按产物自己的文件走：帧集是 .zip、视频是 .mp4，素材可能是 .png/.json/.zip。
+        // 写死 .png 会让下载下来的帧集变成一个打不开的 png。
+        anchor.download = `miraforge-${item.image.id}.${downloadSuffix(item.image)}`;
         anchor.click();
         URL.revokeObjectURL(url);
       } catch (error) {
