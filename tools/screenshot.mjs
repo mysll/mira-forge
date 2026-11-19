@@ -169,6 +169,8 @@ try {
     await sleep(1200);
   }
 
+  // --eval 只跑一次：在 --click/--click-selector 之后、--file/--prompt/--submit 之前。
+  // 以前这段和文件末尾各有一份，写操作的脚本会执行两遍（导出、保存都会重复）。
   if (evaluate) {
     const result = await send("Runtime.evaluate", {
       expression: evaluate,
@@ -234,15 +236,6 @@ try {
     const result = await send("Runtime.evaluate", { expression, returnByValue: true });
     console.log(`submit ${submit}: ${result.result?.value}`);
     await sleep(2000);
-  }
-
-  if (evaluate) {
-    const result = await send("Runtime.evaluate", {
-      expression: evaluate,
-      returnByValue: true,
-      awaitPromise: true,
-    });
-    console.log(`eval: ${JSON.stringify(result.result?.value ?? result.exceptionDetails?.text ?? null)}`);
   }
 
   const shot = await send("Page.captureScreenshot", { format: "png" });

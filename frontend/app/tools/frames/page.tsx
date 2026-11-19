@@ -29,7 +29,10 @@ import { createZip } from "@/lib/zip";
 import type { ImageBrief } from "@/types/api";
 
 function numberOr(value: string, fallback: number): number {
-  const parsed = Number(value);
+  const trimmed = value.trim();
+  // 空串不等于 0：Number("") 是 0，会让「最多抽」留空时变成「只抽 1 帧」
+  if (trimmed === "") return fallback;
+  const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -215,6 +218,7 @@ export default function FramesPage() {
     }
     const rate = Math.min(60, Math.max(1, Math.round(numberOr(fps, 24))));
     const from = Math.max(0, numberOr(start, 0));
+    // 留空 = 抽完整段（交给 extractFrames 按视频长度截断），别当成 0 帧
     const cap = Math.max(1, Math.round(numberOr(limit, 600)));
     const cut = Math.max(0, Math.min(96, numberOr(tolerance, 48)));
     setBusy(true);
