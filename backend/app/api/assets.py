@@ -129,6 +129,7 @@ async def save_asset(
         prompt=text[:500],
         poster=payload.poster,
         source_image=source,
+        name=(name or "").strip() or Path(payload.filename).stem,
     )
     return _asset_from(payload, generation, image)
 
@@ -159,5 +160,6 @@ async def replace_asset(
         height=payload.height,
         prompt=text[:500],
         poster=payload.poster,
+        name=(name or "").strip() or Path(payload.filename).stem,
     )
     return _asset_from(payload, generation, replaced, replaced=True)

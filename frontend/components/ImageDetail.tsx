@@ -63,6 +63,15 @@ export default function ImageDetail({
       : isVideo
         ? `/tools/spriteforge?video=${image.id}`
         : null;
+  // 批次改过名就用那个名字当标题；没有别名才显示「图片详情」这类通用标题。
+  const alias = (generation.name ?? "").trim();
+  const detailKind = isVideo
+    ? "视频详情"
+    : isAsset
+      ? "素材详情"
+      : isFrameSet
+        ? "帧集详情"
+        : "图片详情";
   const typeLabel = isAsset
     ? "素材"
     : isFrameSet
@@ -158,15 +167,14 @@ export default function ImageDetail({
 
         <div className="flex w-[330px] shrink-0 flex-col border-l border-edge">
           <div className="flex items-start justify-between gap-2 px-4 pb-2 pt-4">
-            <div>
-              <p className="text-[11px] text-muted">批次 #{generation.id}</p>
-              <p className="text-sm font-medium text-ink">{image.media_type === "video"
-                ? "视频详情"
-                : image.media_type === "asset"
-                  ? "素材详情"
-                  : image.media_type === "frameset"
-                    ? "帧集详情"
-                    : "图片详情"}</p>
+            <div className="min-w-0">
+              <p className="text-[11px] text-muted">
+                批次 #{generation.id}
+                {alias ? <span className="text-muted/70"> · {detailKind}</span> : null}
+              </p>
+              <p className="truncate text-sm font-medium text-ink" title={alias || detailKind}>
+                {alias || detailKind}
+              </p>
             </div>
             <button type="button" onClick={onClose} className="icon-btn" title="关闭">
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>

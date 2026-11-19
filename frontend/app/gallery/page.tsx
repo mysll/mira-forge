@@ -480,6 +480,31 @@ function AssetCard({
         ? `/tools/spriteforge?asset=${image.id}`
         : null;
   const studioLabel = isFrameSet ? "在抽帧台打开" : "在序列帧工坊打开";
+  // 卡片顶部：左上角是名称、右上角是类型，图 / 视频 / 素材 / 序列帧都一个样式。
+  // 素材里混着两类东西：工坊导出的精灵图（model_name = "spriteforge"）和本地编辑器存的图，
+  // 所以类型不能只看 media_type，还要看是哪个工具产出的。
+  const typeLabel = isFrameSet
+    ? "序列帧"
+    : isVideo
+      ? "视频"
+      : isAsset
+        ? generation.model_name === "spriteforge"
+          ? "精灵图"
+          : generation.model_name === "local_editor"
+            ? "本地编辑"
+            : "素材"
+        : "图片";
+  // 名称用批次名（工坊图集名 / 帧集名 / 用户改过的名字）；没起名就退回批次编号。
+  // 一个批次只有一件产物时不带「第 N 个」，多件才加，免得满屏都是「第 1 个」。
+  const batchName = (generation.name ?? "").trim() || `批次 #${generation.id}`;
+  const cardName =
+    generation.images.length > 1
+      ? `${batchName} · 第 ${generation.images.findIndex((item) => item.id === image.id) + 1} 个`
+      : batchName;
+  const typeBadge =
+    "shrink-0 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur";
+  const nameBadge =
+    "min-w-0 truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur";
 
   return (
     <div
@@ -504,7 +529,19 @@ function AssetCard({
       }}
       title={selectable ? "点击选择这张图" : `${generation.prompt}\n${formatTime(image.created_at)}`}
     >
-      <div className="relative aspect-square w-full overflow-hidden bg-surface2">
+      <div
+        className="relative aspect-square w-full overflow-hidden bg-surface2"
+        // 素材与帧集的封面常常是透明底 PNG：垫一层棋盘格，免得看着像加载失败。
+        style={
+          isAsset || isFrameSet
+            ? {
+                backgroundImage:
+                  "repeating-conic-gradient(#181c23 0% 25%, #11141a 0% 50%)",
+                backgroundSize: "18px 18px",
+              }
+            : undefined
+        }
+      >
         {canPreview ? (
           <>
             {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
@@ -524,7 +561,7 @@ function AssetCard({
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 px-3 text-center">
             <span className="rounded-md border border-edge bg-surface px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
-              {suffix || "file"}
+              {isFrameSet ? "序列帧" : suffix || "file"}
             </span>
             <span className="line-clamp-2 text-[10px] text-muted/80">{generation.prompt}</span>
           </div>
@@ -543,21 +580,41 @@ function AssetCard({
             <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur">
               {duration != null && duration > 0 ? `${duration.toFixed(1)} 秒` : "视频"}
             </span>
-            <span className="pointer-events-none absolute right-2 top-2 rounded bg-accent/85 px-1.5 py-0.5 text-[10px] text-white">
-              视频
-            </span>
           </>
         ) : null}
 
         {isFrameSet ? (
-          <span className="pointer-events-none absolute right-2 top-2 rounded bg-accent/85 px-1.5 py-0.5 text-[10px] font-medium text-black">
+          <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur">
             {image.frame_count ?? 0} 帧
           </span>
-        ) : isAsset ? (
-          <span className="pointer-events-none absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur">
-            素材 · {suffix || "file"}
-          </span>
         ) : null}
+
+        {/* 顶部一行：左边名称（管理模式下前面先放勾选框），右边类型 */}
+        <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-nowrap items-start justify-between gap-1.5">
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            {selectable ? (
+              <span
+                className={[
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition",
+                  selected
+                    ? "border-accent bg-accent text-white"
+                    : "border-white/70 bg-black/35 text-transparent backdrop-blur",
+                ].join(" ")}
+                aria-hidden
+              >
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none">
+                  <path d="m5.5 12.5 4.2 4L18.5 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            ) : image.is_favorite ? (
+              <span className="shrink-0 rounded bg-black/45 p-1 text-warn">
+                <StarIcon filled />
+              </span>
+            ) : null}
+            {cardName ? <span className={nameBadge} title={cardName}>{cardName}</span> : null}
+          </span>
+          <span className={typeBadge}>{typeLabel}</span>
+        </div>
 
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent opacity-0 transition group-hover:opacity-100" />
         <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-end justify-between gap-2 opacity-0 transition group-hover:opacity-100">
@@ -565,26 +622,6 @@ function AssetCard({
           <span className="shrink-0 text-[10px] text-white/70">{formatTime(image.created_at)}</span>
         </div>
       </div>
-
-      {selectable ? (
-        <span
-          className={[
-            "pointer-events-none absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border transition",
-            selected
-              ? "border-accent bg-accent text-white"
-              : "border-white/70 bg-black/35 text-transparent backdrop-blur",
-          ].join(" ")}
-          aria-hidden
-        >
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none">
-            <path d="m5.5 12.5 4.2 4L18.5 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-      ) : image.is_favorite ? (
-        <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/45 p-1 text-warn">
-          <StarIcon filled />
-        </span>
-      ) : null}
 
       {selectable ? null : (
         <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 transition group-hover:opacity-100">

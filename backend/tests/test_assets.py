@@ -137,3 +137,28 @@ def test_replace_asset_rejects_unknown_or_non_asset(client: TestClient) -> None:
     )
     assert response.status_code == 404
     assert "素材" in response.json()["detail"]
+
+
+def test_asset_keeps_the_atlas_name_as_the_batch_name(client: TestClient) -> None:
+    """工坊导出时填的图集名要盖过文件名：卡片左上角显示的就是它。"""
+    status, payload = _save(client, "atlas_77.png", TINY_PNG, name="角色战斗图集")
+    assert status == 201, payload
+
+    generation = client.get(f"{API}/generations/{payload['generation_id']}").json()
+    assert generation["name"] == "角色战斗图集"
+    assert generation["images"][0]["label"] == "角色战斗图集 · 第 1 个"
+
+
+def test_overwriting_an_asset_updates_its_name(client: TestClient) -> None:
+    status, payload = _save(client, "atlas_78.png", TINY_PNG, name="旧图集名")
+    assert status == 201
+
+    response = client.put(
+        f"{API}/assets/{payload['image_id']}",
+        files={"file": ("atlas_78.png", TINY_PNG, "application/octet-stream")},
+        data={"name": "新图集名"},
+    )
+    assert response.status_code == 200, response.json()
+
+    generation = client.get(f"{API}/generations/{payload['generation_id']}").json()
+    assert generation["name"] == "新图集名"

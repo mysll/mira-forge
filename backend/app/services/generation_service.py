@@ -342,6 +342,7 @@ def replace_local_asset(
     height: int = 0,
     prompt: str | None = None,
     poster: bytes | None = None,
+    name: str | None = None,
 ) -> tuple[Generation, Image]:
     """用新导出的图集覆盖已有的素材记录。
 
@@ -369,6 +370,9 @@ def replace_local_asset(
 
     if prompt:
         generation.prompt = prompt
+    asset_name = (name or Path(filename).stem or "").strip()[:60]
+    if asset_name:
+        generation.name = asset_name
     generation.width = width
     generation.height = height
     generation.completed_at = utcnow()
@@ -401,18 +405,22 @@ def create_local_asset(
     prompt: str,
     poster: bytes | None = None,
     source_image: Image | None = None,
+    name: str | None = None,
 ) -> tuple[Generation, Image]:
     """把外部产物（图集 ZIP、atlas.png、atlas.json）存成一条「素材」记录。
 
     素材和生成图共用 images 表，靠 media_type="asset" 与 storage/assets/ 目录区分；
     ZIP / JSON 没法预览，就用调用方给的 poster（通常是图集的第一张 PNG）当缩略图。
+    `name` 是图集自己的名字（工坊导出时填的那个），没给就退回文件名。
     """
     from app.services.image_service import store_image
 
     suffix = Path(filename).suffix.lower() or ".bin"
+    asset_name = (name or Path(filename).stem or "").strip()[:60] or None
     now = utcnow()
     generation = Generation(
         prompt=prompt,
+        name=asset_name,
         generation_type=str(GenerationType.LOCAL_ASSET),
         model_name="spriteforge",
         width=width,
