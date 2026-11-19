@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models.database import get_db
 from app.schemas.frames import FrameSetSaved
-from app.services.generation_service import create_frame_set
+from app.models.image import Image
+from app.services.generation_service import create_frame_set, replace_frame_set
 from app.services.image_service import ImageStoreError
 
 router = APIRouter(prefix="/frames", tags=["frames"])
@@ -86,4 +87,58 @@ async def save_frame_set(
         fps=fps,
         width=image.width or width,
         height=image.height or height,
+    )
+
+@router.put("/{image_id}", response_model=FrameSetSaved)
+async def overwrite_frame_set(
+    image_id: int,
+    bundle: UploadFile = File(...),
+    cover: UploadFile = File(...),
+    name: str = Form(...),
+    count: int = Form(...),
+    width: int = Form(...),
+    height: int = Form(...),
+    fps: float | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> FrameSetSaved:
+    """用抽帧台重新导出的包覆盖同一条帧集（资产库里不新增条目）。"""
+    label = name.strip()
+    if not label:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "帧集名字不能为空")
+    if len(label) > 60:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "帧集名字最多 60 个字")
+    if not 1 <= count <= MAX_FRAMES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"帧数要在 1–{MAX_FRAMES} 之间")
+    if width < 0 or height < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "宽高不能是负数")
+
+    image = db.get(Image, image_id)
+    if image is None or image.media_type != "frameset" or image.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"没有 id 为 {image_id} 的帧集")
+
+    content = await _read_bundle(bundle)
+    poster = await _read_cover(cover)
+    try:
+        generation, saved = replace_frame_set(
+            db,
+            image=image,
+            content=content,
+            cover=poster,
+            name=label,
+            count=count,
+            fps=fps,
+            width=width,
+            height=height,
+        )
+    except (ImageStoreError, ValueError) as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+
+    return FrameSetSaved(
+        generation_id=generation.id,
+        image_id=saved.id,
+        name=label,
+        frame_count=count,
+        fps=fps,
+        width=saved.width or width,
+        height=saved.height or height,
     )

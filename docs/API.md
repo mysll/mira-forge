@@ -586,6 +586,15 @@ ZIP 会用里面**第一张 PNG** 当封面帧生成 `thumbnails/`，所以素�
 - `frames.json` 记 `{ name, fps, width, height, stepX, stepY, fill, keying, tolerance, source, frames: [{ index, time, offsetX, offsetY, manual }] }`：`offset` 是这一帧在导出时被平移的像素，`manual` 标出哪些帧是手调过的（其余是按「选中顺序 × 步进」算的）。
 - 落盘在 `<项目>/storage/frames/<generation_id>/<task_id>_0.zip`；`GET /images/{id}/thumbnail` 给封面、`GET /images/{id}/file` 直接吐 ZIP（`content-type: application/zip`）。
 - 帧集算「资产」：`GET /generations?media=asset` 与回收站的 `media=asset` 都能查到它；但图片选择器（`media=image`）与帧集互相排除，不会把 ZIP 当图选。
+### PUT /frames/{image_id}
+
+用抽帧台重新导出的包**覆盖**同一条帧集（`multipart/form-data`，字段与 `POST /frames` 相同，但没有 `source_video_id`）。
+
+- 覆盖 = 删旧 ZIP 与缩略图，在同一批次 / 任务下写一份新的；**批次与产物 id 都不变**，资产库里不会多一条，详情弹窗也不会跳批次；
+- 缓存靠 `created_at` 变化后的 `?v=` 失效；返回体与 `POST /frames` 相同（`image_id` 还是原来那个）；
+- 不是帧集 / 不存在 → 404 `没有 id 为 3 的帧集`；
+- 前端入口：帧集详情弹窗的「在抽帧台打开」→ `/tools/frames?frameset=<image_id>`，看完偏移点「覆盖保存」。
+
 - 错误：不是 ZIP → 400 `不是 ZIP 文件`；空包 → 400 `帧集压缩包是空的`；超 256 MB → 413 `帧集压缩包超过 256 MB`；帧数越界 → 400 `帧数要在 1–2000 之间`；名字为空 → 400 `帧集名字不能为空`。
 
 ## 回收站

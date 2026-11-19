@@ -97,3 +97,50 @@ export function createZip(entries: ZipEntry[], now = new Date()): Blob {
   const parts = [...chunks, ...central, end] as unknown as BlobPart[];
   return new Blob(parts, { type: "application/zip" });
 }
+
+export type ZipReadEntry = { name: string; data: Uint8Array };
+
+/**
+ * 读回本工具写出的 ZIP（store-only，不压缩）。
+ *
+ * 帧集是抽帧台自己打的包，所以只需要处理 method 0；碰到 deflate 直接报错，
+ * 省掉一整个解压库。
+ */
+export async function readZip(blob: Blob): Promise<ZipReadEntry[]> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  const decoder = new TextDecoder();
+
+  let end = -1;
+  for (let offset = bytes.length - 22; offset >= 0 && offset >= bytes.length - 22 - 0xffff; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      end = offset;
+      break;
+    }
+  }
+  if (end < 0) throw new Error("不是有效的 ZIP 文件");
+
+  const count = view.getUint16(end + 10, true);
+  let cursor = view.getUint32(end + 16, true);
+  const entries: ZipReadEntry[] = [];
+
+  for (let index = 0; index < count; index += 1) {
+    if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error("ZIP 中央目录损坏");
+    const method = view.getUint16(cursor + 10, true);
+    const size = view.getUint32(cursor + 20, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const commentLength = view.getUint16(cursor + 32, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
+    cursor += 46 + nameLength + extraLength + commentLength;
+    if (name.endsWith("/")) continue;
+    if (method !== 0) throw new Error("只支持未压缩的 ZIP");
+    const localName = view.getUint16(localOffset + 26, true);
+    const localExtra = view.getUint16(localOffset + 28, true);
+    const start = localOffset + 30 + localName + localExtra;
+    entries.push({ name, data: bytes.slice(start, start + size) });
+  }
+
+  return entries;
+}

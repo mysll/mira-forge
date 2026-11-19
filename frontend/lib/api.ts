@@ -179,6 +179,10 @@ export async function imageAsFile(imageId: number): Promise<File> {
   });
 }
 
+export function fetchImage(imageId: number): Promise<ImageRead> {
+  return request<ImageRead>(`/images/${imageId}`);
+}
+
 export function fetchImages(params?: {
   limit?: number;
   offset?: number;
@@ -361,6 +365,8 @@ export async function saveFrameSet(params: {
   height: number;
   fps?: number;
   sourceVideoId?: number;
+  /** 传了就是覆盖这一条帧集（PUT），不再新建。 */
+  replaceImageId?: number;
 }): Promise<FrameSetSaved> {
   const form = new FormData();
   form.set("bundle", params.bundle, `${params.name || "frames"}.zip`);
@@ -373,7 +379,11 @@ export async function saveFrameSet(params: {
   if (params.sourceVideoId !== undefined) {
     form.set("source_video_id", String(params.sourceVideoId));
   }
-  const { blob } = await postImage("/frames", form);
+  const { blob } = await postImage(
+    params.replaceImageId ? `/frames/${params.replaceImageId}` : "/frames",
+    form,
+    params.replaceImageId ? "PUT" : "POST",
+  );
   return (await JSON.parse(await blob.text())) as FrameSetSaved;
 }
 

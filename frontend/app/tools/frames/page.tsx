@@ -11,7 +11,9 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import ImagePicker from "@/components/ImagePicker";
 import ProjectSwitcher from "@/components/ProjectSwitcher";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
-import { imageFileUrl, saveFrameSet } from "@/lib/api";
+import Link from "next/link";
+
+import { fetchImage, imageFileUrl, saveFrameSet } from "@/lib/api";
 import {
   canvasToBlob,
   canvasToBytes,
@@ -25,7 +27,7 @@ import {
   type Offset,
   type SubjectBox,
 } from "@/lib/frames";
-import { createZip } from "@/lib/zip";
+import { createZip, readZip } from "@/lib/zip";
 import type { ImageBrief } from "@/types/api";
 
 function numberOr(value: string, fallback: number): number {
@@ -105,6 +107,9 @@ export default function FramesPage() {
   const [zoomSubject, setZoomSubject] = useState(true);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  // 从资产里重新打开的帧集：导出时覆盖这一条，而不是新建一条
+  const [editing, setEditing] = useState<{ imageId: number; name: string } | null>(null);
+  const [loadingSet, setLoadingSet] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -186,6 +191,7 @@ export default function FramesPage() {
       if (next.url.startsWith("blob:")) blobUrlRef.current = next.url;
       setVideo(next);
       resetFrames();
+      setEditing(null);
       if (!name.trim()) setName(next.name.replace(/\.[^.]+$/, "").slice(0, 40));
     },
     [name, resetFrames],
@@ -196,6 +202,98 @@ export default function FramesPage() {
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
     };
   }, []);
+
+  // 重新打开一包已存的帧集：不抽帧，直接把 ZIP 里的 PNG 拆回时间轴。
+  // 打开后可以只调偏移再覆盖保存，「抽帧」这一步是可选的。
+  const loadFrameSet = useCallback(
+    async (imageId: number) => {
+      setLoadingSet(true);
+      try {
+        const meta = await fetchImage(imageId);
+        if (meta.media_type !== "frameset") throw new Error("这个产物不是帧集");
+        const response = await fetch(imageFileUrl(meta), { cache: "no-store" });
+        if (!response.ok) throw new Error(`取帧集失败（${response.status}）`);
+        const entries = await readZip(await response.blob());
+        const pngs = entries
+          .filter((entry) => /^frames\/.+\.png$/i.test(entry.name))
+          .sort((left, right) => left.name.localeCompare(right.name));
+        if (pngs.length === 0) throw new Error("这个帧集里没有帧");
+
+        type Manifest = {
+          name?: string;
+          fps?: number;
+          stepX?: number;
+          stepY?: number;
+          fill?: string;
+          frames?: { index: number; time: number; offsetX?: number; offsetY?: number; manual?: boolean }[];
+        };
+        const manifestEntry = entries.find((entry) => entry.name === "frames.json");
+        let manifest: Manifest = {};
+        if (manifestEntry) {
+          try {
+            manifest = JSON.parse(new TextDecoder().decode(manifestEntry.data)) as Manifest;
+          } catch {
+            manifest = {};
+          }
+        }
+
+        const rate = manifest.fps ?? meta.fps ?? 24;
+        const nextFrames: Frame[] = [];
+        for (let position = 0; position < pngs.length; position += 1) {
+          const bitmap = await createImageBitmap(
+            new Blob([pngs[position].data as unknown as BlobPart], { type: "image/png" }),
+          );
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
+          bitmap.close();
+          nextFrames.push({
+            index: position,
+            time: manifest.frames?.[position]?.time ?? position / rate,
+            canvas,
+          });
+        }
+
+        const nextBoxes = new Map<number, SubjectBox>();
+        for (const frame of nextFrames) nextBoxes.set(frame.index, measureSubject(frame.canvas));
+
+        // 上次手动调过的帧原样带回来；没手调过的交给步进重算
+        const seeded = new Map<number, Offset>();
+        manifest.frames?.forEach((entry, position) => {
+          if (!entry.manual) return;
+          seeded.set(position, { dx: entry.offsetX ?? 0, dy: entry.offsetY ?? 0 });
+        });
+
+        const label = (manifest.name || `帧集 #${imageId}`).slice(0, 60);
+        setFrames(nextFrames);
+        setBoxes(nextBoxes);
+        setOrder(nextFrames.map((frame) => frame.index));
+        setOffsets(seeded);
+        setAdjustIndex(null);
+        setHovered(null);
+        setFps(String(Math.round(rate)));
+        setStepX(manifest.stepX ? String(manifest.stepX) : "");
+        setStepY(manifest.stepY ? String(manifest.stepY) : "");
+        setKeying(manifest.fill === "transparent");
+        if (manifest.fill && manifest.fill !== "transparent") setFillColor(manifest.fill);
+        setName(label);
+        setEditing({ imageId, name: label });
+        toast(`已载入帧集 #${imageId}（${nextFrames.length} 帧），调好偏移后点「覆盖保存」`);
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "载入帧集失败");
+      } finally {
+        setLoadingSet(false);
+      }
+    },
+    [toast],
+  );
+
+  useEffect(() => {
+    const wanted = Number(new URLSearchParams(window.location.search).get("frameset") ?? "");
+    if (!Number.isInteger(wanted) || wanted <= 0) return;
+    void loadFrameSet(wanted);
+  }, [loadFrameSet]);
 
   // 资产里的视频在后端（另一个端口），直接当 <video src> 会污染画布、读不了像素，
   // 所以先取回成 Blob 再用同源的 blob: URL 播放。
@@ -544,8 +642,14 @@ export default function FramesPage() {
         height,
         fps: rate,
         sourceVideoId: video?.id ?? undefined,
+        replaceImageId: editing?.imageId,
       });
-      toast(`已存成帧集「${saved.name}」· ${saved.frame_count} 帧`);
+      toast(
+        editing
+          ? `已覆盖帧集 #${editing.imageId}（现在 ${saved.frame_count} 帧）`
+          : `已存成帧集「${saved.name}」· ${saved.frame_count} 帧`,
+      );
+      if (editing) setEditing({ imageId: saved.image_id, name: saved.name });
       setOrder([]);
       setOffsets(new Map());
       setAdjustIndex(null);
@@ -561,11 +665,31 @@ export default function FramesPage() {
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-edge/70 px-4">
         <ProjectSwitcher />
         <h1 className="text-[13px] font-medium text-ink">抽帧台</h1>
-        <span className="text-[11px] text-muted">视频 → 序列帧 · 可选抠背景 · 逐帧微调偏移 · 整包存成帧集</span>
+        <span className="text-[11px] text-muted">
+          {loadingSet ? "载入帧集…" : "视频 → 序列帧 · 可选抠背景 · 逐帧微调偏移 · 整包存成帧集"}
+        </span>
       </header>
 
       <div className="scroll-thin flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-5">
+          {editing ? (
+            <section
+              className="panel flex flex-wrap items-center gap-2 border-accent/40 p-3"
+              data-frameset-banner
+              data-frameset-id={editing.imageId}
+            >
+              <span className="text-[11px] text-ink">正在编辑帧集 #{editing.imageId} · {editing.name}</span>
+              <span className="text-[11px] text-muted">
+                偏移调好点「覆盖保存」会写回这一条并换掉 ZIP；想另存一份就先选个视频重新抽帧。
+              </span>
+              <Link
+                href="/gallery"
+                className="rounded border border-edge px-2 py-0.5 text-[11px] text-muted transition hover:border-accent/60 hover:text-ink"
+              >
+                回资产页
+              </Link>
+            </section>
+          ) : null}
           <section className="panel flex flex-col gap-3 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-xs font-medium text-ink">视频</h2>
@@ -914,7 +1038,7 @@ export default function FramesPage() {
               data-frames-export
               className="rounded bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accentSoft disabled:opacity-40"
             >
-              {saving ? "导出中…" : `导出 ${order.length} 帧并保存`}
+              {saving ? "导出中…" : editing ? `覆盖保存 · ${order.length} 帧` : `导出 ${order.length} 帧并保存`}
             </button>
             <p className="text-[10px] text-muted">
               每一帧按自己的偏移平移，画布恒等于源帧尺寸（{sourceWidth || "?"} × {sourceHeight || "?"}），

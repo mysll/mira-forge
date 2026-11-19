@@ -58,9 +58,11 @@ export default function ImageDetail({
   const canRegenerate = !isAsset && !isFrameSet && !isLocalEdit;
   const studioHref = isAsset
     ? `/tools/spriteforge?asset=${image.id}`
-    : isVideo
-      ? `/tools/spriteforge?video=${image.id}`
-      : null;
+    : isFrameSet
+      ? `/tools/frames?frameset=${image.id}`
+      : isVideo
+        ? `/tools/spriteforge?video=${image.id}`
+        : null;
   const typeLabel = isAsset
     ? "素材"
     : isFrameSet
@@ -294,7 +296,7 @@ export default function ImageDetail({
             </button>
             {studioHref ? (
               <Link href={studioHref} onClick={onClose} className="btn-ghost">
-                在序列帧工坊打开
+                {isFrameSet ? "在抽帧台打开" : "在序列帧工坊打开"}
               </Link>
             ) : null}
             {canAiEdit ? (

@@ -452,6 +452,66 @@ def create_local_asset(
     return generation, image
 
 
+def replace_frame_set(
+    db: Session,
+    *,
+    image: Image,
+    content: bytes,
+    cover: bytes,
+    name: str,
+    count: int,
+    fps: float | None = None,
+    width: int = 0,
+    height: int = 0,
+) -> tuple[Generation, Image]:
+    """用新导出的一包帧覆盖已有的帧集。
+
+    覆盖 = 删掉旧 ZIP 与缩略图，再在同一批次/任务下写一份新的：
+    - 批次 id 不变，资产库里还是那一条，详情弹窗也不会跳出新批次；
+    - 产物 id 复用旧的（外部链接与收藏不失效），缓存靠 `?v=<created_at>` 换掉；
+    - 旧包当场删除，这是用户要的「覆盖保存」，不是版本历史。
+    """
+    from app.services.image_service import remove_files, store_image
+
+    generation = image.generation
+    if generation is None:
+        raise ValueError("这条帧集没有所属批次，无法覆盖")
+    task_id = image.task_id
+    if task_id is None:
+        raise ValueError("这条帧集没有所属任务，无法覆盖")
+
+    keep_id = image.id
+    remove_files(image)
+    db.delete(image)
+    db.flush()
+
+    generation.prompt = f"帧集 · {name}"
+    generation.name = name
+    generation.width = width
+    generation.height = height
+    generation.completed_at = utcnow()
+
+    replaced = store_image(
+        db,
+        content=content,
+        generation_id=generation.id,
+        task_id=task_id,
+        index=0,
+        width=width,
+        height=height,
+        extension="zip",
+        media_type="frameset",
+        frame_count=count,
+        fps=fps,
+        poster=cover,
+    )
+    replaced.id = keep_id
+    db.commit()
+    db.refresh(generation)
+    db.refresh(replaced)
+    return generation, replaced
+
+
 def create_frame_set(
     db: Session,
     *,
