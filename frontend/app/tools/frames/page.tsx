@@ -67,6 +67,16 @@ function drawThumb(canvas: HTMLCanvasElement, frame: Frame, box: SubjectBox | un
   context.drawImage(source, sx, sy, sw, sh, Math.round((width - drawWidth) / 2), Math.round((height - drawHeight) / 2), drawWidth, drawHeight);
 }
 
+/** 偏移列表里的小缩略图：光看「第 18 帧」不知道画的是什么。 */
+function OffsetThumb({ frame, box }: { frame: Frame; box: SubjectBox | undefined }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (canvas) drawThumb(canvas, frame, box);
+  }, [box, frame]);
+  return <canvas ref={ref} width={30} height={42} className="rounded-[3px] bg-black/40" aria-hidden />;
+}
+
 export default function FramesPage() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [video, setVideo] = useState<VideoSource | null>(null);
@@ -810,8 +820,10 @@ export default function FramesPage() {
                         type="button"
                         onClick={() => setAdjustIndex(index)}
                         data-offset-item={index}
-                        className="flex items-center gap-2 rounded border border-edge/60 bg-surface2/60 px-2 py-1 text-[10px] text-muted transition hover:border-accent/50 hover:text-ink"
+                        title={`打开第 ${index + 1} 帧的微调面板`}
+                        className="flex items-center gap-2 rounded border border-edge/60 bg-surface2/60 py-1 pl-1 pr-2 text-[10px] text-muted transition hover:border-accent/50 hover:text-ink"
                       >
+                        <OffsetThumb frame={frame} box={boxes.get(index)} />
                         <span className="text-ink">#{position + 1}</span>
                         <span>第 {index + 1} 帧</span>
                         <span className="font-mono">
