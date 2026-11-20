@@ -83,6 +83,23 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
     }
   }, [pathname, router]);
 
+  /**
+   * 场景里的图要留在场景里编辑：跳到 /compose 会把用户带出场景，
+   * 而场景页自己的创作框读的是同一批 store，原地就能继续。
+   */
+  const goComposerFor = useCallback(
+    (sceneId?: number | null) => {
+      if (typeof sceneId === "number" && sceneId > 0) {
+        if (!pathname.startsWith("/scenes/")) {
+          router.push(`/scenes/${sceneId}`);
+        }
+        return;
+      }
+      goCompose();
+    },
+    [goCompose, pathname, router],
+  );
+
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["generations"] });
     queryClient.invalidateQueries({ queryKey: ["images"] });
@@ -217,9 +234,10 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
       store.clear();
       store.putImage({ id: item.image.id, url: imageFileUrl(item.image) }, 0);
       onToast("已作为参考图，写在下方提示词里描述要改成什么");
-      goCompose();
+
+      goComposerFor(item.image.scene_id);
     },
-    [goCompose, onEdited, onToast, router],
+    [goComposerFor, onEdited, onToast, router],
   );
 
   const regenerate = useCallback(
@@ -265,9 +283,9 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
           ? "提示词、参数和参考图已填回创作框，点「生成」即可再跑一批"
           : "参数已填回创作框，点「生成」即可再跑一批",
       );
-      goCompose();
+      goComposerFor(item.image.scene_id);
     },
-    [goCompose, onEdited, onToast],
+    [goComposerFor, onEdited, onToast],
   );
 
   return {

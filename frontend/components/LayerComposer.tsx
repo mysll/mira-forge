@@ -35,6 +35,8 @@ type Props = {
   onRender: (values: Values) => void;
   /** 收起 / 展开时告诉页面，好把信息流的底部留白让出来 */
   onCollapsedChange?: (collapsed: boolean) => void;
+  /** 变化时强制展开（工作台里点「继续编辑」要把提示词露出来） */
+  expandToken?: number;
 };
 
 const COUNT_OPTIONS = [1, 2, 3, 4];
@@ -60,11 +62,18 @@ export default function LayerComposer({
   pending,
   onRender,
   onCollapsedChange,
+  expandToken,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // 默认收起：只留标题 + 参数栏，别把下面的信息流挡住
   const [collapsed, setCollapsed] = useState(true);
   const [advancedOpen, setAdvancedOpen] = useState(true);
+
+  useEffect(() => {
+    if (expandToken) {
+      setCollapsed(false);
+    }
+  }, [expandToken]);
   const [count, setCount] = useState(1);
   const [negative, setNegative] = useState("");
   const [modelId, setModelId] = useState("");

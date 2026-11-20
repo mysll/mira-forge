@@ -31,6 +31,7 @@ import type {
   FeedItem,
   FeedSlot,
   GenerationRead,
+  ImageBrief,
   LayerRead,
   LayerSetRead,
 } from "@/types/api";
@@ -53,6 +54,7 @@ export default function LayerWorkbenchPage() {
   const [detail, setDetail] = useState<FeedItem | null>(null);
   // 输入框默认收起，只占一行，点箭头再展开（省得挡住下面的信息流）
   const [composerCollapsed, setComposerCollapsed] = useState(true);
+  const [composerExpandToken, setComposerExpandToken] = useState(0);
   const [showChat, setShowChat] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -138,6 +140,26 @@ export default function LayerWorkbenchPage() {
     },
     onEdited: () => setDetail(null),
   });
+
+  /**
+   * 工作台里的「继续编辑」不是去图片页：这一层的参考图是固定的源图，
+   * 能做的是把那张成图的提示词填回本层输入框，改完再生成本层。
+   */
+  const editInLayer = useCallback(
+    (image: ImageBrief, generation: GenerationRead) => {
+      setDetail(null);
+      if (!activeLayer) {
+        actions.edit({ image, generation });
+        return;
+      }
+      if (generation.prompt) {
+        setDrafts((current) => ({ ...current, [activeLayer.id]: generation.prompt }));
+      }
+      setComposerExpandToken((value) => value + 1);
+      toast("已把这张图的提示词填回输入框，改完点「生成本层」");
+    },
+    [activeLayer, actions, toast],
+  );
 
   const analyze = useMutation({
     mutationFn: (payload: {
@@ -476,7 +498,7 @@ export default function LayerWorkbenchPage() {
                     if (slot.task) void actions.removeTask(slot.generation, slot.task.id);
                   }}
                   onEdit={(slot) => {
-                    if (slot.image) actions.edit({ image: slot.image, generation: slot.generation });
+                    if (slot.image) editInLayer(slot.image, slot.generation);
                   }}
                   onPick={(slot) => {
                     if (!slot.image) return;
@@ -527,6 +549,7 @@ export default function LayerWorkbenchPage() {
                 pending={render.isPending}
                 onRender={(values) => render.mutate({ layer: activeLayer, values })}
                 onCollapsedChange={setComposerCollapsed}
+                expandToken={composerExpandToken}
               />
             </>
           ) : (
@@ -544,7 +567,7 @@ export default function LayerWorkbenchPage() {
           onFavorite={(item) => actions.favorite({ image: item.image, generation: item.generation })}
           onDownload={(item) => void actions.download({ image: item.image, generation: item.generation })}
           onDelete={(item) => void actions.remove({ image: item.image, generation: item.generation })}
-          onEdit={(item) => actions.edit({ image: item.image, generation: item.generation })}
+          onEdit={(item) => editInLayer(item.image, item.generation)}
           onRegenerate={(item) => actions.regenerate({ image: item.image, generation: item.generation })}
           onToast={toast}
           modelLabels={modelLabels}
