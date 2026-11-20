@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.generation import Generation, GenerationStatus, GenerationType
 from app.models.image import Image
+from app.models.layer import Layer, LayerSet
+from app.models.scene import Scene
 from app.models.task import GenerationTask, TaskStatus
 from app.models.workflow import Workflow, utcnow
 from app.schemas.generation import GenerationCreate
@@ -25,6 +27,10 @@ from app.services.image_service import store_image
 MAX_SEED = 2**31 - 1
 
 _ACTIVE = {TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.RUNNING}
+
+# 场景底图 / 场景分层图：库里记这两个类型，采样时按「有没有参考图」落到
+# 文生图 / 图片编辑 / 局部编辑，所以 registry 不用为它们各写一套工作流。
+SCENE_TYPES = (GenerationType.SCENE, GenerationType.SCENE_LAYER)
 
 
 class GenerationValidationError(ValueError):
@@ -158,6 +164,27 @@ def create_generation(
             f"单次最多生成 {settings.max_generation_count} 张，收到 {payload.count}"
         )
 
+    # 场景内的生成：场景必须存在且没被删；产物会落到 storage/scenes/<id>/
+    scene_id = payload.scene_id
+    if scene_id is not None:
+        scene = db.get(Scene, scene_id)
+        if scene is None or scene.deleted_at is not None:
+            raise GenerationValidationError(f"场景 {scene_id} 不存在")
+
+    # 分层界面里按页签出图：参考图固定是分层源图，产物归到这一层，
+    # 场景从图层反推，前端不需要再传一遍 scene_id。
+    layer_id = payload.layer_id
+    if layer_id is not None:
+        layer = db.get(Layer, layer_id)
+        if layer is None:
+            raise GenerationValidationError(f"图层 {layer_id} 不存在")
+        layer_set = db.get(LayerSet, layer.set_id)
+        if layer_set is None or layer_set.deleted_at is not None:
+            raise GenerationValidationError("这个图层所属的分层方案已经删除")
+        if scene_id is not None and layer_set.scene_id != scene_id:
+            raise GenerationValidationError("这个图层不属于该场景")
+        scene_id = layer_set.scene_id
+
     model = workflow_service.get_model(payload.model)
     if model is None:
         available = ", ".join(item.id for item in workflow_service.list_models())
@@ -169,6 +196,19 @@ def create_generation(
 
     # 图生视频但首帧尾帧都没给：按约定退化成文生视频，而不是报错
     generation_type = GenerationType(payload.generation_type)
+    # 归属于场景的普通图片批次（场景页里用文生图 / 图生图 / 图片编辑提交的），
+    # 类型统一记成 scene：隔离、资产页筛选、角标都靠这一个字段，
+    # 所以前端只管传 scene_id，不用自己区分类型。
+    if scene_id is not None and generation_type in (
+        GenerationType.TEXT_TO_IMAGE,
+        GenerationType.IMAGE_TO_IMAGE,
+        GenerationType.IMAGE_EDIT,
+        GenerationType.IMAGE_INPAINT,
+    ):
+        generation_type = GenerationType.SCENE
+    # 图上带 layer_id 的一定是分层产物，不看它原本是什么类型
+    if layer_id is not None:
+        generation_type = GenerationType.SCENE_LAYER
     if generation_type == GenerationType.IMAGE_TO_VIDEO and not paths:
         generation_type = GenerationType.TEXT_TO_VIDEO
     # 编辑带了遮罩：输入完全一样，只是换一张带 SetLatentNoiseMask 的图，
@@ -177,7 +217,24 @@ def create_generation(
         generation_type = GenerationType.IMAGE_INPAINT
     is_video = generation_type.is_video
 
-    target = workflow_service.get_workflow_target(model, generation_type)
+    # 场景类只看「有没有参考图」决定实际跑哪条工作流：图存的是 scene / scene_layer，
+    # 采样用的是它对应的基础类型。这样分层图以后的单独渲染也不用加工作流。
+    workflow_type = generation_type
+    if generation_type in SCENE_TYPES:
+        if scene_id is None:
+            raise GenerationValidationError("场景生成必须指定所属场景")
+        if paths:
+            if len(paths) > settings.max_reference_images:
+                raise GenerationValidationError(
+                    f"场景生成最多 {settings.max_reference_images} 张参考图，收到 {len(paths)} 张"
+                )
+            workflow_type = (
+                GenerationType.IMAGE_INPAINT if mask_image_path else GenerationType.IMAGE_EDIT
+            )
+        else:
+            workflow_type = GenerationType.TEXT_TO_IMAGE
+
+    target = workflow_service.get_workflow_target(model, workflow_type)
     if target is None:
         raise GenerationValidationError(
             f"模型 '{model.id}' 不支持任务类型 '{generation_type}'"
@@ -220,6 +277,9 @@ def create_generation(
             raise GenerationValidationError(
                 f"图生图最多 {settings.max_reference_images} 张参考图，收到 {len(paths)} 张"
             )
+    elif generation_type in SCENE_TYPES:
+        # 参考图可有可无（有就当参考图编辑，没有就当文生图），上限已经校验过
+        pass
     else:
         paths = []
 
@@ -247,6 +307,8 @@ def create_generation(
 
     generation = Generation(
         prompt=prompt,
+        scene_id=scene_id,
+        layer_id=layer_id,
         workflow_id=workflow_row.id if workflow_row else None,
         generation_type=str(generation_type),
         model_name=model.id,
@@ -256,7 +318,7 @@ def create_generation(
         status="pending",
         reference_image_path=paths[0] if paths else None,
         reference_image_paths=encode_reference_paths(paths),
-        mask_image_path=mask_image_path if generation_type == GenerationType.IMAGE_INPAINT else None,
+        mask_image_path=mask_image_path if workflow_type == GenerationType.IMAGE_INPAINT else None,
         negative_prompt=negative_prompt,
         steps=payload.steps,
         cfg=cfg,

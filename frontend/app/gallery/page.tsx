@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -10,25 +11,56 @@ import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import TopBar from "@/components/TopBar";
 import { useImageActions, type AssetRef } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { clearWorkspace, deleteImages, fetchGenerations, fetchModels, imageThumbnailUrl } from "@/lib/api";
+import { clearWorkspace, deleteImages, fetchGenerations, fetchLayerSets, fetchModels, fetchScenes, imageThumbnailUrl } from "@/lib/api";
 import { bucketOf, dateRangeFor, formatTime, parseIso, type DateBucket, type DateFilter } from "@/lib/date";
 import { modelLabel } from "@/lib/models";
-import type { FeedItem, GenerationRead, ImageBrief } from "@/types/api";
+import type { FeedItem, GenerationRead, ImageBrief, SceneRead } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
 const PAGE_SIZE = 60;
 const BUCKETS: DateBucket[] = ["今天", "昨天", "更早"];
 
-type MediaFilter = "all" | "image" | "video" | "asset";
+type MediaFilter = "all" | "image" | "video" | "asset" | "scene" | "scene_layer";
 
 const MEDIA_FILTERS: { value: MediaFilter; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "image", label: "图片" },
   { value: "video", label: "视频" },
   { value: "asset", label: "素材" },
+  { value: "scene", label: "场景" },
+  { value: "scene_layer", label: "场景分层" },
 ];
 
 type Asset = AssetRef;
+
+/**
+ * 场景分层产物太多，一张场景往往几十张分层图。
+ * 同属一个场景的分层图在这里收成一张「多层」卡片，点开直接进分层工作台。
+ */
+type GalleryEntry =
+  | { kind: "single"; key: string; asset: Asset }
+  | {
+      kind: "layers";
+      key: string;
+      sceneId: number;
+      /** 按时间倒序，第一个是最近出的那张 */
+      items: Asset[];
+      latest: Asset;
+    };
+
+function entryAsset(entry: GalleryEntry): Asset {
+  return entry.kind === "single" ? entry.asset : entry.latest;
+}
+
+function entryImageIds(entry: GalleryEntry): number[] {
+  return entry.kind === "single" ? [entry.asset.image.id] : entry.items.map((item) => item.image.id);
+}
+
+/** 卡片属于哪个场景：分层卡片看聚合的 sceneId，场景底图看图片自己的 scene_id。 */
+function sceneOfEntry(entry: GalleryEntry, scenes: Map<number, SceneRead>): SceneRead | null {
+  const sceneId = entry.kind === "layers" ? entry.sceneId : entry.asset.image.scene_id;
+  return sceneId ? scenes.get(sceneId) ?? null : null;
+}
 
 /**
  * 资产库：只做浏览。按生成时间从新到旧、按日期分组铺成响应式网格，
@@ -36,10 +68,11 @@ type Asset = AssetRef;
  */
 export default function GalleryPage() {
   useTaskEvents();
+  const router = useRouter();
 
   const [query, setQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("week");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -49,6 +82,7 @@ export default function GalleryPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirm, setConfirm] = useState<"selected" | "all" | null>(null);
   const [busy, setBusy] = useState(false);
+  const [openingScene, setOpeningScene] = useState<number | null>(null);
 
   const toast = (text: string) => {
     setToasts((current) => [...current, { id: Date.now() + Math.random(), text }]);
@@ -62,6 +96,21 @@ export default function GalleryPage() {
     queryFn: fetchModels,
     staleTime: 60_000,
   });
+
+  // 分层卡片的封面用「场景底图」，最新的那张分层图往往是纯雾/纯背景，看不出是哪个场景
+  const scenesQuery = useQuery({
+    queryKey: ["scenes"],
+    queryFn: fetchScenes,
+    staleTime: 30_000,
+  });
+
+  const scenesById = useMemo(() => {
+    const map = new Map<number, SceneRead>();
+    for (const scene of scenesQuery.data?.items ?? []) {
+      map.set(scene.id, scene);
+    }
+    return map;
+  }, [scenesQuery.data]);
 
   const generationsQuery = useQuery({
     queryKey: ["generations", "gallery", query, modelFilter, dateFilter, favoriteOnly, mediaFilter, limit],
@@ -109,17 +158,44 @@ export default function GalleryPage() {
     });
   }, [generations]);
 
-  const groups = useMemo(() => {
-    const map = new Map<DateBucket, Asset[]>();
+  const entries: GalleryEntry[] = useMemo(() => {
+    const stacks = new Map<number, Asset[]>();
+    const singles: GalleryEntry[] = [];
     for (const asset of assets) {
-      const bucket = bucketOf(asset.image.created_at);
-      map.set(bucket, [...(map.get(bucket) ?? []), asset]);
+      if (asset.image.media_type === "scene_layer" && asset.image.scene_id) {
+        const list = stacks.get(asset.image.scene_id) ?? [];
+        list.push(asset);
+        stacks.set(asset.image.scene_id, list);
+      } else {
+        singles.push({ kind: "single", key: `i${asset.image.id}`, asset });
+      }
+    }
+    const stacked: GalleryEntry[] = [...stacks].map(([sceneId, items]) => ({
+      kind: "layers",
+      key: `s${sceneId}`,
+      sceneId,
+      items,
+      latest: items[0],
+    }));
+    const timeOf = (entry: GalleryEntry) =>
+      parseIso(entryAsset(entry).image.created_at).getTime();
+    return [...singles, ...stacked].sort((left, right) => {
+      const delta = timeOf(right) - timeOf(left);
+      return delta !== 0 ? delta : entryAsset(right).image.id - entryAsset(left).image.id;
+    });
+  }, [assets]);
+
+  const groups = useMemo(() => {
+    const map = new Map<DateBucket, GalleryEntry[]>();
+    for (const entry of entries) {
+      const bucket = bucketOf(entryAsset(entry).image.created_at);
+      map.set(bucket, [...(map.get(bucket) ?? []), entry]);
     }
     return BUCKETS.filter((bucket) => map.has(bucket)).map((bucket) => ({
       bucket,
       items: map.get(bucket)!,
     }));
-  }, [assets]);
+  }, [entries]);
 
   const actions = useImageActions({
     onToast: toast,
@@ -131,7 +207,35 @@ export default function GalleryPage() {
     onEdited: () => setDetail(null),
   });
 
-  const openDetail = (asset: Asset) => {
+  /** 分层卡片没有单张图可看：直接落到该场景的分层工作台（源图用这套方案记的那张）。 */
+  const openLayers = async (sceneId: number) => {
+    if (openingScene !== null) {
+      return;
+    }
+    setOpeningScene(sceneId);
+    try {
+      const sets = await fetchLayerSets(sceneId);
+      const source = sets.items.find((item) => item.source_image_id)?.source_image_id ?? null;
+      router.push(source ? `/scenes/${sceneId}/layers/${source}` : `/scenes/${sceneId}`);
+    } catch {
+      router.push(`/scenes/${sceneId}`);
+    } finally {
+      setOpeningScene(null);
+    }
+  };
+
+  const openEntry = (entry: GalleryEntry) => {
+    // 分层产物按场景聚成一张卡，点开进分层工作台，而不是先进场景页
+    if (entry.kind === "layers") {
+      void openLayers(entry.sceneId);
+      return;
+    }
+    const asset = entry.asset;
+    // 场景底图不属于作品流：点开直接回到它所属的场景页，在那里继续生成 / 分层
+    if (asset.image.scene_id) {
+      router.push(`/scenes/${asset.image.scene_id}`);
+      return;
+    }
     const task = asset.generation.tasks.find((item) => item.id === asset.image.task_id) ?? null;
     setDetail({
       key: `${asset.generation.id}-i${asset.image.id}`,
@@ -144,13 +248,18 @@ export default function GalleryPage() {
   const loadedIds = useMemo(() => assets.map((asset) => asset.image.id), [assets]);
   const allSelected = loadedIds.length > 0 && selected.size === loadedIds.length;
 
-  const toggleOne = (imageId: number) => {
+  /** 分层卡片代表这个场景的全部分层图：一次选中 / 取消选中它们全部。 */
+  const toggleEntry = (entry: GalleryEntry) => {
+    const ids = entryImageIds(entry);
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(imageId)) {
-        next.delete(imageId);
-      } else {
-        next.add(imageId);
+      const allIn = ids.every((id) => next.has(id));
+      for (const id of ids) {
+        if (allIn) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
       }
       return next;
     });
@@ -324,7 +433,11 @@ export default function GalleryPage() {
                 ? "图片"
                 : mediaFilter === "asset"
                   ? "素材"
-                  : "图片、视频与素材"}{" "}
+                  : mediaFilter === "scene"
+                    ? "场景底图"
+                    : mediaFilter === "scene_layer"
+                      ? "场景分层图（同场景合成一叠）"
+                      : "图片、视频与素材"}{" "}
             · {assets.length} 个产物
           </span>
         </div>
@@ -347,19 +460,20 @@ export default function GalleryPage() {
                 className="grid gap-3"
                 style={{ gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))" }}
               >
-                {group.items.map((asset) => (
+                {group.items.map((entry) => (
                   <AssetCard
-                    key={asset.image.id}
-                    asset={asset}
-                    modelLabel={modelLabel(asset.generation.model_name, modelLabels)}
+                    key={entry.key}
+                    entry={entry}
+                    scene={sceneOfEntry(entry, scenesById)}
+                    modelLabel={modelLabel(entryAsset(entry).generation.model_name, modelLabels)}
                     selectable={managing}
-                    selected={selected.has(asset.image.id)}
-                    onToggle={() => toggleOne(asset.image.id)}
-                    onOpen={() => openDetail(asset)}
-                    onFavorite={() => actions.favorite(asset)}
-                    onDownload={() => void actions.download(asset)}
-                    onDelete={() => void actions.remove(asset)}
-                    onEdit={() => actions.edit(asset)}
+                    selected={entryImageIds(entry).every((id) => selected.has(id))}
+                    onToggle={() => toggleEntry(entry)}
+                    onOpen={() => openEntry(entry)}
+                    onFavorite={() => actions.favorite(entryAsset(entry))}
+                    onDownload={() => void actions.download(entryAsset(entry))}
+                    onDelete={() => void actions.remove(entryAsset(entry))}
+                    onEdit={() => actions.edit(entryAsset(entry))}
                   />
                 ))}
               </div>
@@ -435,7 +549,8 @@ export default function GalleryPage() {
 }
 
 function AssetCard({
-  asset,
+  entry,
+  scene,
   modelLabel,
   selectable,
   selected,
@@ -446,7 +561,9 @@ function AssetCard({
   onDelete,
   onEdit,
 }: {
-  asset: Asset;
+  entry: GalleryEntry;
+  /** 分层卡片对应的场景：拿它的名字与底图当封面 */
+  scene?: SceneRead | null;
   modelLabel?: string;
   selectable: boolean;
   selected: boolean;
@@ -457,7 +574,13 @@ function AssetCard({
   onDelete: () => void;
   onEdit: () => void;
 }) {
-  const { image, generation } = asset;
+  const stack = entry.kind === "layers" ? entry : null;
+  const { image, generation } = entryAsset(entry);
+  // 分层卡片用场景底图当封面：最新那张分层图常常是纯雾 / 纯背景，认不出是哪个场景
+  const cover: { id: number; created_at?: string } =
+    stack && scene?.cover_image_id
+      ? { id: scene.cover_image_id, created_at: scene.cover_image_created_at ?? undefined }
+      : image;
   const [loaded, setLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const isVideo = image.media_type === "video";
@@ -487,26 +610,34 @@ function AssetCard({
     ? "序列帧"
     : isVideo
       ? "视频"
-      : isAsset
-        ? generation.model_name === "spriteforge"
-          ? "精灵图"
-          : generation.model_name === "local_editor"
-            ? "本地编辑"
-            : "素材"
-        : "图片";
+      : image.media_type === "scene_layer"
+        ? "场景分层"
+        : image.media_type === "scene"
+          ? "场景"
+          : isAsset
+            ? generation.model_name === "spriteforge"
+              ? "精灵图"
+              : generation.model_name === "local_editor"
+                ? "本地编辑"
+                : "素材"
+            : "图片";
   // 名称用批次名（工坊图集名 / 帧集名 / 用户改过的名字）；没起名就退回批次编号。
-  // 一个批次只有一件产物时不带「第 N 个」，多件才加，免得满屏都是「第 1 个」。
+  // 场景产物例外：用场景名，比「批次 #11」有用得多。
   const batchName = (generation.name ?? "").trim() || `批次 #${generation.id}`;
-  const cardName =
-    generation.images.length > 1
-      ? `${batchName} · 第 ${generation.images.findIndex((item) => item.id === image.id) + 1} 个`
-      : batchName;
+  const sceneName = (scene?.name ?? "").trim();
+  const cardName = stack
+    ? `${sceneName || `场景 #${stack.sceneId}`} · 分层`
+    : image.media_type === "scene" && sceneName
+      ? sceneName
+      : generation.images.length > 1
+        ? `${batchName} · 第 ${generation.images.findIndex((item) => item.id === image.id) + 1} 个`
+        : batchName;
   const typeBadge =
     "shrink-0 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur";
   const nameBadge =
     "min-w-0 truncate rounded bg-black/55 px-1.5 py-0.5 text-[10px] text-white/85 backdrop-blur";
 
-  return (
+  const card = (
     <div
       className={[
         "group relative overflow-hidden rounded-xl border bg-surface transition",
@@ -547,7 +678,7 @@ function AssetCard({
             {!loaded ? <div className="absolute inset-0 animate-pulse bg-surface2" /> : null}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={imageThumbnailUrl(image)}
+              src={imageThumbnailUrl(cover)}
               alt={generation.prompt.slice(0, 60)}
               loading="lazy"
               onLoad={() => setLoaded(true)}
@@ -586,6 +717,12 @@ function AssetCard({
         {isFrameSet ? (
           <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur">
             {image.frame_count ?? 0} 帧
+          </span>
+        ) : null}
+
+        {stack ? (
+          <span className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur">
+            {stack.items.length} 张分层图
           </span>
         ) : null}
 
@@ -628,29 +765,48 @@ function AssetCard({
           <CellAction label={image.is_favorite ? "取消收藏" : "收藏"} onClick={onFavorite} active={image.is_favorite}>
             <StarIcon filled={image.is_favorite} />
           </CellAction>
-          {isVideo || isAsset || isFrameSet ? null : (
-            <CellAction label="继续编辑（AI）" onClick={onEdit}>
-              <EditIcon />
-            </CellAction>
+          {stack ? null : (
+            <>
+              {isVideo || isAsset || isFrameSet ? null : (
+                <CellAction label="继续编辑（AI）" onClick={onEdit}>
+                  <EditIcon />
+                </CellAction>
+              )}
+              {isVideo || isAsset || isFrameSet ? null : (
+                <CellAction label="本地编辑（抠底 / 画布）" href={`/tools/editor?image=${image.id}`}>
+                  <CropIcon />
+                </CellAction>
+              )}
+              {studioHref ? (
+                <CellAction label={studioLabel} href={studioHref}>
+                  <GridIcon />
+                </CellAction>
+              ) : null}
+            </>
           )}
-          {isVideo || isAsset || isFrameSet ? null : (
-            <CellAction label="本地编辑（抠底 / 画布）" href={`/tools/editor?image=${image.id}`}>
-              <CropIcon />
-            </CellAction>
-          )}
-          {studioHref ? (
-            <CellAction label={studioLabel} href={studioHref}>
-              <GridIcon />
-            </CellAction>
-          ) : null}
           <CellAction label="下载" onClick={onDownload}>
             <DownloadIcon />
           </CellAction>
-          <CellAction label="删除" onClick={onDelete} danger>
-            <TrashIcon />
-          </CellAction>
+          {stack ? null : (
+            <CellAction label="删除" onClick={onDelete} danger>
+              <TrashIcon />
+            </CellAction>
+          )}
         </div>
       )}
+    </div>
+  );
+
+  if (!stack) {
+    return card;
+  }
+
+  // 多层卡片：主体后面垫两张错开的「纸」，看起来是一叠层图而不是单张图
+  return (
+    <div className="relative pt-3">
+      <div className="pointer-events-none absolute inset-x-2 top-0 h-4 rounded-t-xl border border-edge/50 bg-surface2/50" />
+      <div className="pointer-events-none absolute inset-x-4 top-1.5 h-3 rounded-t-xl border border-edge/70 bg-surface2/80" />
+      {card}
     </div>
   );
 }

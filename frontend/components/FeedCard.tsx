@@ -31,6 +31,16 @@ type Props = {
   /** 连产物一起删掉这条任务（详情弹窗与卡片操作栏都用它） */
   onDeleteTask?: (item: FeedSlot) => void;
   onEdit: (item: FeedSlot) => void;
+  /** 场景页专用：点这张图去做分层（打开分层工作台） */
+  onLayers?: (item: FeedSlot) => void;
+  /** 场景页专用：导出「这张场景图 + 它的分层」 */
+  onExport?: (item: FeedSlot) => void;
+  /** 层页签专用：把这张图设为这一层导出用的那张 */
+  onPick?: (item: FeedSlot) => void;
+  /** 这一层当前选用的图 id（null = 用最新的那张） */
+  pickedImageId?: number | null;
+  /** 场景页专用：这张图已经分过层时显示的角标文案（如「6 层」） */
+  layerBadge?: string | null;
   modelLabels?: Record<string, string>;
 };
 
@@ -86,16 +96,40 @@ function IconEdit() {
   );
 }
 
-function IconExpand() {
-  return (
+function IconExpand() {  return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
       <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+function IconLayers() {
   return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+      <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconCheck() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+      <path d="m5 12.5 4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconExport() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+      <path d="M12 3v10m0 0-3.6-3.6M12 13l3.6-3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {  return (
     <span
       className={`inline-block animate-spin rounded-full border border-muted/30 border-t-accentSoft ${className}`}
       aria-hidden
@@ -111,6 +145,7 @@ function ActionBar({
   onDelete,
   onEdit,
   onOpen,
+  onExport,
 }: Omit<Props, "item"> & { item: FilledSlot; busy?: boolean }) {
   const buttons = [
     { key: "open", title: "查看大图", icon: <IconExpand />, run: () => onOpen(item) },
@@ -127,6 +162,9 @@ function ActionBar({
       run: () => onEdit(item),
     },
     { key: "download", title: "下载", icon: <IconDownload />, run: () => onDownload(item) },
+    ...(onExport
+      ? [{ key: "export", title: "导出（这张图 + 分层）", icon: <IconExport />, run: () => onExport(item) }]
+      : []),
     { key: "delete", title: "只删这张图", icon: <IconTrash />, run: () => onDelete(item) },
   ];
 
@@ -324,6 +362,15 @@ export default function FeedCard(props: Props) {
               <PlayBadge small />
             </span>
           ) : null}
+          {props.layerBadge && image.media_type !== "video" && image.media_type !== "frameset" ? (
+            <span
+              className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/70 px-1 pb-0.5 pt-2 text-center text-[9px] text-accentSoft"
+              title={`这张图已经分过层：${props.layerBadge}`}
+              data-layer-badge
+            >
+              {props.layerBadge}
+            </span>
+          ) : null}
           {active ? (
             <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" style={{ width: `${progress}%` }} />
           ) : null}
@@ -344,6 +391,64 @@ export default function FeedCard(props: Props) {
         </span>
 
         <div className="flex shrink-0 gap-1">
+          {props.onExport && image.media_type !== "video" && image.media_type !== "frameset" ? (
+            <button
+              type="button"
+              title="导出（这张图 + 分层）"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onExport?.(filled);
+              }}
+              className="icon-btn hover:!text-accentSoft"
+            >
+              <IconExport />
+            </button>
+          ) : null}
+          {props.onPick ? (
+            <button
+              type="button"
+              title={props.pickedImageId === image.id ? "导出时已经用这张" : "导出时使用这张"}
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onPick?.(filled);
+              }}
+              className={[
+                "rounded-md border px-1.5 py-0.5 text-[10px] transition",
+                props.pickedImageId === image.id
+                  ? "border-accent/60 bg-accent/15 text-accentSoft"
+                  : "border-edge/70 text-muted hover:border-accent/50 hover:text-accentSoft",
+              ].join(" ")}
+            >
+              {props.pickedImageId === image.id ? "已选用" : "使用这张"}
+            </button>
+          ) : null}
+          {props.onLayers && image.media_type !== "video" && image.media_type !== "frameset" ? (
+            <button
+              type="button"
+              title="用这张图做分层"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onLayers?.(filled);
+              }}
+              className="icon-btn hover:!text-accentSoft"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M12 3 3 7.5 12 12l9-4.5L12 3Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="m3 12 9 4.5 9-4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="button"
             title={image.is_favorite ? "取消收藏" : "收藏"}
@@ -388,7 +493,10 @@ export default function FeedCard(props: Props) {
       tabIndex={0}
       onClick={() => props.onOpen(filled)}
       onKeyDown={(event) => event.key === "Enter" && props.onOpen(filled)}
-      className="group/card relative cursor-pointer overflow-hidden rounded-xl border border-edge/60 bg-surface2 transition hover:border-accent/40 hover:shadow-pop"
+      className={[
+        "group/card relative cursor-pointer overflow-hidden rounded-xl border bg-surface2 transition hover:border-accent/40 hover:shadow-pop",
+        props.pickedImageId === image.id ? "border-accent/60 ring-1 ring-accent/40" : "border-edge/60",
+      ].join(" ")}
     >
       <div className={`relative overflow-hidden ${image.media_type === "video" ? "aspect-video" : "aspect-square"}`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -406,6 +514,18 @@ export default function FeedCard(props: Props) {
             </span>
           ) : null}
         </div>
+
+        {/* 已经分过层的场景图：右上角挂一个图层角标（视频/帧集右上角另有角标，避让开） */}
+        {props.layerBadge && image.media_type !== "video" && image.media_type !== "frameset" ? (
+          <span
+            className="pointer-events-none absolute right-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-accentSoft backdrop-blur"
+            title={`这张图已经分过层：${props.layerBadge}`}
+            data-layer-badge
+          >
+            <IconLayers />
+            {props.layerBadge}
+          </span>
+        ) : null}
 
         {image.media_type === "video" ? (
           <>
@@ -437,12 +557,66 @@ export default function FeedCard(props: Props) {
             </div>
           </div>
         ) : (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent p-2.5 opacity-0 transition group-hover/card:translate-y-0 group-hover/card:opacity-100">
+          <div
+            className={`pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent p-2.5 opacity-0 transition group-hover/card:translate-y-0 group-hover/card:opacity-100 ${
+              props.onLayers || props.onExport || props.onPick ? "pb-8" : ""
+            }`}
+          >
             <p className="line-clamp-2 text-[11px] leading-snug text-white/90">{generation.prompt}</p>
           </div>
         )}
 
         <ActionBar {...props} item={filled} />
+
+        {/* 层页签专用：把这层导出要用的那张定下来（一层只有一张） */}
+        {props.onPick && image.media_type !== "video" && image.media_type !== "frameset" ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onPick?.(filled);
+            }}
+            className={[
+              "absolute bottom-2 left-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-[11px] backdrop-blur transition",
+              props.pickedImageId === image.id
+                ? "bg-accent text-white"
+                : "bg-black/70 text-white/90 opacity-0 hover:bg-accent hover:text-white group-hover/card:opacity-100",
+            ].join(" ")}
+          >
+            <IconCheck />
+            {props.pickedImageId === image.id ? "导出用这张" : "使用这张"}
+          </button>
+        ) : null}
+
+        {/* 场景页专用：导出这张场景图 + 它的分层（悬停时左下角露出） */}
+        {props.onExport && image.media_type !== "video" && image.media_type !== "frameset" ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onExport?.(filled);
+            }}
+            className="absolute bottom-2 left-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white/90 opacity-0 backdrop-blur transition hover:bg-accent hover:text-white group-hover/card:opacity-100"
+          >
+            <IconExport />
+            导出分层
+          </button>
+        ) : null}
+
+        {/* 场景页专用入口：悬浮时在右下角露一个「场景分层」，提示词条给它让出右侧 */}
+        {props.onLayers && image.media_type !== "video" && image.media_type !== "frameset" ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onLayers?.(filled);
+            }}
+            className="absolute bottom-2 right-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white/90 opacity-0 backdrop-blur transition hover:bg-accent hover:text-white group-hover/card:opacity-100"
+          >
+            <IconLayers />
+            场景分层
+          </button>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">

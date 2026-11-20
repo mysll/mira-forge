@@ -12,6 +12,7 @@ import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
 import { fetchGenerations, fetchModels } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
+import { buildFeedSlots } from "@/lib/feed";
 import type { FeedItem, FeedSlot, GenerationRead } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
@@ -23,7 +24,7 @@ export default function WorkspacePage() {
 
   const [query, setQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("today");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("week");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -76,43 +77,8 @@ export default function WorkspacePage() {
   const generations: GenerationRead[] = generationsQuery.data?.items ?? [];
   const total = generationsQuery.data?.total ?? 0;
 
-  // 每个任务占一格：已完成的用图片，排队/生成中的用占位卡，这样新批次一提交就出现在最终位置。
-  const slots: FeedSlot[] = useMemo(() => {
-    const flat: FeedSlot[] = [];
-    for (const generation of generations) {
-      const tasks = [...generation.tasks].sort((left, right) => left.id - right.id);
-      const imageByTask = new Map(generation.images.map((image) => [image.task_id, image]));
-      tasks.forEach((task, position) => {
-        const image = imageByTask.get(task.id) ?? null;
-        // 图被删掉的任务不跳过：它会在流里占一格「无产物」，由用户自己决定要不要删掉这个任务
-        flat.push({
-          key: `${generation.id}-t${task.id}`,
-          generation,
-          image,
-          task,
-          index: position + 1,
-          total: tasks.length,
-          seed: task.seed,
-        });
-      });
-      // 兜底：没有对应任务的图（例如任务行被删）也要显示出来
-      const orphans = generation.images.filter(
-        (image) => image.task_id === null || !tasks.some((task) => task.id === image.task_id),
-      );
-      orphans.forEach((image, position) => {
-        flat.push({
-          key: `${generation.id}-i${image.id}`,
-          generation,
-          image,
-          task: null,
-          index: tasks.length + position + 1,
-          total: tasks.length + orphans.length,
-          seed: null,
-        });
-      });
-    }
-    return flat;
-  }, [generations]);
+  // 每个任务占一格：已完成的用图片，排队/生成中的用占位卡，图被删掉的不占格。
+  const slots: FeedSlot[] = useMemo(() => buildFeedSlots(generations), [generations]);
 
   const modelLabels = useMemo(
     () =>

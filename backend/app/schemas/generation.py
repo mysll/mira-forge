@@ -19,6 +19,10 @@ class GenerationCreate(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=8000)
     model: str = Field(min_length=1, max_length=64)
+    # 场景 id：给了就落成场景产物（进 storage/scenes/<id>，不进主图片流）
+    scene_id: int | None = Field(default=None, ge=1)
+    # 图层 id：分层界面里按页签出图时带上，产物归到这个层，页签只查自己的批次
+    layer_id: int | None = Field(default=None, ge=1)
     generation_type: GenerationType = GenerationType.TEXT_TO_IMAGE
     width: int | None = Field(default=None, ge=64, le=4096)
     height: int | None = Field(default=None, ge=64, le=4096)
@@ -57,6 +61,8 @@ class ImageBrief(BaseModel):
     height: int
     file_size: int
     file_path: str = ""
+    # 所属场景；非空的产物只在场景页出现
+    scene_id: int | None = None
     # image | video | asset
     media_type: str = "image"
     duration_seconds: float | None = None
@@ -77,6 +83,10 @@ class GenerationRename(BaseModel):
 class GenerationRead(TimestampedModel):
     id: int
     prompt: str
+    # 所属场景（scenes.id）；为空是普通批次，进作品流
+    scene_id: int | None = None
+    # 所属图层（layers.id）；分层页签按它查自己的批次
+    layer_id: int | None = None
     # 批次名（可编辑）；空着时前端显示「批次 #id」
     name: str | None = None
     negative_prompt: str | None = None

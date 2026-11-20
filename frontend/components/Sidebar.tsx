@@ -109,6 +109,20 @@ const SettingsIcon = (
   </svg>
 );
 
+const ScenesIcon = (
+  <svg viewBox="0 0 24 24" fill="none" className={iconClass} aria-hidden>
+    <rect x="3.2" y="8.5" width="10.6" height="8.5" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+    <path
+      d="M16.4 6.2h3.4a1.6 1.6 0 0 1 1.6 1.6v6.9a1.6 1.6 0 0 1-1.6 1.6h-3.4"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <path d="M5.6 20.2h9.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <circle cx="17.4" cy="3.9" r="1.7" stroke="currentColor" strokeWidth="1.4" opacity="0.75" />
+  </svg>
+);
+
 const ITEMS: NavItem[] = [
   { label: "首页", href: "/", icon: HomeIcon },
   { label: "资产", href: "/gallery", icon: GalleryIcon },
@@ -118,6 +132,8 @@ const ITEMS: NavItem[] = [
   // 文生图与图片编辑合并成「图片」：进页面默认文生图，编辑模式在创作框里切
   { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },
+  // 场景是「按地点/剧情分组的图片库」，产物不进图片页，所以和图片、视频并列
+  { label: "场景", href: "/scenes", icon: ScenesIcon, hint: "按场景隔离的图片库" },
   { label: "设置", href: "/settings", icon: SettingsIcon, divider: true },
 ];
 

@@ -36,9 +36,25 @@ class GenerationRepository:
         with_products: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        scene_id: int | None = None,
+        layer_id: int | None = None,
+        exclude_scene: bool = False,
+        exclude_layer: bool = False,
     ) -> Select[tuple[Generation]]:
         # 进了回收站的批次不出现在列表里
         stmt = select(Generation).where(Generation.deleted_at.is_(None))
+        # 场景产物靠类型隔离（media=image 的查询不含 scene / scene_layer），
+        # 这里只做「显式按场景取」的收窄，不再默认排除。
+        if scene_id is not None:
+            stmt = stmt.where(Generation.scene_id == scene_id)
+        # 分层页签只关心自己这一层出的图
+        if layer_id is not None:
+            stmt = stmt.where(Generation.layer_id == layer_id)
+        if exclude_scene:
+            stmt = stmt.where(Generation.generation_type.not_in(("scene", "scene_layer")))
+        if exclude_layer:
+            # 场景页 / 首页只要「场景底图」，不要每个层各自的那一批
+            stmt = stmt.where(Generation.layer_id.is_(None))
         if q:
             pattern = f"%{q.strip()}%"
             stmt = stmt.where(Generation.prompt.ilike(pattern))
@@ -90,6 +106,10 @@ class GenerationRepository:
         with_products: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        scene_id: int | None = None,
+        layer_id: int | None = None,
+        exclude_scene: bool = False,
+        exclude_layer: bool = False,
     ) -> tuple[list[Generation], int]:
         stmt = self._filtered(
             q=q,
@@ -99,6 +119,10 @@ class GenerationRepository:
             with_products=with_products,
             date_from=date_from,
             date_to=date_to,
+            scene_id=scene_id,
+            layer_id=layer_id,
+            exclude_scene=exclude_scene,
+            exclude_layer=exclude_layer,
         )
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         rows = self.db.scalars(

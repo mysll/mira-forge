@@ -58,6 +58,10 @@ class _Plan:
     is_video: bool = False
     # 局部编辑的遮罩（相对 STORAGE_DIR）；没有遮罩就是普通编辑
     mask_path: str | None = None
+    # 场景 id：非空时产物落到 storage/scenes/<id>/ 下，且不进主图片流
+    scene_id: int | None = None
+    # 产物类型：image / video / scene / scene_layer（决定 images.media_type 与资产页角标）
+    media_type: str = "image"
 
 
 def _video_length(duration_seconds: float | None, fps: float | None) -> int:
@@ -81,6 +85,20 @@ def _edit_resolution(width: int | None, height: int | None) -> int:
         return 1024
     area = math.sqrt(width * height)
     return max(256, min(4096, int(round(area / 32) * 32)))
+
+
+def _media_type_for(
+    scene_id: int | None, generation_type: GenerationType, is_video: bool
+) -> str:
+    """产物类型：场景底图 scene、场景分层图 scene_layer，其余仍是 image / video。
+
+    资产页靠这个字段显示角标与筛选，所以它必须和 generation_type 一起走。
+    """
+    if scene_id is None:
+        return "video" if is_video else "image"
+    if generation_type == GenerationType.SCENE_LAYER:
+        return "scene_layer"
+    return "scene"
 
 
 def _suffix(path: str) -> str:
@@ -312,7 +330,9 @@ class GenerationWorker:
                         height=metadata.get("height"),
                         extension="mp4" if plan.is_video else suffix.lstrip("."),
                         storage_root=storage_root,
-                        media_type="video" if plan.is_video else "image",
+                        scene_id=plan.scene_id,
+                        folder_prefix=f"scenes/{plan.scene_id}" if plan.scene_id else None,
+                        media_type=plan.media_type,
                         duration_seconds=metadata.get("duration") if plan.is_video else None,
                         fps=metadata.get("fps") if plan.is_video else None,
                         frame_count=metadata.get("frame_count") if plan.is_video else None,
@@ -372,7 +392,25 @@ class GenerationWorker:
             if model is None:
                 self._fail(project, task_id, f"模型 '{generation.model_name}' 已不在注册表中")
                 return None
-            target = workflow_service.get_workflow_target(model, generation.generation_type)
+            generation_type = GenerationType(generation.generation_type)
+            # 场景类没有自己的工作流：有参考图就当图片编辑（带遮罩则局部编辑），
+            # 没有参考图就是文生图。库里的类型仍是 scene / scene_layer。
+            workflow_type = generation.generation_type
+            if generation_type in (GenerationType.SCENE, GenerationType.SCENE_LAYER):
+                has_refs = bool(
+                    decode_reference_paths(
+                        generation.reference_image_paths, generation.reference_image_path
+                    )
+                )
+                if has_refs:
+                    workflow_type = (
+                        GenerationType.IMAGE_INPAINT
+                        if generation.mask_image_path
+                        else GenerationType.IMAGE_EDIT
+                    )
+                else:
+                    workflow_type = GenerationType.TEXT_TO_IMAGE
+            target = workflow_service.get_workflow_target(model, workflow_type)
             if target is None:
                 self._fail(
                     project, task_id, f"模型 '{model.id}' 没有 {generation.generation_type} 工作流"
@@ -394,7 +432,7 @@ class GenerationWorker:
                 if key in model.defaults:
                     params[key] = model.defaults[key]
 
-            is_video = GenerationType(generation.generation_type).is_video
+            is_video = generation_type.is_video
             if is_video:
                 params["fps"] = float(generation.fps or model.defaults.get("fps") or 24)
                 params["length"] = _video_length(
@@ -411,31 +449,37 @@ class GenerationWorker:
             reference_paths: list[str] = []
             frames: dict[str, str] = {}
             mask_path: str | None = None
-            if generation.generation_type == GenerationType.IMAGE_TO_VIDEO:
+            if generation_type == GenerationType.IMAGE_TO_VIDEO:
                 # 首帧 / 尾帧按上传顺序：第一张当首帧，第二张当尾帧；只给一张就是首帧
                 paths = decode_reference_paths(
                     generation.reference_image_paths, generation.reference_image_path
                 )
                 for which, path in zip(("first", "last"), paths):
                     frames[which] = path
-            elif generation.generation_type in (
+            elif generation_type in (
                 GenerationType.IMAGE_EDIT,
                 GenerationType.IMAGE_INPAINT,
                 GenerationType.IMAGE_TO_IMAGE,
+                GenerationType.SCENE,
+                GenerationType.SCENE_LAYER,
             ):
                 reference_paths = decode_reference_paths(
                     generation.reference_image_paths, generation.reference_image_path
                 )
-                if not reference_paths:
+                # 场景图允许没有参考图（那就是文生图）；其它编辑类必须有
+                if not reference_paths and generation_type not in (
+                    GenerationType.SCENE,
+                    GenerationType.SCENE_LAYER,
+                ):
                     self._fail(project, task_id, "缺少参考图，无法执行")
                     return None
-                # resolution 决定参考图被缩到多大再进编码器（见 WORKFLOW_MAPPING）
-                params["resolution"] = _edit_resolution(generation.width, generation.height)
-                if generation.generation_type == GenerationType.IMAGE_INPAINT:
-                    if not generation.mask_image_path:
-                        self._fail(project, task_id, "局部编辑缺少遮罩，无法执行")
-                        return None
-                    mask_path = generation.mask_image_path
+                if reference_paths:
+                    # resolution 决定参考图被缩到多大再进编码器（见 WORKFLOW_MAPPING）
+                    params["resolution"] = _edit_resolution(generation.width, generation.height)
+                if generation_type == GenerationType.IMAGE_INPAINT and not generation.mask_image_path:
+                    self._fail(project, task_id, "局部编辑缺少遮罩，无法执行")
+                    return None
+                mask_path = generation.mask_image_path
 
             try:
                 graph = load_graph(target.json_path)
@@ -453,6 +497,8 @@ class GenerationWorker:
                 frames=frames,
                 is_video=is_video,
                 mask_path=mask_path,
+                scene_id=generation.scene_id,
+                media_type=_media_type_for(generation.scene_id, generation_type, is_video),
             )
 
     async def _wait_for_history(

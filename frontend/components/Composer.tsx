@@ -25,6 +25,8 @@ import type { GenerationCreatePayload, ImageBrief, ModelInfo } from "@/types/api
 type Props = {
   models: ModelInfo[];
   onToast: (message: string) => void;
+  /** 场景 id：在场景页里挂载时，产物落进该场景，不进主图片流 */
+  sceneId?: number;
 };
 
 const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -36,7 +38,12 @@ function PillIcon({ children }: { children: React.ReactNode }) {
   return <span className="text-muted">{children}</span>;
 }
 
-export default function Composer({ models, onToast }: Props) {
+export default function Composer({ models, onToast, sceneId }: Props) {
+  // 挂在场景页里时，同一套输入框改叫「场景生成 / 场景编辑」，产物落进该场景
+  const inScene = typeof sceneId === "number" && sceneId > 0;
+  const modeLabel = inScene
+    ? ({ text_to_image: "场景生成", image_edit: "场景编辑" } as const)
+    : ({ text_to_image: "图片生成", image_edit: "图片编辑" } as const);
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -118,6 +125,8 @@ export default function Composer({ models, onToast }: Props) {
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["generations"] });
+    // 场景页要刷新「图片数 / 批次数」，顺手一起失效
+    queryClient.invalidateQueries({ queryKey: ["scenes"] });
   };
 
   // 遮罩是对着第 1 张参考图画的：换图就作废，别把旧遮罩套到新图上
@@ -144,6 +153,10 @@ export default function Composer({ models, onToast }: Props) {
         width,
         height,
       };
+      // 场景页里挂载时，批次归属于场景：后端据此换目录、并从主作品流里隔离
+      if (sceneId) {
+        base.scene_id = sceneId;
+      }
 
       if (capabilities?.exposes_steps && steps.trim()) {
         base.steps = Number(steps);
@@ -174,6 +187,7 @@ export default function Composer({ models, onToast }: Props) {
         if (base.sampler) form.set("sampler", base.sampler);
         if (base.negative_prompt) form.set("negative_prompt", base.negative_prompt);
         if (base.seed !== undefined && base.seed !== null) form.set("seed", String(base.seed));
+        if (base.scene_id) form.set("scene_id", String(base.scene_id));
         return form;
       };
 
@@ -189,7 +203,7 @@ export default function Composer({ models, onToast }: Props) {
 
       const items = reference.items;
       if (items.length === 0) {
-        throw new Error("图片编辑需要 1 张参考图");
+        throw new Error(`${modeLabel.image_edit}需要 1 张参考图`);
       }
       // 顺序即语义：第 1 张定结构，第 2 张是服装 / 材质参考
       const form = buildForm();
@@ -293,7 +307,7 @@ export default function Composer({ models, onToast }: Props) {
     if (mode === "image_edit") {
       const placed = reference.putFiles(accepted, into);
       if (placed < accepted.length) {
-        onToast(`图片编辑最多 ${MAX_EDIT_REFS} 张：第 1 张定结构，第 2 张可选`);
+        onToast(`${modeLabel.image_edit}最多 ${MAX_EDIT_REFS} 张：第 1 张定结构，第 2 张可选`);
       }
       return;
     }
@@ -329,8 +343,8 @@ export default function Composer({ models, onToast }: Props) {
         <div className="flex items-center gap-1">
           {(
             [
-              { key: "text_to_image", label: "图片生成" },
-              { key: "image_edit", label: "图片编辑" },
+              { key: "text_to_image", label: modeLabel.text_to_image },
+              { key: "image_edit", label: modeLabel.image_edit },
             ] as const
           ).map((tab) => (
             <button
@@ -347,13 +361,15 @@ export default function Composer({ models, onToast }: Props) {
               {tab.label}
             </button>
           ))}
-          <Link
-            href="/video"
-            className="rounded-lg px-2.5 py-1 text-xs text-muted transition hover:bg-surface2 hover:text-ink"
-            title="视频在独立的工作台里"
-          >
-            视频
-          </Link>
+          {inScene ? null : (
+            <Link
+              href="/video"
+              className="rounded-lg px-2.5 py-1 text-xs text-muted transition hover:bg-surface2 hover:text-ink"
+              title="视频在独立的工作台里"
+            >
+              视频
+            </Link>
+          )}
           <span className="ml-auto text-[11px] text-muted/60">
             {activeModel ? `${activeModel.label}` : "模型加载中"}
           </span>
@@ -471,7 +487,7 @@ export default function Composer({ models, onToast }: Props) {
                     <button
                       type="button"
                       onClick={() => clearMask()}
-                      title="移除遮罩（改回普通图片编辑）"
+                      title={inScene ? "移除遮罩（改回普通场景编辑）" : "移除遮罩（改回普通图片编辑）"}
                       className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded bg-black/70 text-[10px] text-white group-hover:flex"
                     >
                       ×
@@ -603,7 +619,9 @@ export default function Composer({ models, onToast }: Props) {
                   : "只描述要改的部分，例如 换成夜景，加一层月光"
                 : genRefs.items.length > 0
                   ? "描述想让它变成什么样，例如 same teapot, now on a stone table in an autumn garden"
-                  : "输入你想要的画面，中文描述也可以，英文通常更稳"
+                  : inScene
+                    ? "描述这个场景要出现的画面；生成的图只属于这个场景"
+                    : "输入你想要的画面，中文描述也可以，英文通常更稳"
             }
             className="scroll-thin min-h-[52px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted/60"
           />
@@ -923,7 +941,13 @@ export default function Composer({ models, onToast }: Props) {
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
                   <path d="m5 12 5 5 9-10" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
-                {mode === "image_edit" ? `编辑出图 ${count} 张` : `生成 ${count} 张`}
+                {inScene
+                  ? mode === "image_edit"
+                    ? `场景编辑 ${count} 张`
+                    : `场景生成 ${count} 张`
+                  : mode === "image_edit"
+                    ? `编辑出图 ${count} 张`
+                    : `生成 ${count} 张`}
               </>
             )}
           </button>

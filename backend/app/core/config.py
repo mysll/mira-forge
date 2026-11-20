@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     # 启动时自动执行 alembic upgrade head（测试可关闭）
     auto_migrate: bool = True
 
+    # 分层分析用的 LLM：任何 OpenAI 兼容的 /chat/completions 端点都能接，
+    # 换供应商只改这三项。没配 base_url / model 时，分层接口直接 400 提示去填。
+    llm_enabled: bool = True
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model: str = ""
+    llm_timeout_seconds: float = 300.0
+    # 调 LLM 时源图缩到长边这个像素，控制 token 与上传体积
+    llm_image_max_side: int = 1024
+
     @property
     def projects_path(self) -> Path:
         """所有项目文件夹的父目录。"""

@@ -96,6 +96,8 @@ def store_image(
     height: int | None = None,
     extension: str = "png",
     storage_root: Path | None = None,
+    scene_id: int | None = None,
+    folder_prefix: str | None = None,
     media_type: str = "image",
     duration_seconds: float | None = None,
     fps: float | None = None,
@@ -110,10 +112,15 @@ def store_image(
 
     视频时 extension="mp4"、宽高与时长从 ComfyUI 的 metadata 传进来，
     poster 是封面帧 PNG —— 直接压成缩略图，作品流里用封面代替视频本身。
+
+    场景内的产物传 `scene_id`（同时传 `folder_prefix="scenes/<id>"` 让它落到
+    场景目录下）；库里存的是相对项目 storage 的完整路径，所以
+    `GET /images/{id}/file` 用同一套拼接逻辑就能读到，无需改动。
     """
     root = storage_root_for(storage_root)
     folder = _FOLDER_BY_MEDIA.get(media_type, "images")
-    relative = Path(folder) / str(generation_id) / f"{task_id}_{index}.{extension}"
+    relative = Path(folder_prefix) / folder if folder_prefix else Path(folder)
+    relative = relative / str(generation_id) / f"{task_id}_{index}.{extension}"
     absolute = root / relative
     try:
         absolute.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +137,7 @@ def store_image(
     image = Image(
         task_id=task_id,
         generation_id=generation_id,
+        scene_id=scene_id,
         file_path=relative.as_posix(),
         thumbnail_path=None,
         original_image_id=None,
@@ -172,22 +180,46 @@ def absolute_path(image: Image, storage_root: Path | None = None) -> Path:
 THUMBNAIL_SIZE = 480
 THUMBNAIL_QUALITY = 82
 
+# 场景图与分层图可能是带 alpha 的 PNG（透明背景），缩略图必须留 PNG，
+# 否则 convert("RGB") 会把透明区的 RGB（Qwen 那边是紫色的）当画面存下来，
+# 信息流里就变成一片粉。其余产物继续压 JPEG 省体积。
+PNG_THUMB_MEDIA = ("scene", "scene_layer")
 
-def thumbnail_relative(image: Image) -> Path:
+
+def _thumbnail_suffix(image: Image) -> str:
+    return ".png" if image.media_type in PNG_THUMB_MEDIA else ".jpg"
+
+
+def thumbnail_relative(image: Image, suffix: str | None = None) -> Path:
     folder = image.generation_id if image.generation_id is not None else 0
-    return Path("thumbnails") / str(folder) / f"{image.id}.jpg"
+    return Path("thumbnails") / str(folder) / f"{image.id}{suffix or _thumbnail_suffix(image)}"
+
+
+def _write_thumbnail(opened, target, relative, image, db) -> Path:
+    if relative.suffix == ".png":
+        frame = opened.convert("RGBA")
+        frame.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+        frame.save(target, format="PNG", optimize=True)
+    else:
+        frame = opened.convert("RGB")
+        frame.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+        frame.save(target, format="JPEG", quality=THUMBNAIL_QUALITY, optimize=True)
+    image.thumbnail_path = relative.as_posix()
+    db.commit()
+    return target
 
 
 def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None) -> Path:
     """按需生成缩略图并落盘，返回绝对路径。
 
     首次请求时生成并写回 thumbnail_path；之后直接复用磁盘文件。
+    场景类产物存 PNG（保住透明），老库里存成 .jpg 的会在下次请求时重做一次。
     原图缺失或解码失败都抛 ImageStoreError，让接口返回 404 而不是 500。
     """
     root = storage_root_for(storage_root)
     if image.thumbnail_path:
         cached = root / image.thumbnail_path
-        if cached.is_file():
+        if cached.is_file() and image.thumbnail_path.endswith(_thumbnail_suffix(image)):
             return cached
 
     if image.media_type in ("video", "asset", "frameset") and not _is_raster(image.file_path):
@@ -200,20 +232,19 @@ def ensure_thumbnail(db: Session, image: Image, storage_root: Path | None = None
 
     relative = thumbnail_relative(image)
     target = root / relative
+    if target.is_file():
+        image.thumbnail_path = relative.as_posix()
+        db.commit()
+        return target
+
     try:
         from PIL import Image as PillowImage
 
         target.parent.mkdir(parents=True, exist_ok=True)
         with PillowImage.open(source) as opened:
-            opened = opened.convert("RGB")
-            opened.thumbnail((THUMBNAIL_SIZE, THUMBNAIL_SIZE))
-            opened.save(target, format="JPEG", quality=THUMBNAIL_QUALITY, optimize=True)
+            return _write_thumbnail(opened, target, relative, image, db)
     except Exception as exc:  # noqa: BLE001 - 解码失败也算产物不可用
         raise ImageStoreError(f"生成缩略图失败：{source}（{exc}）") from exc
-
-    image.thumbnail_path = relative.as_posix()
-    db.commit()
-    return target
 
 
 def remove_files(image: Image, storage_root: Path | None = None) -> None:
@@ -305,10 +336,14 @@ def list_images(
     offset: int = 0,
     generation_id: int | None = None,
     favorites_only: bool = False,
+    scene_id: int | None = None,
 ) -> tuple[list[Image], int]:
     from sqlalchemy import func
 
     conditions = [Image.deleted_at.is_(None)]
+    # 场景产物靠 media_type（scene / scene_layer）隔离，这里只做显式收窄
+    if scene_id is not None:
+        conditions.append(Image.scene_id == scene_id)
     if generation_id is not None:
         conditions.append(Image.generation_id == generation_id)
     if favorites_only:

@@ -13,6 +13,8 @@ class ImageRead(OrmModel):
     id: int
     task_id: int | None = None
     generation_id: int | None = None
+    # 所属场景（scenes.id）；非空的产物不进主图片流
+    scene_id: int | None = None
     file_path: str
     thumbnail_path: str | None = None
     original_image_id: int | None = None

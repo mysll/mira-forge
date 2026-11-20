@@ -7,9 +7,23 @@ import type {
   ImageBatchDeleteResponse,
   ImageListResponse,
   ImageRead,
+  LayerRead,
+  LayerPromptRead,
+  LayerRenderAllResult,
+  LayerRenderPayload,
+  LayerSetCreatePayload,
+  LayerSetListResponse,
+  LayerSetRead,
+  LayerUpdatePayload,
+  LLMSettingsRead,
+  LLMSettingsUpdate,
+  LLMTestResult,
   ModelInfo,
   ProjectListResponse,
   ProjectRead,
+  SceneDeleted,
+  SceneListResponse,
+  SceneRead,
   TaskRead,
   WorkspaceClearResponse,
 } from "@/types/api";
@@ -92,17 +106,37 @@ export function fetchGenerations(params?: {
   offset?: number;
   q?: string;
   model?: string | null;
-  media?: "image" | "video" | "asset";
+  media?: "image" | "video" | "asset" | "scene" | "scene_layer";
   favorite?: boolean;
   /** 只取「有产物或有任务在跑」的批次，跳过只剩空壳的批次 */
   hasImages?: boolean;
   dateFrom?: string;
   dateTo?: string;
+  /** 场景 id：只取该场景的批次；不传则不过滤（隔离由 media 类型过滤负责） */
+  scene?: number | null;
+  /** 图层 id：分层页签只看这一层出的批次 */
+  layer?: number | null;
+  /** 排除场景底图 / 分层图（纯主作品流用） */
+  excludeScene?: boolean;
+  /** 排除分层批次：只要场景底图，不要每个层各自那一批 */
+  excludeLayer?: boolean;
 }): Promise<GenerationListResponse> {
   const search = new URLSearchParams();
   search.set("limit", String(params?.limit ?? 40));
   if (params?.offset) {
     search.set("offset", String(params.offset));
+  }
+  if (params?.scene) {
+    search.set("scene", String(params.scene));
+  }
+  if (params?.layer) {
+    search.set("layer", String(params.layer));
+  }
+  if (params?.excludeScene) {
+    search.set("exclude_scene", "true");
+  }
+  if (params?.excludeLayer) {
+    search.set("exclude_layer", "true");
   }
   if (params?.q?.trim()) {
     search.set("q", params.q.trim());
@@ -187,6 +221,8 @@ export function fetchImages(params?: {
   limit?: number;
   offset?: number;
   generationId?: number;
+  /** 场景 id：只取该场景的产物；不传则后端排除场景内的产物 */
+  scene?: number | null;
 }): Promise<ImageListResponse> {
   const search = new URLSearchParams();
   search.set("limit", String(params?.limit ?? 20));
@@ -195,6 +231,9 @@ export function fetchImages(params?: {
   }
   if (params?.generationId !== undefined) {
     search.set("generation_id", String(params.generationId));
+  }
+  if (params?.scene) {
+    search.set("scene", String(params.scene));
   }
   return request<ImageListResponse>(`/images?${search.toString()}`);
 }
@@ -651,4 +690,148 @@ export function activateProject(id: string): Promise<ProjectRead> {
 
 export function deleteProject(id: string): Promise<ProjectListResponse> {
   return request<ProjectListResponse>(`/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/* ---------------------------------------------------------------- 场景 */
+
+export function fetchScenes(): Promise<SceneListResponse> {
+  return request<SceneListResponse>("/scenes");
+}
+
+export function fetchScene(id: number): Promise<SceneRead> {
+  return request<SceneRead>(`/scenes/${id}`);
+}
+
+export function createScene(payload: {
+  name: string;
+  description?: string | null;
+}): Promise<SceneRead> {
+  return request<SceneRead>("/scenes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateScene(
+  id: number,
+  payload: { name?: string; description?: string | null; cover_image_id?: number | null },
+): Promise<SceneRead> {
+  return request<SceneRead>(`/scenes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 删场景：场景软删，里面的批次与产物一起进回收站。 */
+export function deleteScene(id: number): Promise<SceneDeleted> {
+  return request<SceneDeleted>(`/scenes/${id}`, { method: "DELETE" });
+}
+
+/* ---------------------------------------------------------------- 分层 */
+
+export function fetchLayerSets(sceneId: number): Promise<LayerSetListResponse> {
+  return request<LayerSetListResponse>(`/scenes/${sceneId}/layer-sets`);
+}
+
+export function fetchLayerSet(setId: number): Promise<LayerSetRead> {
+  return request<LayerSetRead>(`/layer-sets/${setId}`);
+}
+
+export function createLayerSet(
+  sceneId: number,
+  payload: LayerSetCreatePayload,
+): Promise<LayerSetRead> {
+  return request<LayerSetRead>(`/scenes/${sceneId}/layer-sets`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateLayer(layerId: number, payload: LayerUpdatePayload): Promise<LayerRead> {
+  return request<LayerRead>(`/layers/${layerId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteLayerSet(setId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/layer-sets/${setId}`, { method: "DELETE" });
+  if (response.status === 204) {
+    return;
+  }
+  let detail = `请求失败（${response.status}）`;
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload?.detail) detail = payload.detail;
+  } catch {
+    /* 非 JSON 响应，用默认文案 */
+  }
+  throw new Error(detail);
+}
+
+/** 导出地址：场景底图 + 这套方案每一层选定的那张图（zip）。 */
+export function layerExportUrl(sceneId: number, sourceImageId: number): string {
+  return `${API_BASE}/scenes/${sceneId}/layers/${sourceImageId}/export`;
+}
+
+/** 触发一次浏览器下载（后端带 Content-Disposition 文件名）。 */
+export function startDownload(url: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+/** 这一层出过的批次（页签里的信息流）。 */
+export function fetchLayerGenerations(layerId: number, limit = 20): Promise<GenerationListResponse> {
+  return request<GenerationListResponse>(`/layers/${layerId}/generations?limit=${limit}`);
+}
+
+/** 按层出图：参考图由后端固定成这张场景图，产物类型是 scene_layer。 */
+export function renderLayer(layerId: number, payload: LayerRenderPayload): Promise<GenerationRead> {
+  return request<GenerationRead>(`/layers/${layerId}/generations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 一次把整套方案的每一层都排进去（一层一条批次，worker 依次跑）。 */
+export function renderAllLayers(setId: number): Promise<LayerRenderAllResult> {
+  return request<LayerRenderAllResult>(`/layer-sets/${setId}/generations`, {
+    method: "POST",
+  });
+}
+
+/** 设置页：LLM 配置（api_key 只回掩码）。 */
+export function fetchLLMSettings(): Promise<LLMSettingsRead> {
+  return request<LLMSettingsRead>("/settings/llm");
+}
+
+export function saveLLMSettings(payload: LLMSettingsUpdate): Promise<LLMSettingsRead> {
+  return request<LLMSettingsRead>("/settings/llm", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testLLMSettings(): Promise<LLMTestResult> {
+  return request<LLMTestResult>("/settings/llm/test", { method: "POST" });
+}
+
+/** 分层提示词（发给 LLM 的系统提示词）：读 / 存 / 恢复默认。 */
+export function fetchLayerPrompt(): Promise<LayerPromptRead> {
+  return request<LayerPromptRead>("/settings/layer-prompt");
+}
+
+export function saveLayerPrompt(prompt: string): Promise<LayerPromptRead> {
+  return request<LayerPromptRead>("/settings/layer-prompt", {
+    method: "PUT",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
+export function resetLayerPrompt(): Promise<LayerPromptRead> {
+  return request<LayerPromptRead>("/settings/layer-prompt/reset", { method: "POST" });
 }

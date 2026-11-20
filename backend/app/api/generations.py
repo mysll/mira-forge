@@ -44,6 +44,10 @@ _IMAGE_TYPES = (
     "local_edit",
 )
 _ASSET_TYPES = ("local_asset", "local_frameset")
+# 场景底图与场景分层图各自是一种类型：图片流媒体过滤要求 media=image，
+# 天然不含这两种，隔离就是类型过滤的结果。
+_SCENE_TYPES = ("scene",)
+_SCENE_LAYER_TYPES = ("scene_layer",)
 
 
 def _types_for_media(media: str | None) -> list[str] | None:
@@ -54,6 +58,10 @@ def _types_for_media(media: str | None) -> list[str] | None:
         return list(_IMAGE_TYPES)
     if media == "asset":
         return list(_ASSET_TYPES)
+    if media == "scene":
+        return list(_SCENE_TYPES)
+    if media in ("scene_layer", "layer"):
+        return list(_SCENE_LAYER_TYPES)
     return None
 
 
@@ -139,6 +147,7 @@ async def create_edit(
     steps: int | None = Form(None, ge=1, le=100),
     cfg: float | None = Form(None, ge=0, le=30),
     sampler: str | None = Form(None, max_length=64),
+    scene_id: int | None = Form(None, ge=1),
     images: list[UploadFile] = File(default=[]),
     mask: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
@@ -180,6 +189,7 @@ async def create_edit(
         prompt=prompt,
         model=model,
         generation_type="image_edit",
+        scene_id=scene_id,
         width=width,
         height=height,
         count=count,
@@ -212,6 +222,7 @@ async def create_image_to_image(
     steps: int | None = Form(None, ge=1, le=100),
     cfg: float | None = Form(None, ge=0, le=30),
     sampler: str | None = Form(None, max_length=64),
+    scene_id: int | None = Form(None, ge=1),
     images: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ) -> GenerationRead:
@@ -241,6 +252,7 @@ async def create_image_to_image(
         prompt=prompt,
         model=model,
         generation_type="image_to_image",
+        scene_id=scene_id,
         width=width,
         height=height,
         count=count,
@@ -364,7 +376,9 @@ def list_generations(
     offset: int = Query(default=0, ge=0),
     q: str | None = Query(default=None, max_length=200),
     model: str | None = Query(default=None, description="模型 id，多个用逗号分隔"),
-    media: str | None = Query(default=None, description="image / video / asset，只取该类别"),
+    media: str | None = Query(
+        default=None, description="image / video / asset / scene / scene_layer，只取该类别"
+    ),
     favorite: bool = Query(default=False, description="只看含收藏图片的批次"),
     has_products: bool = Query(
         default=False,
@@ -372,12 +386,31 @@ def list_generations(
     ),
     date_from: str | None = Query(default=None, description="ISO 时间，含"),
     date_to: str | None = Query(default=None, description="ISO 时间，含"),
+    scene: int | None = Query(
+        default=None,
+        ge=1,
+        description="场景 id：只看该场景的批次；不传则按 media 类型过滤，隔离由类型负责",
+    ),
+    exclude_scene: bool = Query(
+        default=False,
+        description="排除场景底图 / 分层图（纯主作品流用）",
+    ),
+    exclude_layer: bool = Query(
+        default=False,
+        description="排除分层批次（只要场景底图、不要每个层各自那一批）",
+    ),
+    layer: int | None = Query(
+        default=None,
+        ge=1,
+        description="图层 id：分层页签只看这一层的批次",
+    ),
     db: Session = Depends(get_db),
 ) -> GenerationListResponse:
     models = [item.strip() for item in model.split(",") if item.strip()] if model else None
-    if media is not None and media not in ("image", "video", "asset"):
+    if media is not None and media not in ("image", "video", "asset", "scene", "scene_layer"):
         raise HTTPException(
-            status_code=422, detail=f"media 只能是 image、video 或 asset，收到 {media!r}"
+            status_code=422,
+            detail=f"media 只能是 image、video、asset、scene 或 scene_layer，收到 {media!r}",
         )
     rows, total = GenerationRepository(db).list(
         limit=limit,
@@ -389,6 +422,10 @@ def list_generations(
         with_products=has_products,
         date_from=_parse_datetime(date_from, "date_from"),
         date_to=_parse_datetime(date_to, "date_to"),
+        scene_id=scene,
+        layer_id=layer,
+        exclude_scene=exclude_scene,
+        exclude_layer=exclude_layer,
     )
     return GenerationListResponse(
         items=[_to_read(row) for row in rows],

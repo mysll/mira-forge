@@ -49,6 +49,11 @@ def list_all(
     offset: int = Query(default=0, ge=0),
     generation_id: int | None = Query(default=None, ge=1),
     favorite: bool = Query(default=False, description="只看收藏"),
+    scene: int | None = Query(
+        default=None,
+        ge=1,
+        description="场景 id：只看该场景的产物；不传则排除场景内的产物（主图片流）",
+    ),
     db: Session = Depends(get_db),
 ) -> ImageListResponse:
     rows, total = list_images(
@@ -57,6 +62,7 @@ def list_all(
         offset=offset,
         generation_id=generation_id,
         favorites_only=favorite,
+        scene_id=scene,
     )
     return ImageListResponse(
         items=_reads(db, rows),
@@ -128,10 +134,14 @@ def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)) -> FileRes
         path = ensure_thumbnail(db, image)
     except ImageStoreError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    # 缩略图可能是 JPEG，也可能是保住 alpha 的 PNG（场景 / 分层产物）
+    thumbnail_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     return FileResponse(
         path,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        media_type=thumbnail_type,
+        # 缩略图会自愈重做（比如透明图从 JPEG 换成 PNG），路径没变、URL 也没变，
+        # 所以不能让浏览器把它当 immutable 长期缓存，否则旧图一直显示。
+        headers={"Cache-Control": "public, max-age=0, must-revalidate"},
     )
 
 

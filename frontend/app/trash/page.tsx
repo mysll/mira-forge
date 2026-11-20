@@ -30,6 +30,8 @@ const TYPE_LABELS: Record<string, string> = {
   image_to_image: "参考图生成",
   image_edit: "图片编辑",
   image_inpaint: "局部编辑",
+  scene: "场景",
+  scene_layer: "场景分层",
   local_edit: "本地编辑",
   local_asset: "素材",
   text_to_video: "文生视频",

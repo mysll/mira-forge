@@ -34,6 +34,11 @@ class GenerationType(StrEnum):
     # 局部编辑：与图片编辑同一套输入，多一张遮罩；掩码外的像素由
     # VAEEncode + SetLatentNoiseMask 原样保留（见 WORKFLOW_MAPPING）
     IMAGE_INPAINT = "image_inpaint"
+    # 场景底图：在某个场景里生成 / 编辑出来的完整场景图。它自带一个类型名，
+    # 于是「不进普通图片流」是类型过滤的结果，而不是额外补一句 scene_id IS NULL。
+    SCENE = "scene"
+    # 场景分层图：从场景底图拆出来的单层素材（后续分层流程用）
+    SCENE_LAYER = "scene_layer"
     # 本地编辑器保存的成品：不用模型、不排队，直接是一条已完成记录
     LOCAL_EDIT = "local_edit"
     LOCAL_ASSET = "local_asset"
@@ -52,6 +57,10 @@ class Generation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    # 所属场景（scenes.id）：为空是普通图片，进作品流；非空只出现在该场景页
+    scene_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 所属图层（layers.id）：分层界面里按页签出图时落这个字段，页签据此查自己的信息流
+    layer_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     workflow_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
     )

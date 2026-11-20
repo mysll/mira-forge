@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import LayerPromptSettings from "@/components/LayerPromptSettings";
+import LLMSettings from "@/components/LLMSettings";
 import PromptTemplateSettings from "@/components/PromptTemplateSettings";
 import { fetchHealth, unloadComfyModels } from "@/lib/api";
 import { formatBytes } from "@/lib/date";
@@ -208,6 +210,10 @@ export default function SettingsPage() {
           }
         />
         {note ? <p className="-mt-2 px-1 text-[11px] text-muted">{note}</p> : null}
+
+        <LLMSettings />
+
+        <LayerPromptSettings />
 
         <Card
           title="存储"

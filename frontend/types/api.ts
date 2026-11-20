@@ -97,6 +97,9 @@ export type GenerationType =
   | "image_edit"
   | "text_to_video"
   | "image_to_video"
+  // 场景底图与从底图拆出来的分层图：类型本身就是隔离边界
+  | "scene"
+  | "scene_layer"
   | "local_edit"
   | "local_asset";
 
@@ -120,6 +123,8 @@ export type ImageBrief = {
   height: number;
   file_size: number;
   file_path: string;
+  /** 所属场景；非空的产物只在场景页出现 */
+  scene_id?: number | null;
   /** image | video | asset */
   media_type: string;
   duration_seconds: number | null;
@@ -134,6 +139,10 @@ export type ImageBrief = {
 export type GenerationRead = {
   id: number;
   prompt: string;
+  /** 所属场景（scenes.id）；为空是普通批次，进作品流 */
+  scene_id: number | null;
+  /** 所属图层（layers.id）；分层页签按它查自己的批次 */
+  layer_id: number | null;
   /** 批次名，可编辑；空着时显示「批次 #id」 */
   name: string | null;
   negative_prompt: string | null;
@@ -171,6 +180,9 @@ export type GenerationListResponse = {
 export type GenerationCreatePayload = {
   prompt: string;
   model: string;
+  /** 场景 id：给了就落成场景产物（不进主图片流） */
+  scene_id?: number | null;
+  layer_id?: number | null;
   generation_type: GenerationType;
   width?: number;
   height?: number;
@@ -188,6 +200,8 @@ export type ImageRead = {
   id: number;
   task_id: number | null;
   generation_id: number | null;
+  /** 所属场景（scenes.id）；非空的产物不进主图片流 */
+  scene_id: number | null;
   file_path: string;
   thumbnail_path: string | null;
   original_image_id: number | null;
@@ -257,3 +271,155 @@ export type ProjectListResponse = {
   active: string;
 };
 
+/** 场景：一组围绕同一地点/事件的图，产物单独成目录、不进主图片流。 */
+export type SceneRead = {
+  id: number;
+  name: string;
+  description: string | null;
+  cover_image_id: number | null;
+  /** 封面的创建时间，缩略图 URL 的版本号（跨项目 / 跨图 id 复用时不串图） */
+  cover_image_created_at: string | null;
+  sort_order: number;
+  created_at: string;
+  image_count: number;
+  generation_count: number;
+};
+
+export type SceneListResponse = {
+  items: SceneRead[];
+  total: number;
+};
+
+export type SceneDeleted = {
+  scene_id: number;
+  generations: number;
+  images: number;
+};
+
+/** 分层方案里的一层：LLM 给的语义 + 可编辑的提示词，不含坐标。 */
+export type LayerRead = {
+  id: number;
+  set_id: number;
+  ord: number;
+  key: string;
+  name: string;
+  role: string | null;
+  scroll_scale: number;
+  z_index: number;
+  prompt: string;
+  negative_prompt: string | null;
+  occluded_by: string | null;
+  supports: string | null;
+  note: string | null;
+  generation_id: number | null;
+  /** 导出时用哪一张；null = 这一层最新的那张 */
+  selected_image_id: number | null;
+  status: string;
+  created_at: string;
+};
+
+/** 一次发给 LLM 的请求和它的应答（分层页按对话展示）。 */
+export type LLMExchangeEntry = {
+  attempt: number;
+  system: string;
+  user: string;
+  has_image: boolean;
+  response: string;
+  error: string | null;
+  duration_ms: number | null;
+};
+
+/** 一套层方案 = 一次「分析分层」的结果；analyzing 时 layers 为空。 */
+export type LayerSetRead = {
+  id: number;
+  scene_id: number;
+  source_image_id: number | null;
+  model_name: string;
+  layer_count: number;
+  count_per_layer: number;
+  brief: string | null;
+  negative_prompt: string | null;
+  status: "analyzing" | "planned" | "failed" | string;
+  error_message: string | null;
+  llm_meta: string | null;
+  llm_exchange: LLMExchangeEntry[];
+  created_at: string;
+  completed_at: string | null;
+  layers: LayerRead[];
+};
+
+export type LayerSetListResponse = {
+  items: LayerSetRead[];
+  total: number;
+};
+
+export type LayerSetCreatePayload = {
+  source_image_id: number;
+  model: string;
+  layer_count: number;
+  count_per_layer: number;
+  brief?: string | null;
+  negative_prompt?: string | null;
+};
+
+export type LayerUpdatePayload = {
+  name?: string;
+  prompt?: string;
+  negative_prompt?: string | null;
+  scroll_scale?: number;
+  z_index?: number;
+  /** 指定导出用哪一张；null = 回到「用最新的那张」 */
+  selected_image_id?: number | null;
+};
+
+/** 按层出图：参考图固定是分层源图，只调这一批的参数。 */
+export type LayerRenderPayload = {
+  count: number;
+  prompt?: string | null;
+  negative_prompt?: string | null;
+  model?: string | null;
+  seed?: number | null;
+  steps?: number | null;
+  cfg?: number | null;
+  sampler?: string | null;
+  save_prompt?: boolean;
+};
+
+/** 「生成所有层」的结果：每层各排一条批次，跳过的是提交失败的层。 */
+export type LayerRenderAllResult = {
+  generations: GenerationRead[];
+  submitted: number;
+  images: number;
+  skipped: string[];
+};
+
+/** 设置页里的 LLM 配置（密钥只回掩码，拿不到明文）。 */
+export type LLMSettingsRead = {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  api_key_masked: string;
+  api_key_set: boolean;
+  timeout_seconds: number;
+};
+
+export type LLMSettingsUpdate = {
+  enabled?: boolean;
+  base_url?: string;
+  model?: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  timeout_seconds?: number;
+};
+
+export type LLMTestResult = {
+  ok: boolean;
+  detail: string;
+};
+
+/** 设置页里的「分层提示词」：发给 LLM 的系统提示词，只有这一份。 */
+export type LayerPromptRead = {
+  prompt: string;
+  is_default: boolean;
+  max_length: number;
+};

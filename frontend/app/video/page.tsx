@@ -12,6 +12,7 @@ import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
 import { fetchGenerations, fetchModels, referenceImageUrl } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
+import { buildFeedSlots } from "@/lib/feed";
 import { useVideoComposerStore } from "@/stores/videoComposer";
 import type { FeedItem, FeedSlot, GenerationRead } from "@/types/api";
 
@@ -24,7 +25,7 @@ export default function VideoPage() {
 
   const [query, setQuery] = useState("");
   const [modelFilter, setModelFilter] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState<DateFilter>("today");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("week");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [limit, setLimit] = useState(PAGE_SIZE);
@@ -84,42 +85,8 @@ export default function VideoPage() {
   const generations: GenerationRead[] = generationsQuery.data?.items ?? [];
   const total = generationsQuery.data?.total ?? 0;
 
-  // 每条视频一个任务，所以一张批次卡就是一格；排队/生成中走占位卡
-  const slots: FeedSlot[] = useMemo(() => {
-    const flat: FeedSlot[] = [];
-    for (const generation of generations) {
-      const tasks = [...generation.tasks].sort((left, right) => left.id - right.id);
-      const imageByTask = new Map(generation.images.map((image) => [image.task_id, image]));
-      tasks.forEach((task, position) => {
-        const image = imageByTask.get(task.id) ?? null;
-        // 图被删掉的任务不跳过：它会在流里占一格「无产物」，由用户自己决定要不要删掉这个任务
-        flat.push({
-          key: `${generation.id}-t${task.id}`,
-          generation,
-          image,
-          task,
-          index: position + 1,
-          total: tasks.length,
-          seed: task.seed,
-        });
-      });
-      const orphans = generation.images.filter(
-        (image) => image.task_id === null || !tasks.some((task) => task.id === image.task_id),
-      );
-      orphans.forEach((image, position) => {
-        flat.push({
-          key: `${generation.id}-i${image.id}`,
-          generation,
-          image,
-          task: null,
-          index: tasks.length + position + 1,
-          total: tasks.length + orphans.length,
-          seed: null,
-        });
-      });
-    }
-    return flat;
-  }, [generations]);
+  // 每条视频一个任务，所以一张批次卡就是一格；排队/生成中走占位卡，图被删掉的不占格
+  const slots: FeedSlot[] = useMemo(() => buildFeedSlots(generations), [generations]);
 
   const modelLabels = useMemo(
     () => Object.fromEntries(videoModels.map((model) => [model.id, model.label])),

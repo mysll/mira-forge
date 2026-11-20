@@ -22,6 +22,7 @@ import type { GenerationRead, ImageBrief, ModelInfo } from "@/types/api";
 function RecentCard({ image }: { image: ImageBrief }) {
   const [broken, setBroken] = useState(false);
   const asset = image.media_type === "asset";
+  const inScene = typeof image.scene_id === "number" && image.scene_id > 0;
   const suffix = (image.file_path.split(".").pop() ?? "").toUpperCase();
   // ZIP 素材只要里面有 PNG，服务端就会抽一张当封面；只有抽不出来
   // （空 ZIP、纯 JSON）时 /thumbnail 才 404，这里再退回文件牌。
@@ -32,12 +33,18 @@ function RecentCard({ image }: { image: ImageBrief }) {
       ? `${image.duration_seconds?.toFixed(1) ?? "?"} 秒`
       : asset
         ? `素材 · ${suffix || "文件"}`
-        : `${image.width}×${image.height}`;
+        : inScene
+          ? `场景 · ${image.width}×${image.height}`
+          : `${image.width}×${image.height}`;
 
   return (
     <Link
-      href="/gallery"
-      title={asset ? `素材 · ${suffix || "文件"}` : `${image.width}×${image.height}${image.media_type === "video" ? ` · ${meta}` : ""}`}
+      href={inScene ? `/scenes/${image.scene_id}` : "/gallery"}
+      title={
+        asset
+          ? `素材 · ${suffix || "文件"}`
+          : `${image.width}×${image.height}${inScene ? " · 场景图" : ""}`
+      }
       className="group relative aspect-square overflow-hidden rounded-lg border border-edge/60 bg-surface2"
     >
       {showFile ? (
@@ -86,6 +93,12 @@ function RecentCard({ image }: { image: ImageBrief }) {
           素材
         </span>
       ) : null}
+
+      {inScene ? (
+        <span className="absolute left-1 top-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white/90">
+          场景
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -130,7 +143,7 @@ export default function HomePage() {
 
   const recentQuery = useQuery({
     queryKey: ["generations", "home-recent"],
-    queryFn: () => fetchGenerations({ limit: 12, hasImages: true }),
+    queryFn: () => fetchGenerations({ limit: 12, hasImages: true, excludeLayer: true }),
     staleTime: 5_000,
   });
 
@@ -148,6 +161,12 @@ export default function HomePage() {
   const videoCount = useQuery({
     queryKey: ["generations", "home-count-video"],
     queryFn: () => fetchGenerations({ limit: 1, media: "video", hasImages: true }),
+    staleTime: 10_000,
+  });
+  // 场景底图也是「图片」，只是类型不同；分层图不重复计入（他们是同一张场景的派生物）
+  const sceneCount = useQuery({
+    queryKey: ["generations", "home-count-scene"],
+    queryFn: () => fetchGenerations({ limit: 1, media: "scene", hasImages: true }),
     staleTime: 10_000,
   });
 
@@ -298,7 +317,16 @@ export default function HomePage() {
 
         {/* 概览 */}
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="图片" value={imageCount.data ? String(imageCount.data.total) : "—"} unit="张" hint="本机累计" />
+          <Stat
+            label="图片"
+            value={
+              imageCount.data && sceneCount.data
+                ? String(imageCount.data.total + sceneCount.data.total)
+                : "—"
+            }
+            unit="张"
+            hint="本机累计 · 含场景图"
+          />
           <Stat label="视频" value={videoCount.data ? String(videoCount.data.total) : "—"} unit="条" hint="本机累计" />
           <Stat label="可用模型" value={String(models.length)} unit="个" hint="来自 registry.yaml" />
           <Stat

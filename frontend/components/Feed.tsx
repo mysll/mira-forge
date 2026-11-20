@@ -22,6 +22,15 @@ type Props = {
   onDownload: (item: FeedSlot) => void;
   onDelete: (item: FeedSlot) => void;
   onEdit: (item: FeedSlot) => void;
+  /** 场景页专用：卡片悬浮时给出「场景分层」入口 */
+  onLayers?: (item: FeedSlot) => void;
+  /** 场景页专用：导出「这张场景图 + 它的分层」 */
+  onExport?: (item: FeedSlot) => void;
+  /** 层页签专用：指定这一层导出用哪一张 */
+  onPick?: (item: FeedSlot) => void;
+  pickedImageId?: number | null;
+  /** 场景页专用：按图片 id 给出「已分层」角标文案（null = 没分过层） */
+  layerBadge?: (imageId: number) => string | null;
   /** 没有产物的任务：把这条任务删掉（批次空了连带删批次） */
   onDeleteTask?: (item: FeedSlot) => void;
   /** 整批删除：任务、产物、记录一起清掉 */
@@ -168,6 +177,7 @@ export default function Feed({
   emptyHint,
   cardWidth = CARD,
   unit = "张",
+  layerBadge,
   ...actions
 }: Props) {
   if (!loading && items.length === 0) {
@@ -217,7 +227,14 @@ export default function Feed({
                     onRenameBatch={actions.onRenameBatch}
                   />
                   {batch.items.map((item) => (
-                    <FeedCard key={item.key} item={item} view="list" modelLabels={modelLabels} {...actions} />
+                    <FeedCard
+                      key={item.key}
+                      item={item}
+                      view="list"
+                      modelLabels={modelLabels}
+                      layerBadge={item.image ? layerBadge?.(item.image.id) ?? null : null}
+                      {...actions}
+                    />
                   ))}
                 </div>
               ))}
@@ -235,7 +252,13 @@ export default function Feed({
                   <div className="flex flex-wrap gap-3">
                     {batch.items.map((item) => (
                       <div key={item.key} style={{ width: cardWidth }}>
-                        <FeedCard item={item} view="grid" modelLabels={modelLabels} {...actions} />
+                        <FeedCard
+                          item={item}
+                          view="grid"
+                          modelLabels={modelLabels}
+                          layerBadge={item.image ? layerBadge?.(item.image.id) ?? null : null}
+                          {...actions}
+                        />
                       </div>
                     ))}
                   </div>

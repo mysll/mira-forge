@@ -29,6 +29,8 @@ class Image(Base):
     generation_id: Mapped[int | None] = mapped_column(
         ForeignKey("generations.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # 所属场景（scenes.id），与 generation.scene_id 一致；非空的产物不进主图片流
+    scene_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     file_path: Mapped[str] = mapped_column(String(512), nullable=False)
     thumbnail_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     original_image_id: Mapped[int | None] = mapped_column(
