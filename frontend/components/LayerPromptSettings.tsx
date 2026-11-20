@@ -72,8 +72,7 @@ export default function LayerPromptSettings() {
       </header>
 
       <p className="mb-3 text-[11.5px] leading-relaxed text-muted">
-        每次「分析分层」发给 LLM 的系统提示词：怎么写层名、系数、七段式提示词都在这里。它不是视频模板，
-        只有这一份、不能删；改完保存后，下一次分析就用新版。
+        每次分层发给模型的规则：怎么分层、每层怎么写提示词都在这里。改完保存，下一次分层就用新版。
       </p>
 
       <textarea
@@ -96,7 +95,7 @@ export default function LayerPromptSettings() {
             缺少 {"{layer_rule}"} 占位符：层数规则会替换到那里，保存会失败
           </span>
         ) : null}
-        {tooLong ? <span className="text-bad">太长了，保存会被后端拒绝</span> : null}
+        {tooLong ? <span className="text-bad">太长了，保存不了</span> : null}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge/50 pt-3">

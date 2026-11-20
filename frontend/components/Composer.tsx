@@ -620,7 +620,7 @@ export default function Composer({ models, onToast, sceneId }: Props) {
                 : genRefs.items.length > 0
                   ? "描述想让它变成什么样，例如 same teapot, now on a stone table in an autumn garden"
                   : inScene
-                    ? "描述这个场景要出现的画面；生成的图只属于这个场景"
+                    ? "描述这个场景要出现的画面"
                     : "输入你想要的画面，中文描述也可以，英文通常更稳"
             }
             className="scroll-thin min-h-[52px] flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-ink outline-none placeholder:text-muted/60"

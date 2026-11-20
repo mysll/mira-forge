@@ -145,7 +145,7 @@ export default function ProjectSwitcher({ onToast }: Props) {
             ? "border-accent/50 bg-accent/15 text-accentSoft"
             : "border-edge bg-surface2 text-ink/90 hover:border-accent/40",
         ].join(" ")}
-        title="切换项目：每个项目有独立的数据与图片目录"
+        title="切换项目：每个项目的作品互相独立"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -250,7 +250,7 @@ export default function ProjectSwitcher({ onToast }: Props) {
                       onClick={() => setPendingDelete(project)}
                       disabled={items.length <= 1}
                       className="rounded p-1 text-muted transition hover:text-bad disabled:cursor-not-allowed disabled:opacity-30"
-                      title={items.length <= 1 ? "至少要保留一个项目" : "删除项目（连同它的数据库与图片）"}
+                      title={items.length <= 1 ? "至少要保留一个项目" : "删除项目（连同它里面的作品）"}
                     >
                       <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
                         <path d="M5 7h14M9 7V5h6v2m-8 0 1 12h8l1-12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -312,8 +312,8 @@ export default function ProjectSwitcher({ onToast }: Props) {
         title={`删除项目「${pendingDelete?.name ?? ""}」？`}
         description={
           <>
-            这个项目自己的数据库与全部图片会被删除，
-            <strong className="text-ink">文件夹从磁盘移除且无法恢复</strong>。
+            这个项目里的全部作品会被删除，
+            <strong className="text-ink">且无法恢复</strong>。
             其它项目不受影响。
           </>
         }

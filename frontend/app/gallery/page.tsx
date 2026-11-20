@@ -436,7 +436,7 @@ export default function GalleryPage() {
                   : mediaFilter === "scene"
                     ? "场景底图"
                     : mediaFilter === "scene_layer"
-                      ? "场景分层图（同场景合成一叠）"
+                      ? "场景分层"
                       : "图片、视频与素材"}{" "}
             · {assets.length} 个产物
           </span>

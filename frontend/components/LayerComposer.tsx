@@ -169,7 +169,7 @@ export default function LayerComposer({
           <div className="flex shrink-0 flex-col items-center gap-1" data-slot>
             <div
               className="relative h-[52px] w-[52px] overflow-hidden rounded-lg border border-edge"
-              title={source ? `分层源图 #${source.id}：固定，不可更换` : "分层源图"}
+              title={source ? "这一层用这张场景图做参考" : "场景原图"}
             >
               {source ? (
                 <>
@@ -180,7 +180,7 @@ export default function LayerComposer({
                     className="h-full w-full object-cover"
                   />
                   <span className="absolute inset-x-0 bottom-0 bg-black/55 py-[1px] text-center text-[9px] leading-none text-white/80">
-                    固定
+                    原图
                   </span>
                 </>
               ) : null}
@@ -346,12 +346,12 @@ export default function LayerComposer({
 
           <span
             className="pill cursor-default"
-            title="分层出图的尺寸跟随源图，编辑不会改比例"
+            title="尺寸跟随原图"
           >
             {source ? `${source.width}×${source.height}` : "跟随源图"}
           </span>
 
-          <Popover label={<span>数量 {count}</span>} title="这一层一次出几张（各自独立 seed，串行执行）" width={80}>
+          <Popover label={<span>数量 {count}</span>} title="这一层一次出几张" width={80}>
             {(close) => (
               <CountMenu
                 options={COUNT_OPTIONS}

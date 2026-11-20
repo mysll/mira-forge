@@ -211,7 +211,7 @@ export default function SceneDetailPage() {
           view={view}
           loading={generationsQuery.isLoading}
           hasMore={generations.length < total}
-          emptyHint="这个场景还没有图。下面的创作框里写提示词，生成的图只属于这个场景，不会出现在图片页；生成满意后，把鼠标移到图上点「场景分层」。"
+          emptyHint="还没有图。在下面的创作框里写提示词；满意之后，把鼠标移到图上点「场景分层」。"
           onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
           onOpen={(slot) => {
             if (slot.image) {
@@ -290,9 +290,8 @@ export default function SceneDetailPage() {
         title={`删除场景「${scene?.name ?? ""}」？`}
         description={
           <>
-            场景里的 {scene?.generation_count ?? 0} 个批次、{scene?.image_count ?? 0} 张图会一起进回收站（图片文件仍在
-            <code className="mx-1 rounded bg-surface2 px-1">storage/scenes/&lt;id&gt;/</code>
-            下，之后可以手动清）。这一步不会影响图片页的作品。
+            场景里的 {scene?.generation_count ?? 0} 个批次、{scene?.image_count ?? 0} 张图会一起进回收站，
+            30 天内可以恢复。图片页的作品不受影响。
           </>
         }
         confirmLabel="删除场景"

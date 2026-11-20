@@ -106,9 +106,7 @@ export default function LLMSettings() {
       </header>
 
       <p className="mb-3 text-[11.5px] leading-relaxed text-muted">
-        分层时由这个模型读场景图，写出每层的七段提示词。任何 OpenAI 兼容的
-        <code className="mx-1 rounded bg-surface2 px-1 py-0.5 text-[10.5px]">/chat/completions</code>
-        服务都行（通义、DeepSeek、OpenAI 等）。
+        分层时由这个模型读场景图，写出每一层的提示词。填服务地址、模型名和密钥就行。
       </p>
 
       <div className="flex flex-col gap-2.5">
@@ -170,7 +168,7 @@ export default function LLMSettings() {
             ) : null}
           </div>
           <span className="text-[10.5px] text-muted/70">
-            密钥只写在本机 data/llm_config.json，接口只回掩码，不会出现在页面源码里。
+            密钥只保存在本机，页面上只显示掩码。
           </span>
         </label>
 
@@ -181,7 +179,7 @@ export default function LLMSettings() {
             onChange={(event) => setEnabled(event.target.checked)}
             className="h-3.5 w-3.5 accent-[var(--accent,#8b5cf6)]"
           />
-          启用（关掉后「分析分层」会提示未配置）
+          启用分层分析
         </label>
       </div>
 
@@ -204,12 +202,12 @@ export default function LLMSettings() {
             test.mutate();
           }}
           disabled={test.isPending || !configured || dirty}
-          title={dirty ? "先保存再测" : "用已保存的配置发一句最小请求"}
+          title={dirty ? "先保存再测" : "用已保存的配置试一次"}
           className="h-8 rounded-lg border border-edge bg-surface2 px-3 text-[11.5px] text-ink transition hover:border-accent/50 hover:text-accentSoft disabled:opacity-50"
         >
           {test.isPending ? "测试中…" : "测试连接"}
         </button>
-        <span className="text-[10.5px] text-muted/70">保存后立刻生效，不用重启后端。</span>
+        <span className="text-[10.5px] text-muted/70">保存后立刻生效。</span>
       </div>
 
       {note ? (

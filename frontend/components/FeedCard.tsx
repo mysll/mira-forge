@@ -245,11 +245,11 @@ function Placeholder({
   const running = status === "running";
   const failed = status === "failed";
   const reason = task?.error_message ?? null;
-  // 任务还在排队/生成时才叫「排队中」；已经结束却没有产物就是「无产物」——
+  // 任务还在排队/生成时才叫「排队中」；已经结束却没有产物就是「没有图」——
   // 这种格子给一个删除按钮，否则图删光了任务还会一直占着一格。
   const active = status === "pending" || status === "queued" || running;
   const empty = !active;
-  const label = empty ? "无产物" : status === "pending" ? "排队中" : statusLabel(status);
+  const label = failed ? statusLabel(status) : empty ? "没有图" : status === "pending" ? "排队中" : statusLabel(status);
   const tone = empty ? "text-muted/70" : toneOf(status);
   const deletable = empty && Boolean(task) && Boolean(onDeleteTask);
   const remove = (event: React.MouseEvent) => {

@@ -38,7 +38,7 @@ export default function ScenesPage() {
       <header className="flex items-center gap-3 border-b border-edge/70 px-5 py-2.5">
         <h1 className="shrink-0 whitespace-nowrap text-[13px] font-medium text-ink">场景</h1>
         <span className="truncate text-[11px] text-muted/70">
-          按场景隔离的图片库 · 场景内的图不进主图片流
+          一个场景一个图集，单独生成、单独分层
         </span>
         <button
           type="button"
@@ -56,11 +56,8 @@ export default function ScenesPage() {
           <SceneGlyph className="mx-auto h-16 w-16 text-accentSoft/60" />
           <h2 className="mt-4 text-[15px] font-medium text-ink">还没有场景</h2>
           <p className="mx-auto mt-2 max-w-md text-[12px] leading-relaxed text-muted">
-            一个场景 = 一个地点或一段剧情的图集。场景里生成的图会单独存进
-            <code className="mx-1 rounded bg-surface2 px-1 py-0.5 text-[11px]">
-              storage/scenes/&lt;id&gt;/
-            </code>
-            ，不会混进图片列表，方便以后按层拆分。
+            一个场景就是一个地点或一段剧情的图集：生成满意的场景图后，再把它拆成一层一层，
+            用来做视差背景。
           </p>
           <button
             type="button"
@@ -159,8 +156,7 @@ function NewSceneDialog({
       <div className="w-full max-w-[460px] rounded-xl2 border border-edge bg-surface p-5 shadow-pop">
         <h2 className="text-sm font-medium text-ink">新建场景</h2>
         <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
-          建好后会立刻创建 <code className="rounded bg-surface2 px-1">storage/scenes/&lt;id&gt;/</code>{" "}
-          目录，之后在场景里生成的图都进这个目录。
+          建好之后，先在这里生成满意的场景图，再把它拆成一层一层。
         </p>
 
         <label className="mt-4 block text-[11.5px] text-muted">
@@ -182,7 +178,7 @@ function NewSceneDialog({
             rows={3}
             maxLength={4000}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="这个场景是什么地方、什么光线、要出现哪些元素——以后会作为生成与分层的上下文"
+            placeholder="这个场景是什么地方、什么光线、要出现哪些元素"
             className="mt-1 w-full resize-none rounded-lg border border-edge bg-surface2 px-2.5 py-2 text-xs leading-relaxed text-ink outline-none focus:border-accent/60"
           />
         </label>

@@ -155,7 +155,7 @@ export default function LayerWorkbenchPage() {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
-      toast("开始分析：通常 1–3 分钟出方案，过程会显示在下面");
+      toast("开始分析，通常 1–3 分钟，过程会显示在下面");
     },
     onError: (error: Error) => toast(error.message),
   });
@@ -280,7 +280,7 @@ export default function LayerWorkbenchPage() {
         </h1>
         {source ? (
           <span className="shrink-0 text-[11px] text-muted/70">
-            源图 #{source.id} · {source.width}×{source.height}
+            {source.width}×{source.height}
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -289,7 +289,7 @@ export default function LayerWorkbenchPage() {
               type="button"
               disabled={renderAll.isPending}
               onClick={() => renderAll.mutate(layerSet.id)}
-              title={`每一层各排一批（每层 ${layerSet.count_per_layer || 1} 张），一层接一层跑`}
+              title={`每层各生成 ${layerSet.count_per_layer || 1} 张`}
               className="flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-[11px] font-medium text-white transition hover:bg-accent/85 disabled:opacity-60"
             >
               {renderAll.isPending ? "正在排队…" : `生成所有层（${layers.length}）`}
@@ -321,9 +321,9 @@ export default function LayerWorkbenchPage() {
           ) : null}
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] text-muted/70">分层源图（固定，不可更换）</p>
+          <p className="text-[11px] text-muted/70">场景原图</p>
           <p className="mt-0.5 truncate text-xs text-ink/85">
-            {layerSet ? `方案 #${layerSet.id} · ${layers.length} 层 · 每层 ${layerSet.count_per_layer} 张` : "还没有分层方案"}
+            {layerSet ? `${layers.length} 层 · 每层 ${layerSet.count_per_layer} 张` : "还没有分层"}
           </p>
         </div>
       </div>
@@ -338,8 +338,8 @@ export default function LayerWorkbenchPage() {
             <div className="flex flex-col items-center gap-6">
               <div className="flex flex-col items-center gap-3 py-6 text-center">
                 <span className="h-6 w-6 animate-spin rounded-full border-2 border-muted/30 border-t-accentSoft" />
-                <p className="text-sm text-ink/85">正在分析分层方案…</p>
-                <p className="text-xs text-muted">通常 1–3 分钟（模型要读完场景图再写 5–8 层的提示词），方案出来后会自动变成页签。</p>
+                <p className="text-sm text-ink/85">正在拆分层…</p>
+                <p className="text-xs text-muted">通常 1–3 分钟。出来之后会变成上面的页签。</p>
               </div>
               <LLMChat
                 exchange={layerSet?.llm_exchange ?? []}
@@ -356,7 +356,7 @@ export default function LayerWorkbenchPage() {
                     model={layerSet.model_name}
                   />
                   <p className="mx-auto mt-2 max-w-3xl text-[10.5px] text-muted/60">
-                    上一版分析没有成功。可以按下面的表单改设置重试，或在「设置 → 分层提示词」里调整规则。
+                    上一次没有成功，可以改改下面的设置再试一次。
                   </p>
                 </div>
               ) : null}
@@ -385,7 +385,7 @@ export default function LayerWorkbenchPage() {
                 className="flex w-full items-center gap-2 px-4 py-1.5 text-left text-[11px] text-muted transition hover:text-ink/80"
               >
                 <span className={`inline-block transition ${showChat ? "rotate-90" : ""}`}>▸</span>
-                与 LLM 的对话
+                与模型的对话
                 <span className="text-muted/60">{layerSet.llm_exchange.length} 轮</span>
               </button>
               {showChat ? (
@@ -415,7 +415,7 @@ export default function LayerWorkbenchPage() {
                   <span className="font-mono text-[10px] opacity-70">L{layer.ord}</span>
                   {layer.name}
                   {layer.generation_id ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-ok/80" title="这一层已经出过图" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-ok/80" title="已出图" />
                   ) : null}
                 </button>
               );
@@ -434,10 +434,10 @@ export default function LayerWorkbenchPage() {
                   <span className="rounded bg-surface2 px-1.5 py-0.5 text-ink/80">
                     {activeLayer.name}
                   </span>
-                  <span>系数 {activeLayer.scroll_scale}</span>
-                  <span>z {activeLayer.z_index}</span>
-                  {activeLayer.occluded_by ? <span>挡：{activeLayer.occluded_by}</span> : null}
-                  {activeLayer.supports ? <span>托：{activeLayer.supports}</span> : null}
+                  <span>视差 {activeLayer.scroll_scale}</span>
+                  <span>层级 {activeLayer.z_index}</span>
+                  {activeLayer.occluded_by ? <span>被挡：{activeLayer.occluded_by}</span> : null}
+                  {activeLayer.supports ? <span>承接：{activeLayer.supports}</span> : null}
                 </div>
 
                 {activeLayer.role ? (
@@ -450,7 +450,7 @@ export default function LayerWorkbenchPage() {
                   loading={layerGenerationsQuery.isLoading}
                   hasMore={false}
                   onLoadMore={() => undefined}
-                  emptyHint="这一层还没出图。在底部输入框里点「生成本层」，出图会一条条排在这里。"
+                  emptyHint="还没有图。在下面写好提示词，点「生成本层」。"
                   onOpen={(slot) => {
                     if (slot.image) {
                       setDetail({
@@ -600,19 +600,19 @@ function AnalyzeForm({
     <div className="mx-auto w-full max-w-[720px]">
       <h2 className="text-sm font-medium text-ink">把这张场景图拆成可做视差的图层</h2>
       <p className="mt-1 text-[11.5px] leading-relaxed text-muted">
-        LLM 会读这张图，写出每一层的分层提示词（保留什么、删掉什么、被挡住的部分补到哪里）。
-        这一步不占 GPU，出方案后你可以逐层改词，再一层一层出图。
+        先读这张图，写出每一层的提示词：保留什么、删掉什么、被挡住的部分补到哪里。
+        方案出来后可以逐层改，再一层一层出图。
       </p>
 
       {failed ? (
         <p className="mt-4 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-[11.5px] text-bad">
-          上一次分析失败：{errorMessage ?? "未知原因"}
+          上一次没有成功：{errorMessage ?? "未知原因"}
         </p>
       ) : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-[11px] text-muted">
-          模型（按层出图用）
+          出图模型
           <select
             value={model}
             onChange={(event) => setModel(event.target.value)}

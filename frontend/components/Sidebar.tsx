@@ -133,7 +133,7 @@ const ITEMS: NavItem[] = [
   { label: "图片", href: "/compose", icon: ImageIcon, mode: "text_to_image", divider: true },
   { label: "视频", href: "/video", icon: VideoIcon, hint: "视频生成" },
   // 场景是「按地点/剧情分组的图片库」，产物不进图片页，所以和图片、视频并列
-  { label: "场景", href: "/scenes", icon: ScenesIcon, hint: "按场景隔离的图片库" },
+  { label: "场景", href: "/scenes", icon: ScenesIcon, hint: "按地点或剧情组织的图集" },
   { label: "设置", href: "/settings", icon: SettingsIcon, divider: true },
 ];
 

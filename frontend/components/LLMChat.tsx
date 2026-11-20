@@ -27,7 +27,7 @@ function prettyJson(text: string): string {
 }
 
 /**
- * 分层分析时的「与 LLM 的对话」：系统提示词 + 用户消息 + 原始应答。
+ * 分层分析时的「与模型的对话」：系统提示词 + 这次的要求 + 原始应答。
  *
  * 只读展示，每轮一张卡；系统提示词默认折叠（它很长，而且设置页里能改）。
  */
@@ -37,9 +37,9 @@ export default function LLMChat({ exchange, waiting = false, model, compact = fa
       <div className="mx-auto w-full max-w-3xl rounded-xl2 border border-edge/60 bg-surface2/40 px-4 py-3 text-[11.5px] text-muted">
         <div className="mb-1 flex items-center gap-2 text-ink/80">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accentSoft" />
-          与 LLM 的对话
+          与模型的对话
         </div>
-        请求已发出，等模型回第一轮…参考图会以图片形式附在第一条消息里。
+        已发出，正在等模型回答…
       </div>
     );
   }
@@ -48,10 +48,10 @@ export default function LLMChat({ exchange, waiting = false, model, compact = fa
     <div className="mx-auto w-full max-w-3xl">
       {compact ? null : (
         <div className="mb-2 flex items-center justify-between text-[11px] text-muted">
-          <span className="text-ink/80">与 LLM 的对话</span>
+          <span className="text-ink/80">与模型的对话</span>
           <span>
             {model ? `${model} · ` : ""}
-            {exchange.length} 轮请求
+            {exchange.length} 轮
           </span>
         </div>
       )}
@@ -84,7 +84,7 @@ export default function LLMChat({ exchange, waiting = false, model, compact = fa
                 <details className="group">
                   <summary className="cursor-pointer list-none text-[11px] text-muted transition hover:text-ink/80">
                     <span className="mr-1 inline-block transition group-open:rotate-90">▸</span>
-                    系统提示词（分层规则）· {entry.system.length} 字
+                    分层规则 · {entry.system.length} 字
                   </summary>
                   <pre className="scroll-thin mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 font-mono text-[10.5px] leading-relaxed text-muted/85">
                     {entry.system}
@@ -93,10 +93,10 @@ export default function LLMChat({ exchange, waiting = false, model, compact = fa
 
                 <div>
                   <div className="mb-1 flex items-center gap-2 text-[11px] text-muted">
-                    用户消息
+                    这次的要求
                     {entry.has_image ? (
                       <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted/80">
-                        已附参考图
+                        已附场景图
                       </span>
                     ) : null}
                   </div>
@@ -106,7 +106,7 @@ export default function LLMChat({ exchange, waiting = false, model, compact = fa
                 </div>
 
                 <div>
-                  <div className="mb-1 text-[11px] text-muted">LLM 应答</div>
+                  <div className="mb-1 text-[11px] text-muted">模型的回答</div>
                   {entry.response ? (
                     <pre className="scroll-thin max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-surface/70 p-2.5 font-mono text-[10.5px] leading-relaxed text-ink/75">
                       {prettyJson(entry.response)}

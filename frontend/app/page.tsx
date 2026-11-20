@@ -309,7 +309,7 @@ export default function HomePage() {
               <HeroFact label="队列" value={health?.comfyui?.reachable ? "串行执行 · 一次一任务" : "ComfyUI 未连接"} />
               <HeroFact
                 label="项目"
-                value={health?.project_name ? `${health.project_name} · 独立数据库与目录` : "—"}
+                value={health?.project_name ? `${health.project_name} · 独立作品库` : "—"}
               />
             </dl>
           </div>
