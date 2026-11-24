@@ -36,6 +36,17 @@ const TOOLS = [
     action: "打开抽帧台 →",
   },
   {
+    key: "kit",
+    title: "图集",
+    description:
+      "把项目里的透明图（平台、柱子、拱门、蘑菇…）装成一张 atlas：自动按 alpha 裁边、留 3px 扩边、记录锚点，导出 atlas.png + kit.json。",
+    badge: "本地处理",
+    href: "/tools/kit",
+    ready: true,
+    tags: ["透明图", "装箱", "atlas", "锚点"],
+    action: "打开图集 →",
+  },
+  {
     key: "resize",
     title: "批量改尺寸",
     description: "把一批图统一到同一个画布与主体比例，适合做角色三视图与图标。",

@@ -61,7 +61,7 @@ export default function SceneDetailPage() {
 
   const generationsQuery = useQuery({
     queryKey: ["generations", "scene", sceneId, limit],
-    queryFn: () => fetchGenerations({ limit, scene: sceneId, hasImages: true, excludeLayer: true }),
+    queryFn: () => fetchGenerations({ limit, scene: sceneId, hasImages: true, excludeLayer: true, excludeElement: true }),
     enabled: sceneId > 0,
     refetchInterval: (q) => {
       const active = q.state.data?.items.some((item) => ACTIVE.has(item.status));
@@ -71,7 +71,7 @@ export default function SceneDetailPage() {
 
   // 分层产物只在对应层的页签里出现（它们带着 layer_id），场景信息流里不要
   const generations: GenerationRead[] = useMemo(
-    () => (generationsQuery.data?.items ?? []).filter((item) => !item.layer_id),
+    () => (generationsQuery.data?.items ?? []).filter((item) => !item.layer_id && !item.element_id),
     [generationsQuery.data],
   );
   const total = generationsQuery.data?.total ?? 0;
@@ -251,6 +251,9 @@ export default function SceneDetailPage() {
             }
             startDownload(layerExportUrl(sceneId, slot.image.id));
             toast("正在打包下载：场景图 + 每层选定的那张");
+          }}
+          onExtract={(slot) => {
+            if (slot.image) router.push(`/scenes/${sceneId}/extract/${slot.image.id}`);
           }}
           layerBadge={layerBadge}
           modelLabels={modelLabels}

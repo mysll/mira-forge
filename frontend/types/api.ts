@@ -143,6 +143,8 @@ export type GenerationRead = {
   scene_id: number | null;
   /** 所属图层（layers.id）；分层页签按它查自己的批次 */
   layer_id: number | null;
+  /** 所属元素（elements.id）；元素页签按它查自己的批次 */
+  element_id: number | null;
   /** 批次名，可编辑；空着时显示「批次 #id」 */
   name: string | null;
   negative_prompt: string | null;
@@ -296,6 +298,9 @@ export type SceneDeleted = {
   images: number;
 };
 
+/** 引擎槽位：远景 / 中景 / 近景 / 玩法层 / 前景（系数与 z 由后端按槽位算）。 */
+export type LayerSlot = "far" | "mid" | "near" | "behind" | "gameplay" | "foreground";
+
 /** 分层方案里的一层：LLM 给的语义 + 可编辑的提示词，不含坐标。 */
 export type LayerRead = {
   id: number;
@@ -304,6 +309,10 @@ export type LayerRead = {
   key: string;
   name: string;
   role: string | null;
+  /** 引擎槽位：far / mid / near / gameplay / foreground */
+  slot: LayerSlot;
+  /** 槽内序号（0 最远） */
+  depth: number;
   scroll_scale: number;
   z_index: number;
   prompt: string;
@@ -314,6 +323,9 @@ export type LayerRead = {
   generation_id: number | null;
   /** 导出时用哪一张；null = 这一层最新的那张 */
   selected_image_id: number | null;
+  has_mask: boolean;
+  /** 这一层现在还有没有产物（批次删掉后立刻变 false，不能只看 generation_id） */
+  has_images: boolean;
   status: string;
   created_at: string;
 };
@@ -362,12 +374,22 @@ export type LayerSetCreatePayload = {
   negative_prompt?: string | null;
 };
 
+export type LayerCreatePayload = {
+  name: string;
+  slot?: LayerSlot;
+  prompt: string;
+  negative_prompt?: string | null;
+  key?: string | null;
+  role?: string | null;
+};
+
 export type LayerUpdatePayload = {
   name?: string;
   prompt?: string;
   negative_prompt?: string | null;
-  scroll_scale?: number;
-  z_index?: number;
+  /** 换槽位：系数与 z 由后端重算 */
+  slot?: LayerSlot;
+  depth?: number;
   /** 指定导出用哪一张；null = 回到「用最新的那张」 */
   selected_image_id?: number | null;
 };
@@ -419,6 +441,164 @@ export type LLMTestResult = {
 
 /** 设置页里的「分层提示词」：发给 LLM 的系统提示词，只有这一份。 */
 export type LayerPromptRead = {
+  prompt: string;
+  is_default: boolean;
+  max_length: number;
+};
+/** 图集里的一个件：来源要么是项目里的一张图，要么是元素提取出来的小图。 */
+export type KitItemRead = {
+  id: number;
+  kit_id: number;
+  image_id: number | null;
+  element_id: number | null;
+  key: string;
+  anchor: "top" | "bottom";
+  note: string | null;
+  /** 进图集前按这个比例缩放（1.0 = 原尺寸） */
+  scale: number;
+  sort_order: number;
+  created_at: string;
+  rect?: { x: number; y: number; w: number; h: number; bleed: number } | null;
+};
+
+export type KitRead = {
+  id: number;
+  name: string;
+  description: string | null;
+  padding: number;
+  max_width: number;
+  cell: number;
+  scene_id: number | null;
+  created_at: string;
+  item_count: number;
+  items: KitItemRead[];
+};
+
+export type KitListResponse = {
+  items: KitRead[];
+  total: number;
+};
+
+export type KitCreatePayload = {
+  name: string;
+  description?: string | null;
+  padding?: number;
+  max_width?: number;
+  cell?: number;
+  scene_id?: number | null;
+};
+
+export type KitUpdatePayload = {
+  name?: string;
+  description?: string | null;
+  padding?: number;
+  max_width?: number;
+  cell?: number;
+};
+
+export type KitItemCreatePayload = {
+  image_id?: number;
+  element_id?: number;
+  key?: string;
+  anchor?: "top" | "bottom";
+  note?: string | null;
+  scale?: number;
+};
+
+export type KitItemUpdatePayload = {
+  key?: string;
+  anchor?: "top" | "bottom";
+  note?: string | null;
+  sort_order?: number;
+  scale?: number;
+};
+
+export type AtlasSummary = {
+  width: number;
+  height: number;
+  cell: number;
+  fill: number;
+  item_count: number;
+  items: KitItemRead[];
+  /** 比画布还宽、被自动等比缩小的件名 */
+  shrunk: string[];
+};
+
+/** 元素提取：一张场景图里拆出来的可复用件。 */
+export type ElementKind = "terrain" | "structure" | "prop" | "decor";
+
+export type ElementStatus = "draft" | "queued" | "running" | "ready" | "failed";
+
+export type ElementRead = {
+  id: number;
+  set_id: number;
+  kind: ElementKind;
+  name: string;
+  key: string;
+  anchor: "top" | "bottom";
+  note: string | null;
+  prompt: string | null;
+  status: ElementStatus;
+  sort_order: number;
+  image_id: number | null;
+  /** 图集这张用哪张：用户指定过就是指定的那张，否则是最新一张 */
+  selected_image_id: number | null;
+  /** 这一件被加进了几个图集（页签上标「已在图集」） */
+  kit_count: number;
+  kit_ids: number[];
+  /** 这一件是否手画过遮罩（有的话出图按遮罩裁参考图） */
+  has_mask: boolean;
+  /** 最近那次出图是不是真透明背景（模型偶尔交出整张不透明的图） */
+  has_alpha: boolean;
+  created_at: string;
+};
+
+export type ElementSetRead = {
+  id: number;
+  scene_id: number;
+  source_image_id: number | null;
+  source_image: ImageBrief | null;
+  status: "analyzing" | "ready" | "failed";
+  brief: string | null;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+  elements: ElementRead[];
+  llm_exchange: LLMExchangeEntry[];
+};
+
+export type ElementSetListResponse = {
+  items: ElementSetRead[];
+  total: number;
+};
+
+export type ElementSetCreatePayload = {
+  source_image_id: number;
+  brief?: string | null;
+};
+
+export type ElementUpdatePayload = {
+  name?: string;
+  key?: string;
+  anchor?: "top" | "bottom";
+  note?: string | null;
+  prompt?: string;
+  selected_image_id?: number | null;
+};
+
+export type ElementExtractPayload = {
+  element_ids: number[];
+  negative_prompt?: string | null;
+  seed?: number | null;
+  steps?: number | null;
+  cfg?: number | null;
+  sampler?: string | null;
+  count?: number;
+  model?: string | null;
+  prompt_suffix?: string | null;
+};
+
+export type ElementPromptRead = {
   prompt: string;
   is_default: boolean;
   max_length: number;

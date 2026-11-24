@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.element import Element, ElementSet
 from app.models.generation import Generation, GenerationStatus, GenerationType
 from app.models.image import Image
 from app.models.layer import Layer, LayerSet
@@ -185,6 +186,19 @@ def create_generation(
             raise GenerationValidationError("这个图层不属于该场景")
         scene_id = layer_set.scene_id
 
+    # 元素提取：参考图固定是场景底图，产物归到这个元素名下。
+    element_id = payload.element_id
+    if element_id is not None:
+        element = db.get(Element, element_id)
+        if element is None:
+            raise GenerationValidationError(f"元素 {element_id} 不存在")
+        element_set = db.get(ElementSet, element.set_id)
+        if element_set is None or element_set.deleted_at is not None:
+            raise GenerationValidationError("这个元素所属的提取记录已经删除")
+        if scene_id is not None and element_set.scene_id != scene_id:
+            raise GenerationValidationError("这个元素不属于该场景")
+        scene_id = element_set.scene_id
+
     model = workflow_service.get_model(payload.model)
     if model is None:
         available = ", ".join(item.id for item in workflow_service.list_models())
@@ -209,6 +223,9 @@ def create_generation(
     # 图上带 layer_id 的一定是分层产物，不看它原本是什么类型
     if layer_id is not None:
         generation_type = GenerationType.SCENE_LAYER
+    # 元素提取永远是「参考底图重画一件」
+    if element_id is not None:
+        generation_type = GenerationType.ELEMENT
     if generation_type == GenerationType.IMAGE_TO_VIDEO and not paths:
         generation_type = GenerationType.TEXT_TO_VIDEO
     # 编辑带了遮罩：输入完全一样，只是换一张带 SetLatentNoiseMask 的图，
@@ -233,6 +250,8 @@ def create_generation(
             )
         else:
             workflow_type = GenerationType.TEXT_TO_IMAGE
+    elif generation_type == GenerationType.ELEMENT:
+        workflow_type = GenerationType.IMAGE_EDIT
 
     target = workflow_service.get_workflow_target(model, workflow_type)
     if target is None:
@@ -280,6 +299,13 @@ def create_generation(
     elif generation_type in SCENE_TYPES:
         # 参考图可有可无（有就当参考图编辑，没有就当文生图），上限已经校验过
         pass
+    elif generation_type == GenerationType.ELEMENT:
+        if not paths:
+            raise GenerationValidationError("元素提取需要一张参考图（场景底图）")
+        if len(paths) > settings.max_reference_images:
+            raise GenerationValidationError(
+                f"元素提取最多 {settings.max_reference_images} 张参考图，收到 {len(paths)} 张"
+            )
     else:
         paths = []
 
@@ -309,6 +335,7 @@ def create_generation(
         prompt=prompt,
         scene_id=scene_id,
         layer_id=layer_id,
+        element_id=element_id,
         workflow_id=workflow_row.id if workflow_row else None,
         generation_type=str(generation_type),
         model_name=model.id,

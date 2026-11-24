@@ -39,3 +39,15 @@ class LayerPromptRead(BaseModel):
 
 class LayerPromptUpdate(BaseModel):
     prompt: str = Field(min_length=1, max_length=20000)
+
+
+class ElementPromptRead(BaseModel):
+    """设置页里的「元素提取提示词」。"""
+
+    prompt: str
+    is_default: bool = False
+    max_length: int = 20000
+
+
+class ElementPromptUpdate(BaseModel):
+    prompt: str = Field(min_length=1, max_length=20000)

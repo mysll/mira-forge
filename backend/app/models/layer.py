@@ -76,7 +76,11 @@ class Layer(Base):
     name: Mapped[str] = mapped_column(String(60), nullable=False)
     # 这一层在画面里承担什么（一句话，层卡上显示）
     role: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # 视差系数：0.1 远 → 1.0 与相机同速 → 1.3 前景；Godot 里 scroll_scale
+    # 引擎槽位：far / mid / near / gameplay / foreground，见 services/layer_slots.py
+    slot: Mapped[str] = mapped_column(String(20), nullable=False, default="near", index=True)
+    # 槽内序号（0 最远）：同一深度面里再分前后时用它，最多到 1
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 视差系数：由槽位算出来（远景 0.08 … 前景 1.12），Godot 里 scroll_scale
     scroll_scale: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     z_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -86,10 +90,14 @@ class Layer(Base):
     supports: Mapped[str | None] = mapped_column(String(240), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 这一层对应的出图批次（P2 才有）
+    # 这一层的手画遮罩（灰度 PNG，白色=这一层，黑色=不管）；空 = 整张都算
+    mask_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
     generation_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 导出时用哪一张（images.id）：为空表示「这一层最新的那张」
     selected_image_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    # 软删：硬删会让 SQLite 把这一层的 id 复用给下一层，旧批次就「跑到」新层里了
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )

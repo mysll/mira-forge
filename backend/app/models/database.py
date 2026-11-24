@@ -39,6 +39,9 @@ def _apply_sqlite_pragmas(dbapi_connection: Any, _connection_record: Any) -> Non
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA busy_timeout=5000")
+        # 整表更新带索引的列时 SQLite 会走 two-pass 并在临时目录落盘；这台机器的
+        # 临时目录不可写，落盘失败会报 "unable to open database file"。放内存即可。
+        cursor.execute("PRAGMA temp_store=MEMORY")
     finally:
         cursor.close()
 

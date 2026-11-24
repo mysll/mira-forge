@@ -21,6 +21,7 @@ from app.models.generation import Generation
 from app.models.image import Image
 from app.models.layer import Layer, LayerSet
 from app.services import image_service
+from app.services.layer_slots import SLOT_ORDER, slot_label
 
 # 导出的 manifest 里写一份 Godot 参考参数（跟文档里的默认值一致）
 VIEWPORT_WIDTH = 1600
@@ -37,6 +38,18 @@ class ExportError(Exception):
 def _slug(text: str | None, fallback: str) -> str:
     cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]+", "-", (text or "").strip()).strip("-")
     return cleaned[:32] or fallback
+
+
+def _layer_stem(layer: Layer, used: set[str]) -> str:
+    """导出文件名按槽位：gameplay.png / far_00.png / near_01.png …
+
+    Godot 那边五个 Parallax2D 直接对着文件名建，不用再查表。
+    """
+    stem = "gameplay" if layer.slot == "gameplay" else f"{layer.slot}_{layer.depth:02d}"
+    if stem in used:
+        stem = f"{stem}_{_slug(layer.key, 'layer')}"
+    used.add(stem)
+    return stem
 
 
 def layer_candidates(db: Session, layer: Layer) -> list[Image]:
@@ -85,19 +98,24 @@ def build_export_zip(
     source_name = f"source/scene-{source.id}{suffix}"
 
     entries: list[dict] = []
+    used_names: set[str] = set()
     temp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
     temp.close()
     target = Path(temp.name)
 
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         _write_member(archive, source_name, source, storage_root)
-        for layer in layer_set.layers:
+        for layer in [item for item in layer_set.layers if item.deleted_at is None]:
             image, origin = resolve_layer_image(db, layer)
             item = {
                 "ord": layer.ord,
                 "key": layer.key,
                 "name": layer.name,
                 "role": layer.role,
+                # 引擎按槽位建 Parallax2D，槽位比层名重要
+                "slot": layer.slot,
+                "slot_label": slot_label(layer.slot),
+                "depth": layer.depth,
                 "scroll_scale": layer.scroll_scale,
                 "z_index": layer.z_index,
                 "file": None,
@@ -109,7 +127,8 @@ def build_export_zip(
             }
             if image is not None:
                 ext = Path(image.file_path).suffix or ".png"
-                name = f"layers/L{layer.ord:02d}_{_slug(layer.key, 'layer')}{ext}"
+                stem = _layer_stem(layer, used_names)
+                name = f"layers/{stem}{ext}"
                 _write_member(archive, name, image, storage_root)
                 item.update(
                     file=name,
@@ -119,6 +138,21 @@ def build_export_zip(
                     height=image.height,
                 )
             entries.append(item)
+
+        parallax = []
+        for slot in SLOT_ORDER:
+            files = [entry for entry in entries if entry["slot"] == slot]
+            if not files:
+                continue
+            parallax.append(
+                {
+                    "slot": slot,
+                    "label": slot_label(slot),
+                    "scroll_scale": files[0]["scroll_scale"],
+                    "z_index": files[0]["z_index"],
+                    "files": [entry["file"] for entry in files if entry["file"]],
+                }
+            )
 
         manifest = {
             "scene": {
@@ -134,18 +168,20 @@ def build_export_zip(
             "layer_set": {
                 "id": layer_set.id,
                 "model": layer_set.model_name,
-                "layer_count": len(layer_set.layers),
+                "layer_count": len([item for item in layer_set.layers if item.deleted_at is None]),
             },
             "layers": entries,
+            "parallax": parallax,
             "godot": {
                 "viewport": [VIEWPORT_WIDTH, VIEWPORT_HEIGHT],
                 "camera_zoom": CAMERA_ZOOM,
                 "camera_travel_px": CAMERA_TRAVEL_PX,
                 "clear_color": CLEAR_COLOR,
                 "note": (
-                    "每层一个 Sprite2D（centered = false，初始 position = (0,0)），"
-                    "父节点用 Parallax2D，scroll_scale = (scroll_scale, 0)、repeat_size = Vector2.ZERO；"
-                    "z_index 直接用 manifest 里的值。"
+                    "按 parallax 里的每一项建一个 Parallax2D（scroll_scale = (scroll_scale, 0)、"
+                    "repeat_size = Vector2.ZERO），files 里每张图放一个 Sprite2D（centered = false，"
+                    "初始 position = (0,0)），z_index 用 manifest 里的值。"
+                    "文件按槽位命名：far_00 / mid_00 / near_00 / gameplay / foreground_00。"
                 ),
             },
             "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -160,8 +196,10 @@ def build_export_zip(
             f"源图：{source_name}（{source.width}×{source.height}）",
             f"层数：{len(entries)}",
             "",
-            "每一层的文件是 layers/Lxx_<key>.png，导出用的图来自 manifest.json 的 layers[].picked：",
+            "每一层一个文件，文件名就是引擎槽位：far_00 / mid_00 / near_00 / gameplay / foreground_00。",
+            "导出用的图来自 manifest.json 的 layers[].picked：",
             "  manual = 你在层页签里手动指定的那张；latest = 这一层最新的那张。",
+            "manifest.json 的 parallax 段已经按槽位归好组，照着建 Parallax2D 就行。",
         ]
         if missing:
             readme += ["", "还没有出图的层：" + "、".join(missing)]

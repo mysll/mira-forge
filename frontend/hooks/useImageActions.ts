@@ -103,6 +103,9 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
   const refresh = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["generations"] });
     queryClient.invalidateQueries({ queryKey: ["images"] });
+    // 分层工作台按层查批次，主列表的 key 变了它不会跟着变
+    queryClient.invalidateQueries({ queryKey: ["layer-generations"] });
+    queryClient.invalidateQueries({ queryKey: ["layer-sets"] });
   }, [queryClient]);
 
   const favorite = useCallback(

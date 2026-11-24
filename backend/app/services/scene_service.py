@@ -73,10 +73,10 @@ def get_scene(db: Session, scene_id: int) -> Scene | None:
 
 
 def scene_stats(db: Session, scene_id: int) -> tuple[int, int]:
-    """(场景图数, 场景批次数)，都只算未删除的，且不含分层产物。
+    """(场景图数, 场景批次数)，都只算未删除的，且不含分层 / 元素产物。
 
-    分层图（media_type=scene_layer / generation_type=scene_layer）属于某一层，
-    只在分层工作台里出现，不算进场景自己的「几批几图」。
+    分层图（scene_layer）属于某一层、元素图（element）属于某个可复用件，
+    它们都只在各自的工作台里出现，不算进场景自己的「几批几图」。
     """
     images = db.scalar(
         select(func.count())
@@ -84,7 +84,7 @@ def scene_stats(db: Session, scene_id: int) -> tuple[int, int]:
         .where(
             Image.scene_id == scene_id,
             Image.deleted_at.is_(None),
-            Image.media_type != "scene_layer",
+            Image.media_type.not_in(("scene_layer", "element")),
         )
     )
     generations = db.scalar(
@@ -93,7 +93,7 @@ def scene_stats(db: Session, scene_id: int) -> tuple[int, int]:
         .where(
             Generation.scene_id == scene_id,
             Generation.deleted_at.is_(None),
-            Generation.generation_type != "scene_layer",
+            Generation.generation_type.not_in(("scene_layer", "element")),
         )
     )
     return int(images or 0), int(generations or 0)
@@ -118,7 +118,7 @@ def list_scenes(db: Session) -> list[tuple[Scene, int, int]]:
             .where(
                 Image.scene_id.in_(ids),
                 Image.deleted_at.is_(None),
-                Image.media_type != "scene_layer",
+                Image.media_type.not_in(("scene_layer", "element")),
             )
             .group_by(Image.scene_id)
         ).all()
@@ -129,7 +129,7 @@ def list_scenes(db: Session) -> list[tuple[Scene, int, int]]:
             .where(
                 Generation.scene_id.in_(ids),
                 Generation.deleted_at.is_(None),
-                Generation.generation_type != "scene_layer",
+                Generation.generation_type.not_in(("scene_layer", "element")),
             )
             .group_by(Generation.scene_id)
         ).all()
@@ -159,7 +159,7 @@ def scene_covers(db: Session, scenes: list["Scene"]) -> dict[int, tuple[int, dat
         .where(
             Image.scene_id.in_([scene.id for scene in scenes]),
             Image.deleted_at.is_(None),
-            Image.media_type.not_in(("video", "scene_layer")),
+            Image.media_type.not_in(("video", "scene_layer", "element")),
         )
         .order_by(Image.id)
     ).all()

@@ -30,6 +30,10 @@ class LayerRead(TimestampedModel):
     key: str
     name: str
     role: str | None = None
+    # 引擎槽位：far / mid / near / gameplay / foreground
+    slot: str = "near"
+    # 槽内序号（0 最远）
+    depth: int = 0
     scroll_scale: float
     z_index: int
     prompt: str
@@ -40,6 +44,10 @@ class LayerRead(TimestampedModel):
     generation_id: int | None = None
     # 导出时用哪一张；空 = 这一层最新的那张
     selected_image_id: int | None = None
+    # 这一层是否画了遮罩（只在遮罩里重绘）
+    has_mask: bool = False
+    # 这一层现在还有没有产物（批次删掉之后要立刻变成 false，不能只看 generation_id）
+    has_images: bool = False
     status: str
     created_at: datetime
 
@@ -50,10 +58,22 @@ class LayerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=60)
     prompt: str | None = Field(default=None, min_length=1, max_length=8000)
     negative_prompt: str | None = Field(default=None, max_length=2000)
-    scroll_scale: float | None = Field(default=None, ge=0.05, le=1.3)
-    z_index: int | None = Field(default=None, ge=-9999, le=9999)
+    # 只让改槽位：系数与 z 由后端按槽位算
+    slot: str | None = Field(default=None, max_length=20)
+    depth: int | None = Field(default=None, ge=0, le=1)
     # 指定这一层导出用哪一张（传 null = 回到「用最新的那张」）
     selected_image_id: int | None = Field(default=None, ge=1)
+
+
+class LayerCreate(BaseModel):
+    """手动补一层（LLM 漏拆时用）。"""
+
+    name: str = Field(min_length=1, max_length=60)
+    slot: str = Field(default="near", max_length=20)
+    prompt: str = Field(min_length=1, max_length=8000)
+    negative_prompt: str | None = Field(default=None, max_length=2000)
+    key: str | None = Field(default=None, max_length=40)
+    role: str | None = Field(default=None, max_length=200)
 
 
 class LLMExchangeEntry(BaseModel):

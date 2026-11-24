@@ -331,6 +331,8 @@ export default function MaskEditor({
         setReady(true);
         return;
       }
+      // 旧遮罩可能是跨域 URL（后端 8000 / 前端 3000）：直接 drawImage 会把画布污染，
+      // 后面 getImageData 就抛 SecurityError。先抓成 blob 再当同源图用。
       const mask = new Image();
       mask.onload = () => {
         if (cancelled) {
@@ -338,14 +340,30 @@ export default function MaskEditor({
         }
         const context = maskCanvas.getContext("2d");
         if (context) {
-          // 灰度遮罩 → 红色笔迹：亮度当透明度，方便在原图上直接看
-          context.save();
-          context.globalCompositeOperation = "source-over";
-          context.fillStyle = "rgba(255, 80, 80, 1)";
-          context.fillRect(0, 0, width, height);
-          context.globalCompositeOperation = "destination-in";
-          context.drawImage(mask, 0, 0, width, height);
-          context.restore();
+          // 灰度遮罩 → 红色笔迹：亮度当 alpha。
+          // 不能直接 destination-in——灰度 PNG 是不透明的，那样会把整张画布染红。
+          const temp = document.createElement("canvas");
+          temp.width = width;
+          temp.height = height;
+          const tempContext = temp.getContext("2d");
+          if (tempContext) {
+            tempContext.drawImage(mask, 0, 0, width, height);
+            const data = tempContext.getImageData(0, 0, width, height);
+            for (let offset = 0; offset < data.data.length; offset += 4) {
+              const value = Math.max(
+                data.data[offset],
+                data.data[offset + 1],
+                data.data[offset + 2],
+              );
+              data.data[offset] = 255;
+              data.data[offset + 1] = 80;
+              data.data[offset + 2] = 80;
+              data.data[offset + 3] = value;
+            }
+            tempContext.putImageData(data, 0, 0);
+            context.clearRect(0, 0, width, height);
+            context.drawImage(temp, 0, 0);
+          }
         }
         // 载入的旧遮罩当作底图：之后的撤销只回退这次新画的笔迹
         const base = document.createElement("canvas");
@@ -356,7 +374,18 @@ export default function MaskEditor({
         setReady(true);
       };
       mask.onerror = () => setReady(true);
-      mask.src = initialMaskUrl;
+      void (async () => {
+        try {
+          const response = await fetch(initialMaskUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const blob = await response.blob();
+          mask.src = URL.createObjectURL(blob);
+        } catch {
+          // 抓不到就退回普通加载（同源部署时不会污染画布）
+          mask.crossOrigin = "anonymous";
+          mask.src = initialMaskUrl;
+        }
+      })();
     };
     image.onerror = () => setReady(false);
     image.src = imageUrl;

@@ -5,13 +5,20 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.settings import (
+    ElementPromptRead,
+    ElementPromptUpdate,
     LayerPromptRead,
     LayerPromptUpdate,
     LLMSettingsRead,
     LLMSettingsUpdate,
     LLMTestResult,
 )
-from app.services import layer_prompt_service, llm_client, llm_settings_service
+from app.services import (
+    element_prompt_service,
+    layer_prompt_service,
+    llm_client,
+    llm_settings_service,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -82,4 +89,35 @@ def reset_layer_prompt() -> LayerPromptRead:
     prompt = layer_prompt_service.reset()
     return LayerPromptRead(
         prompt=prompt, is_default=True, max_length=layer_prompt_service.MAX_LENGTH
+    )
+
+
+@router.get("/element-prompt", response_model=ElementPromptRead)
+def read_element_prompt() -> ElementPromptRead:
+    """元素提取用的系统提示词（和分层提示词各存一份，互不影响）。"""
+    return ElementPromptRead(
+        prompt=element_prompt_service.load(),
+        is_default=element_prompt_service.is_default(),
+        max_length=element_prompt_service.MAX_LENGTH,
+    )
+
+
+@router.put("/element-prompt", response_model=ElementPromptRead)
+def update_element_prompt(payload: ElementPromptUpdate) -> ElementPromptRead:
+    try:
+        prompt = element_prompt_service.save(payload.prompt)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return ElementPromptRead(
+        prompt=prompt,
+        is_default=element_prompt_service.is_default(),
+        max_length=element_prompt_service.MAX_LENGTH,
+    )
+
+
+@router.post("/element-prompt/reset", response_model=ElementPromptRead)
+def reset_element_prompt() -> ElementPromptRead:
+    prompt = element_prompt_service.reset()
+    return ElementPromptRead(
+        prompt=prompt, is_default=True, max_length=element_prompt_service.MAX_LENGTH
     )

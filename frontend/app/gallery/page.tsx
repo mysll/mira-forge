@@ -123,6 +123,7 @@ export default function GalleryPage() {
         media: mediaFilter === "all" ? undefined : mediaFilter,
         favorite: favoriteOnly || undefined,
         dateFrom: range.from,
+        excludeElement: true,
         dateTo: range.to,
       });
     },

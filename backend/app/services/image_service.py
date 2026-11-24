@@ -85,6 +85,28 @@ def png_dimensions(content: bytes) -> tuple[int, int] | None:
     return int(width), int(height)
 
 
+def cut_by_mask(content: bytes, mask: bytes, *, threshold: int = 32) -> bytes:
+    """把遮罩外的像素变成全透明（返回 PNG 字节）。
+
+    inpaint 会把遮罩外原样保留，输出仍是整张不透明场景；分层要的是「只有这一块」，
+    所以出图后按遮罩把 alpha 切出去，图和源图仍然逐像素对齐。
+    """
+    from io import BytesIO
+
+    from PIL import Image as PILImage
+
+    image = PILImage.open(BytesIO(content)).convert("RGBA")
+    mask_image = PILImage.open(BytesIO(mask)).convert("L")
+    if mask_image.size != image.size:
+        mask_image = mask_image.resize(image.size, PILImage.NEAREST)
+    alpha = image.getchannel("A")
+    gate = mask_image.point(lambda value: 255 if value > threshold else 0)
+    image.putalpha(PILImage.composite(alpha, PILImage.new("L", image.size, 0), gate))
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
 def store_image(
     db: Session,
     *,
@@ -176,6 +198,39 @@ def absolute_path(image: Image, storage_root: Path | None = None) -> Path:
     """把库里的相对路径还原成磁盘绝对路径。"""
     return storage_root_for(storage_root) / image.file_path
 
+
+ALPHA_FLOOR = 16  # alpha 低于这个值当全透明（生成图边缘常有一层几乎看不见的雾）
+
+
+def trimmed_png(image: Image, *, max_side: int = 320, storage_root: Path | None = None) -> bytes:
+    """裁掉四周透明空白后的小图（PNG，保留 alpha）。
+
+    透明件生成出来往往是一整张画布、中间一小块内容，列表里直接显示原图
+    等于显示一块空白；这里按 alpha 取内容框、等比缩到 max_side 以内。
+    """
+    path = absolute_path(image, storage_root)
+    import io
+
+    from PIL import Image as PILImage
+
+    with PILImage.open(path) as opened:
+        rgba = opened.convert("RGBA")
+    clear = rgba.getchannel("A").point(lambda value: 255 if value < ALPHA_FLOOR else 0)
+    rgba.paste((0, 0, 0, 0), mask=clear)
+    solid = rgba.getchannel("A").point(lambda value: 255 if value >= ALPHA_FLOOR else 0)
+    box = solid.getbbox()
+    if box:
+        rgba = rgba.crop(box)
+    longest = max(rgba.width, rgba.height)
+    if longest > max_side > 0:
+        scale = max_side / longest
+        rgba = rgba.resize(
+            (max(1, round(rgba.width * scale)), max(1, round(rgba.height * scale))),
+            PILImage.LANCZOS,
+        )
+    buffer = io.BytesIO()
+    rgba.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
 
 THUMBNAIL_SIZE = 480
 THUMBNAIL_QUALITY = 82

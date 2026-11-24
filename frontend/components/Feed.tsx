@@ -26,6 +26,8 @@ type Props = {
   onLayers?: (item: FeedSlot) => void;
   /** 场景页专用：导出「这张场景图 + 它的分层」 */
   onExport?: (item: FeedSlot) => void;
+  /** 场景页专用：把这张图里的结构拆成可复用的元素 */
+  onExtract?: (item: FeedSlot) => void;
   /** 层页签专用：指定这一层导出用哪一张 */
   onPick?: (item: FeedSlot) => void;
   pickedImageId?: number | null;

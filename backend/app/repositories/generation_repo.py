@@ -38,8 +38,10 @@ class GenerationRepository:
         date_to: datetime | None = None,
         scene_id: int | None = None,
         layer_id: int | None = None,
+        element_id: int | None = None,
         exclude_scene: bool = False,
         exclude_layer: bool = False,
+        exclude_element: bool = False,
     ) -> Select[tuple[Generation]]:
         # 进了回收站的批次不出现在列表里
         stmt = select(Generation).where(Generation.deleted_at.is_(None))
@@ -50,11 +52,18 @@ class GenerationRepository:
         # 分层页签只关心自己这一层出的图
         if layer_id is not None:
             stmt = stmt.where(Generation.layer_id == layer_id)
+        # 元素页签只要这个元素出的图
+        if element_id is not None:
+            stmt = stmt.where(Generation.element_id == element_id)
         if exclude_scene:
             stmt = stmt.where(Generation.generation_type.not_in(("scene", "scene_layer")))
         if exclude_layer:
             # 场景页 / 首页只要「场景底图」，不要每个层各自的那一批
             stmt = stmt.where(Generation.layer_id.is_(None))
+        if exclude_element:
+            # 元素提取的产物只属于「元素」页签，不进场景信息流 / 首页 / 资产
+            stmt = stmt.where(Generation.element_id.is_(None))
+            stmt = stmt.where(Generation.generation_type != "element")
         if q:
             pattern = f"%{q.strip()}%"
             stmt = stmt.where(Generation.prompt.ilike(pattern))
@@ -108,8 +117,10 @@ class GenerationRepository:
         date_to: datetime | None = None,
         scene_id: int | None = None,
         layer_id: int | None = None,
+        element_id: int | None = None,
         exclude_scene: bool = False,
         exclude_layer: bool = False,
+        exclude_element: bool = False,
     ) -> tuple[list[Generation], int]:
         stmt = self._filtered(
             q=q,
@@ -121,8 +132,10 @@ class GenerationRepository:
             date_to=date_to,
             scene_id=scene_id,
             layer_id=layer_id,
+            element_id=element_id,
             exclude_scene=exclude_scene,
             exclude_layer=exclude_layer,
+            exclude_element=exclude_element,
         )
         total = self.db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         rows = self.db.scalars(

@@ -39,6 +39,8 @@ class GenerationType(StrEnum):
     SCENE = "scene"
     # 场景分层图：从场景底图拆出来的单层素材（后续分层流程用）
     SCENE_LAYER = "scene_layer"
+    # 元素提取：把场景图里的某个零件重画成透明小图（图集用），不参与视差
+    ELEMENT = "element"
     # 本地编辑器保存的成品：不用模型、不排队，直接是一条已完成记录
     LOCAL_EDIT = "local_edit"
     LOCAL_ASSET = "local_asset"
@@ -61,6 +63,8 @@ class Generation(Base):
     scene_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # 所属图层（layers.id）：分层界面里按页签出图时落这个字段，页签据此查自己的信息流
     layer_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 所属元素（elements.id）：元素提取页里每个元素一个页签，各自的出图记录
+    element_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     workflow_id: Mapped[int | None] = mapped_column(
         ForeignKey("workflows.id", ondelete="SET NULL"), nullable=True
     )

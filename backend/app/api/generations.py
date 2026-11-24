@@ -399,6 +399,10 @@ def list_generations(
         default=False,
         description="排除分层批次（只要场景底图、不要每个层各自那一批）",
     ),
+    exclude_element: bool = Query(
+        default=False,
+        description="排除元素提取批次（元素产物只属于元素页签）",
+    ),
     layer: int | None = Query(
         default=None,
         ge=1,
@@ -426,6 +430,7 @@ def list_generations(
         layer_id=layer,
         exclude_scene=exclude_scene,
         exclude_layer=exclude_layer,
+        exclude_element=exclude_element,
     )
     return GenerationListResponse(
         items=[_to_read(row) for row in rows],

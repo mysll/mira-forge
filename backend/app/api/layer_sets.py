@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -19,6 +21,7 @@ from app.models.database import get_db
 from app.models.layer import Layer, LayerSet, LayerSetStatus
 from app.schemas.generation import GenerationListResponse, GenerationRead
 from app.schemas.layer import (
+    LayerCreate,
     LayerRead,
     LayerRenderAllResult,
     LayerRenderCreate,
@@ -31,13 +34,16 @@ from app.schemas.layer import (
 from app.services import llm_client
 from app.services.layer_service import (
     LayerError,
+    create_layer,
     create_layer_set,
+    delete_layer,
     delete_layer_set,
     get_layer_set,
     list_layer_sets,
     merge_negative,
     start_analysis,
     update_layer,
+    visible_layers,
     UNIVERSAL_NEGATIVE,
 )
 from app.services.scene_service import get_scene
@@ -48,9 +54,37 @@ router = APIRouter(tags=["layers"])
 _STALE_AFTER = timedelta(minutes=10)
 
 
-def _to_read(layer_set: LayerSet) -> LayerSetRead:
+def _layer_read(layer: Layer) -> LayerRead:
+    """单层的返回值：`has_mask` 不是表字段，得从 `mask_path` 推出来。"""
+    payload = LayerRead.model_validate(layer)
+    payload.has_mask = bool(layer.mask_path)
+    return payload
+
+
+def _to_read(db: Session, layer_set: LayerSet) -> LayerSetRead:
     payload = LayerSetRead.model_validate(layer_set)
-    payload.layers = [LayerRead.model_validate(layer) for layer in layer_set.layers]
+    sources = visible_layers(layer_set)
+    payload.layers = [_layer_read(layer) for layer in sources]
+    # 哪几层还有产物：批次删掉以后 generation_id 还指着旧批次，得实际查图
+    if sources:
+        from app.models.generation import Generation
+        from app.models.image import Image
+
+        filled = {
+            row
+            for (row,) in db.execute(
+                select(Generation.layer_id)
+                .join(Image, Image.generation_id == Generation.id)
+                .where(
+                    Generation.layer_id.in_([layer.id for layer in sources]),
+                    Generation.deleted_at.is_(None),
+                    Image.deleted_at.is_(None),
+                )
+                .group_by(Generation.layer_id)
+            )
+        }
+        for target in payload.layers:
+            target.has_images = target.id in filled
     # 对话记录存在 llm_meta JSON 里，单独拆成结构化的 llm_exchange 给前端
     try:
         meta = json.loads(layer_set.llm_meta) if layer_set.llm_meta else {}
@@ -98,7 +132,7 @@ def create_set(scene_id: int, payload: LayerSetCreate, db: Session = Depends(get
     except LayerError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     start_analysis(active_project().id, layer_set.id)
-    return _to_read(layer_set)
+    return _to_read(db, layer_set)
 
 
 @router.get("/scenes/{scene_id}/layer-sets", response_model=LayerSetListResponse)
@@ -106,13 +140,13 @@ def list_sets(scene_id: int, db: Session = Depends(get_db)) -> LayerSetListRespo
     get_scene(db, scene_id)
     items = list_layer_sets(db, scene_id)
     _reap_stale(db, items)
-    return LayerSetListResponse(items=[_to_read(item) for item in items], total=len(items))
+    return LayerSetListResponse(items=[_to_read(db, item) for item in items], total=len(items))
 
 
 @router.get("/layer-sets/{set_id}", response_model=LayerSetRead)
 def get_set(set_id: int, db: Session = Depends(get_db)) -> LayerSetRead:
     layer_set = get_layer_set(db, set_id)
-    return _to_read(layer_set)
+    return _to_read(db, layer_set)
 
 
 @router.delete("/layer-sets/{set_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -141,7 +175,7 @@ def export_layers(scene_id: int, source_image_id: int, db: Session = Depends(get
     )
     if layer_set is None:
         raise HTTPException(status_code=404, detail="这张图还没有分层方案，先做一次分层再导出")
-    if not layer_set.layers:
+    if not visible_layers(layer_set):
         raise HTTPException(status_code=422, detail="这套方案里没有层，无法导出")
 
     path, filename, manifest = layer_export_service.build_export_zip(
@@ -156,6 +190,70 @@ def export_layers(scene_id: int, source_image_id: int, db: Session = Depends(get
     )
 
 
+@router.post(
+    "/layer-sets/{set_id}/layers",
+    response_model=LayerRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_layer(set_id: int, payload: LayerCreate, db: Session = Depends(get_db)) -> LayerRead:
+    layer_set = get_layer_set(db, set_id)
+    try:
+        layer = create_layer(db, layer_set, payload)
+    except LayerError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    db.refresh(layer_set)
+    return LayerRead.model_validate(layer)
+
+
+@router.delete("/layers/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_layer(layer_id: int, db: Session = Depends(get_db)) -> None:
+    layer = db.get(Layer, layer_id)
+    if layer is None:
+        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
+    delete_layer(db, layer)
+
+
+@router.get("/layers/{layer_id}/mask")
+def get_layer_mask(layer_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    layer = db.get(Layer, layer_id)
+    if layer is None or not layer.mask_path:
+        raise HTTPException(status_code=404, detail="这一层还没有遮罩")
+    project = active_project()
+    path = project.storage_path / layer.mask_path
+    return FileResponse(
+        path, media_type="image/png", headers={"Cache-Control": "public, max-age=0, must-revalidate"}
+    )
+
+
+@router.post("/layers/{layer_id}/mask", response_model=LayerRead)
+def upload_layer_mask(
+    layer_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> LayerRead:
+    from app.services.layer_service import save_layer_mask
+
+    layer = db.get(Layer, layer_id)
+    if layer is None:
+        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
+    project = active_project()
+    try:
+        save_layer_mask(db, layer, file.file.read(), storage_root=project.storage_path)
+    except LayerError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return _layer_read(layer)
+
+
+@router.delete("/layers/{layer_id}/mask", status_code=status.HTTP_204_NO_CONTENT)
+def remove_layer_mask(layer_id: int, db: Session = Depends(get_db)) -> None:
+    from app.services.layer_service import clear_layer_mask
+
+    layer = db.get(Layer, layer_id)
+    if layer is None:
+        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
+    clear_layer_mask(db, layer)
+
+
 @router.patch("/layers/{layer_id}", response_model=LayerRead)
 def patch_layer(layer_id: int, payload: LayerUpdate, db: Session = Depends(get_db)) -> LayerRead:
     layer = db.get(Layer, layer_id)
@@ -165,7 +263,7 @@ def patch_layer(layer_id: int, payload: LayerUpdate, db: Session = Depends(get_d
         layer = update_layer(db, layer, payload)
     except LayerError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return LayerRead.model_validate(layer)
+    return _layer_read(layer)
 
 
 def _layer_or_404(db: Session, layer_id: int) -> Layer:
@@ -173,6 +271,29 @@ def _layer_or_404(db: Session, layer_id: int) -> Layer:
     if layer is None or layer.layer_set is None or layer.layer_set.deleted_at is not None:
         raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
     return layer
+
+
+# 有遮罩时，提示词里的「透明背景」描述是有害的：inpaint 要它把选区画满，
+# 而「其余全透明 / 透明区 #000000」会让模型把选区也留空（实测覆盖率从 9% 掉到 0.5%）。
+_MASK_STRIP = ("透明", "alpha", "#000000", "抠图", "抠出", "单独这一件")
+_MASK_FILL = (
+    "整个选区都画成这一件，画到选区四边，不要留黑边或空隙，不透明，与周围画风一致。"
+)
+
+
+def _prompt_for_mask(text: str) -> str:
+    """有遮罩时把「透明背景」那类句子去掉，并补一句「填满选区」。"""
+    kept = [
+        piece.strip()
+        for piece in re.split(r"(?<=[。；;！!？?])", text)
+        if piece.strip() and not any(word.lower() in piece.lower() for word in _MASK_STRIP)
+    ]
+    body = "".join(kept).strip() or text.strip()
+    # 「只提取 / 抠出」会让模型按「抠图」处理，把选区留空；有遮罩时这里就是「画」
+    body = re.sub(r"^(?:只)?(?:提取|抠出|抠取|取)", "画", body).strip() or body
+    if ("填满" in body or "画到选区" in body) and "不透明" in body:
+        return body
+    return body + _MASK_FILL
 
 
 def _submit_layer_generation(
@@ -207,6 +328,9 @@ def _submit_layer_generation(
     text = (prompt or layer.prompt or "").strip() or layer.name
     if prompt and save_prompt and prompt.strip() != (layer.prompt or ""):
         layer.prompt = prompt.strip()
+    # 画了遮罩就走 inpaint：去掉「其余全透明」这类会让选区变空的描述
+    if layer.mask_path:
+        text = _prompt_for_mask(text)
 
     selection = GenerationCreate(
         prompt=text,
@@ -229,6 +353,9 @@ def _submit_layer_generation(
         selection,
         # 路径必须相对项目 storage（worker 用 read_storage_file 解析，绝对路径会被拒）
         reference_image_paths=[source.file_path],
+        # 这一层画了遮罩就只在遮罩里重绘（create_generation 会切到 inpaint 工作流），
+        # 没画就是整张重画
+        mask_image_path=layer.mask_path,
     )
     layer.generation_id = generation.id
     db.commit()
@@ -283,13 +410,14 @@ def render_all_layers(set_id: int, db: Session = Depends(get_db)) -> LayerRender
     from app.services.generation_service import GenerationValidationError
 
     layer_set = get_layer_set(db, set_id)
-    if not layer_set.layers:
+    layers = visible_layers(layer_set)
+    if not layers:
         raise HTTPException(status_code=422, detail="这套方案里还没有层，无法生成")
     count = max(1, min(4, layer_set.count_per_layer or 1))
 
     generations: list[GenerationRead] = []
     skipped: list[str] = []
-    for layer in layer_set.layers:
+    for layer in layers:
         try:
             generation = _submit_layer_generation(db, layer, count=count)
             generations.append(_generation_read(generation))

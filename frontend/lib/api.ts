@@ -1,4 +1,12 @@
 import type {
+  AtlasSummary,
+  ElementPromptRead,
+  ElementRead,
+  ElementExtractPayload,
+  ElementSetCreatePayload,
+  ElementSetListResponse,
+  ElementSetRead,
+  ElementUpdatePayload,
   FreeMemoryResponse,
   GenerationCreatePayload,
   GenerationListResponse,
@@ -7,6 +15,14 @@ import type {
   ImageBatchDeleteResponse,
   ImageListResponse,
   ImageRead,
+  KitCreatePayload,
+  KitItemCreatePayload,
+  KitItemRead,
+  KitItemUpdatePayload,
+  KitListResponse,
+  KitRead,
+  KitUpdatePayload,
+  LayerCreatePayload,
   LayerRead,
   LayerPromptRead,
   LayerRenderAllResult,
@@ -120,6 +136,8 @@ export function fetchGenerations(params?: {
   excludeScene?: boolean;
   /** 排除分层批次：只要场景底图，不要每个层各自那一批 */
   excludeLayer?: boolean;
+  /** 排除元素提取批次：元素产物只在元素页签里出现 */
+  excludeElement?: boolean;
 }): Promise<GenerationListResponse> {
   const search = new URLSearchParams();
   search.set("limit", String(params?.limit ?? 40));
@@ -137,6 +155,9 @@ export function fetchGenerations(params?: {
   }
   if (params?.excludeLayer) {
     search.set("exclude_layer", "true");
+  }
+  if (params?.excludeElement) {
+    search.set("exclude_element", "true");
   }
   if (params?.q?.trim()) {
     search.set("q", params.q.trim());
@@ -472,6 +493,11 @@ export function imageThumbnailUrl(image: { id: number; created_at?: string }): s
   return `${API_BASE}/images/${image.id}/thumbnail${stamp(image.created_at)}`;
 }
 
+/** 裁掉透明空白后的小图（PNG 保留 alpha）；透明件在列表里用它，别显示一整张空画布。 */
+export function imageTrimmedUrl(image: { id: number; created_at?: string }, maxSide = 320): string {
+  return `${API_BASE}/images/${image.id}/trimmed.png?max_side=${maxSide}${stamp(image.created_at) ? `&v=${image.created_at}` : ""}`;
+}
+
 /** 局部编辑的遮罩（灰度 PNG，白色=重绘区域）；只有 image_inpaint 批次才有。 */
 export function maskImageUrl(generationId: number, createdAt?: string): string {
   return `${API_BASE}/generations/${generationId}/mask${stamp(createdAt)}`;
@@ -754,6 +780,51 @@ export function updateLayer(layerId: number, payload: LayerUpdatePayload): Promi
   });
 }
 
+export function createLayer(setId: number, payload: LayerCreatePayload): Promise<LayerRead> {
+  return request<LayerRead>(`/layer-sets/${setId}/layers`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteLayer(layerId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/layers/${layerId}`, { method: "DELETE" });
+  if (response.status === 204) {
+    return;
+  }
+  let detail = `请求失败（${response.status}）`;
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload?.detail) detail = payload.detail;
+  } catch {
+    /* 非 JSON 响应，用默认文案 */
+  }
+  throw new Error(detail);
+}
+
+export function layerMaskUrl(layerId: number, version?: number | string): string {
+  return `${API_BASE}/layers/${layerId}/mask${version ? `?v=${version}` : ""}`;
+}
+
+export function uploadLayerMask(layerId: number, file: Blob): Promise<LayerRead> {
+  const body = new FormData();
+  body.append("file", file, "mask.png");
+  return request<LayerRead>(`/layers/${layerId}/mask`, { method: "POST", body });
+}
+
+export async function clearLayerMask(layerId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/layers/${layerId}/mask`, { method: "DELETE" });
+  if (response.status === 204) return;
+  let detail = `请求失败（${response.status}）`;
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload?.detail) detail = payload.detail;
+  } catch {
+    /* 非 JSON */
+  }
+  throw new Error(detail);
+}
+
 export async function deleteLayerSet(setId: number): Promise<void> {
   const response = await fetch(`${API_BASE}/layer-sets/${setId}`, { method: "DELETE" });
   if (response.status === 204) {
@@ -834,4 +905,181 @@ export function saveLayerPrompt(prompt: string): Promise<LayerPromptRead> {
 
 export function resetLayerPrompt(): Promise<LayerPromptRead> {
   return request<LayerPromptRead>("/settings/layer-prompt/reset", { method: "POST" });
+}
+/** —— 图集（Kit）：把项目里的透明图装成一张 atlas —— */
+
+export function fetchKits(): Promise<KitListResponse> {
+  return request<KitListResponse>("/kits");
+}
+
+export function fetchKit(kitId: number): Promise<KitRead> {
+  return request<KitRead>(`/kits/${kitId}`);
+}
+
+export function createKit(payload: KitCreatePayload): Promise<KitRead> {
+  return request<KitRead>("/kits", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateKit(kitId: number, payload: KitUpdatePayload): Promise<KitRead> {
+  return request<KitRead>(`/kits/${kitId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function deleteKit(kitId: number): Promise<{ kit_id: number }> {
+  return request<{ kit_id: number }>(`/kits/${kitId}`, { method: "DELETE" });
+}
+
+export function addKitItem(kitId: number, payload: KitItemCreatePayload): Promise<KitItemRead> {
+  return request<KitItemRead>(`/kits/${kitId}/items`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateKitItem(itemId: number, payload: KitItemUpdatePayload): Promise<KitItemRead> {
+  return request<KitItemRead>(`/kit-items/${itemId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteKitItem(itemId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/kit-items/${itemId}`, { method: "DELETE" });
+  if (response.status === 204) {
+    return;
+  }
+  let detail = `请求失败（${response.status}）`;
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload?.detail) detail = payload.detail;
+  } catch {
+    // 正文不是 JSON 时用默认文案
+  }
+  throw new Error(detail);
+}
+
+/** 打包结果的预览图；带 v 参数是因为内容会随条目变化。 */
+export async function removeKitElement(kitId: number, elementId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/kits/${kitId}/elements/${elementId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? `移除失败（${response.status}）`);
+  }
+}
+
+export function kitAtlasUrl(kitId: number, version?: number | string): string {
+  return `${API_BASE}/kits/${kitId}/atlas.png?v=${version ?? Date.now()}`;
+}
+
+export function kitExportUrl(kitId: number): string {
+  return `${API_BASE}/kits/${kitId}/export`;
+}
+export function fetchKitPreview(kitId: number): Promise<AtlasSummary> {
+  return request<AtlasSummary>(`/kits/${kitId}/preview`);
+}
+/** —— 元素提取：从一张场景图里拆出可复用的件 —— */
+
+export function fetchElementSets(sceneId: number): Promise<ElementSetListResponse> {
+  return request<ElementSetListResponse>(`/scenes/${sceneId}/element-sets`);
+}
+
+export function fetchElementSet(setId: number): Promise<ElementSetRead> {
+  return request<ElementSetRead>(`/element-sets/${setId}`);
+}
+
+export function createElementSet(
+  sceneId: number,
+  payload: ElementSetCreatePayload,
+): Promise<ElementSetRead> {
+  return request<ElementSetRead>(`/scenes/${sceneId}/element-sets`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteElementSet(setId: number): Promise<{ set_id: number; elements: number }> {
+  return request<{ set_id: number; elements: number }>(`/element-sets/${setId}`, {
+    method: "DELETE",
+  });
+}
+
+export function updateElement(
+  elementId: number,
+  payload: ElementUpdatePayload,
+): Promise<ElementRead> {
+  return request<ElementRead>(`/elements/${elementId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 元素小图的文件地址；每次改发型都带 v，避免浏览器拿旧图。 */
+export function elementFileUrl(elementId: number, version?: number | string): string {
+  return `${API_BASE}/elements/${elementId}/file?v=${version ?? ""}`;
+}
+
+/** 元素手画的遮罩（灰度 PNG，白色=要提取的这一件）。 */
+export function elementMaskUrl(elementId: number, version?: number | string): string {
+  return `${API_BASE}/elements/${elementId}/mask?v=${version ?? ""}`;
+}
+
+/** 保存这一件的遮罩。 */
+export async function uploadElementMask(elementId: number, file: Blob): Promise<ElementRead> {
+  const form = new FormData();
+  form.append("file", file, "mask.png");
+  return request<ElementRead>(`/elements/${elementId}/mask`, { method: "POST", body: form });
+}
+
+/** 清掉这一件的遮罩。 */
+export async function clearElementMask(elementId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/elements/${elementId}/mask`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body: unknown = await response.json();
+      if (body && typeof body === "object" && "detail" in body) detail = String(body.detail);
+    } catch {
+      /* 忽略 */
+    }
+    throw new Error(detail);
+  }
+}
+
+/** 给选中的元素逐件排一次图片编辑（参考图＝场景底图）。 */
+export function extractElements(
+  setId: number,
+  payload: ElementExtractPayload,
+): Promise<GenerationRead[]> {
+  return request<GenerationRead[]>(`/element-sets/${setId}/extractions`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchElementGenerations(
+  elementId: number,
+  limit = 20,
+): Promise<GenerationListResponse> {
+  return request<GenerationListResponse>(
+    `/elements/${elementId}/generations?limit=${limit}`,
+  );
+}
+
+export function fetchElementPrompt(): Promise<ElementPromptRead> {
+  return request<ElementPromptRead>("/settings/element-prompt");
+}
+
+export function saveElementPrompt(prompt: string): Promise<ElementPromptRead> {
+  return request<ElementPromptRead>("/settings/element-prompt", {
+    method: "PUT",
+    body: JSON.stringify({ prompt }),
+  });
+}
+
+export function resetElementPrompt(): Promise<ElementPromptRead> {
+  return request<ElementPromptRead>("/settings/element-prompt/reset", { method: "POST" });
 }

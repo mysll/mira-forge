@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import ElementPromptSettings from "@/components/ElementPromptSettings";
 import LayerPromptSettings from "@/components/LayerPromptSettings";
 import LLMSettings from "@/components/LLMSettings";
 import PromptTemplateSettings from "@/components/PromptTemplateSettings";
@@ -214,6 +215,8 @@ export default function SettingsPage() {
         <LLMSettings />
 
         <LayerPromptSettings />
+
+        <ElementPromptSettings />
 
         <Card
           title="存储"

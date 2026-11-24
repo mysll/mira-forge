@@ -25,6 +25,7 @@ from app.services.image_service import (
     label_images,
     list_images,
     set_favorite,
+    trimmed_png,
 )
 from app.services.recycle_service import soft_delete_images
 from app.services.workspace_service import WorkspaceBusyError, clear_workspace
@@ -141,6 +142,29 @@ def get_image_thumbnail(image_id: int, db: Session = Depends(get_db)) -> FileRes
         media_type=thumbnail_type,
         # 缩略图会自愈重做（比如透明图从 JPEG 换成 PNG），路径没变、URL 也没变，
         # 所以不能让浏览器把它当 immutable 长期缓存，否则旧图一直显示。
+        headers={"Cache-Control": "public, max-age=0, must-revalidate"},
+    )
+
+
+@router.get("/{image_id}/trimmed.png", response_class=Response)
+def get_image_trimmed(
+    image_id: int,
+    max_side: int = Query(320, ge=32, le=2048),
+    db: Session = Depends(get_db),
+) -> Response:
+    """裁掉透明空白后的小图：透明件（元素 / 模块）在信息流里用它，别显示一整张空画布。"""
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
+        )
+    try:
+        payload = trimmed_png(image, max_side=max_side)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(
+        content=payload,
+        media_type="image/png",
         headers={"Cache-Control": "public, max-age=0, must-revalidate"},
     )
 

@@ -23,6 +23,7 @@ class GenerationCreate(BaseModel):
     scene_id: int | None = Field(default=None, ge=1)
     # 图层 id：分层界面里按页签出图时带上，产物归到这个层，页签只查自己的批次
     layer_id: int | None = Field(default=None, ge=1)
+    element_id: int | None = Field(default=None, ge=1)
     generation_type: GenerationType = GenerationType.TEXT_TO_IMAGE
     width: int | None = Field(default=None, ge=64, le=4096)
     height: int | None = Field(default=None, ge=64, le=4096)
@@ -87,6 +88,7 @@ class GenerationRead(TimestampedModel):
     scene_id: int | None = None
     # 所属图层（layers.id）；分层页签按它查自己的批次
     layer_id: int | None = None
+    element_id: int | None = None
     # 批次名（可编辑）；空着时前端显示「批次 #id」
     name: str | None = None
     negative_prompt: str | None = None

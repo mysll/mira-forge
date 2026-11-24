@@ -35,6 +35,8 @@ type Props = {
   onLayers?: (item: FeedSlot) => void;
   /** 场景页专用：导出「这张场景图 + 它的分层」 */
   onExport?: (item: FeedSlot) => void;
+  /** 场景页专用：把这张图里的结构拆成可复用的元素 */
+  onExtract?: (item: FeedSlot) => void;
   /** 层页签专用：把这张图设为这一层导出用的那张 */
   onPick?: (item: FeedSlot) => void;
   /** 这一层当前选用的图 id（null = 用最新的那张） */
@@ -121,15 +123,46 @@ function IconCheck() {
 }
 
 function IconExport() {
+  // 「导出（这张图 + 分层）」：一个开口的方框 + 一支往右上飞出去的箭头，
+  // 和旁边的「下载」（往下的箭头 + 托盘）在 16px 下也能一眼分开。
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
-      <path d="M12 3v10m0 0-3.6-3.6M12 13l3.6-3.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5 15v3.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M13.5 4.75H6.75A1.75 1.75 0 0 0 5 6.5v10.75a1.75 1.75 0 0 0 1.75 1.75H17.5a1.75 1.75 0 0 0 1.75-1.75V10.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.75 4.75h4.5v4.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="m19 5-7.5 7.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
 
-function Spinner({ className = "h-4 w-4" }: { className?: string }) {  return (
+function IconExtract() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+      <path
+        d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function Spinner({ className = "h-4 w-4" }: { className?: string }) {
+  return (
     <span
       className={`inline-block animate-spin rounded-full border border-muted/30 border-t-accentSoft ${className}`}
       aria-hidden
@@ -146,6 +179,7 @@ function ActionBar({
   onEdit,
   onOpen,
   onExport,
+  onExtract,
 }: Omit<Props, "item"> & { item: FilledSlot; busy?: boolean }) {
   const buttons = [
     { key: "open", title: "查看大图", icon: <IconExpand />, run: () => onOpen(item) },
@@ -164,6 +198,16 @@ function ActionBar({
     { key: "download", title: "下载", icon: <IconDownload />, run: () => onDownload(item) },
     ...(onExport
       ? [{ key: "export", title: "导出（这张图 + 分层）", icon: <IconExport />, run: () => onExport(item) }]
+      : []),
+    ...(onExtract
+      ? [
+          {
+            key: "extract",
+            title: "提取元素（结构 / 物件）",
+            icon: <IconExtract />,
+            run: () => onExtract(item),
+          },
+        ]
       : []),
     { key: "delete", title: "只删这张图", icon: <IconTrash />, run: () => onDelete(item) },
   ];
@@ -404,6 +448,19 @@ export default function FeedCard(props: Props) {
               <IconExport />
             </button>
           ) : null}
+          {props.onExtract && image.media_type !== "video" && image.media_type !== "frameset" ? (
+            <button
+              type="button"
+              title="提取元素（结构 / 物件）"
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onExtract?.(filled);
+              }}
+              className="icon-btn hover:!text-accentSoft"
+            >
+              <IconExtract />
+            </button>
+          ) : null}
           {props.onPick ? (
             <button
               type="button"
@@ -559,7 +616,7 @@ export default function FeedCard(props: Props) {
         ) : (
           <div
             className={`pointer-events-none absolute inset-x-0 bottom-0 translate-y-2 bg-gradient-to-t from-black/75 via-black/35 to-transparent p-2.5 opacity-0 transition group-hover/card:translate-y-0 group-hover/card:opacity-100 ${
-              props.onLayers || props.onExport || props.onPick ? "pb-8" : ""
+              props.onLayers || props.onExport || props.onExtract || props.onPick ? "pb-8" : ""
             }`}
           >
             <p className="line-clamp-2 text-[11px] leading-snug text-white/90">{generation.prompt}</p>
@@ -596,10 +653,27 @@ export default function FeedCard(props: Props) {
               event.stopPropagation();
               props.onExport?.(filled);
             }}
-            className="absolute bottom-2 left-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white/90 opacity-0 backdrop-blur transition hover:bg-accent hover:text-white group-hover/card:opacity-100"
+            className={`absolute left-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white/90 opacity-0 backdrop-blur transition hover:bg-accent hover:text-white group-hover/card:opacity-100 ${
+              props.onExtract ? "bottom-9" : "bottom-2"
+            }`}
           >
             <IconExport />
             导出分层
+          </button>
+        ) : null}
+
+        {/* 场景页专用：把这张图里的结构拆成可复用的元素 */}
+        {props.onExtract && image.media_type !== "video" && image.media_type !== "frameset" ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onExtract?.(filled);
+            }}
+            className="absolute bottom-2 left-2 z-10 flex items-center gap-1 whitespace-nowrap rounded-lg bg-black/70 px-2 py-1 text-[11px] text-white/90 opacity-0 backdrop-blur transition hover:bg-accent hover:text-white group-hover/card:opacity-100"
+          >
+            <IconExtract />
+            提取元素
           </button>
         ) : null}
 

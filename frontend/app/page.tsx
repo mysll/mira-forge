@@ -143,7 +143,7 @@ export default function HomePage() {
 
   const recentQuery = useQuery({
     queryKey: ["generations", "home-recent"],
-    queryFn: () => fetchGenerations({ limit: 12, hasImages: true, excludeLayer: true }),
+    queryFn: () => fetchGenerations({ limit: 12, hasImages: true, excludeLayer: true, excludeElement: true }),
     staleTime: 5_000,
   });
 

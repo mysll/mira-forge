@@ -35,6 +35,8 @@ type Props = {
   onRender: (values: Values) => void;
   /** 收起 / 展开时告诉页面，好把信息流的底部留白让出来 */
   onCollapsedChange?: (collapsed: boolean) => void;
+  /** 画 / 改这一层的遮罩（只在遮罩里重绘，图上其余部分保持原样） */
+  onMask?: () => void;
   /** 变化时强制展开（工作台里点「继续编辑」要把提示词露出来） */
   expandToken?: number;
 };
@@ -62,6 +64,7 @@ export default function LayerComposer({
   pending,
   onRender,
   onCollapsedChange,
+  onMask,
   expandToken,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -97,7 +100,7 @@ export default function LayerComposer({
   const activeModel = useMemo(() => {
     return (
       models.find((model) => model.id === modelId) ??
-      models.find((model) => model.label === fallbackModel) ??
+      models.find((model) => model.id === fallbackModel || model.label === fallbackModel) ??
       models.find((model) => model.is_default) ??
       models[0] ??
       null
@@ -150,6 +153,36 @@ export default function LayerComposer({
             {layer.name}
           </span>
           <span className="rounded-md px-2 py-1 text-[10px] text-muted">场景分层 · 编辑</span>
+          {onMask ? (
+            <button
+              type="button"
+              onClick={onMask}
+              className={[
+                "ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-[10px] transition",
+                layer.has_mask
+                  ? "bg-accent/12 text-accentSoft hover:bg-accent/20"
+                  : "text-muted hover:bg-surface2 hover:text-ink",
+              ].join(" ")}
+              title={
+                layer.has_mask
+                  ? "这一层已经画了遮罩：生成时只在遮罩里重绘，其余保持原样"
+                  : "画一块遮罩，生成时只在这块区域重绘"
+              }
+            >
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden>
+                <path
+                  d="M4 17.5V20h2.5L18 8.5 15.5 6 4 17.5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {layer.has_mask ? "改遮罩" : "画遮罩"}
+              {layer.has_mask ? (
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+              ) : null}
+            </button>
+          ) : null}
           <span className="ml-auto truncate text-[11px] text-muted/60">
             {activeModel ? activeModel.label : fallbackModel || "模型加载中"}
           </span>

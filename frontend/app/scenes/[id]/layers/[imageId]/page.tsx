@@ -7,14 +7,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Feed from "@/components/Feed";
 import ImageDetail from "@/components/ImageDetail";
+import ImagePreview from "@/components/ImagePreview";
 import LayerComposer from "@/components/LayerComposer";
+import MaskEditor, { type MaskEditorResult } from "@/components/MaskEditor";
 import LLMChat from "@/components/LLMChat";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
 import { buildFeedSlots } from "@/lib/feed";
+import { LAYER_SLOTS, layerSlotLabel } from "@/lib/layerSlots";
 import {
+  createLayer,
   createLayerSet,
+  deleteLayer,
   deleteLayerSet,
   fetchGenerations,
   fetchImage,
@@ -26,6 +31,10 @@ import {
   renderAllLayers,
   renderLayer,
   updateLayer,
+  uploadLayerMask,
+  clearLayerMask,
+  layerMaskUrl,
+  imageFileUrl,
 } from "@/lib/api";
 import type {
   FeedItem,
@@ -34,6 +43,7 @@ import type {
   ImageBrief,
   LayerRead,
   LayerSetRead,
+  LayerSlot,
 } from "@/types/api";
 
 const ACTIVE = new Set(["pending", "queued", "running"]);
@@ -54,8 +64,17 @@ export default function LayerWorkbenchPage() {
   const [detail, setDetail] = useState<FeedItem | null>(null);
   // 输入框默认收起，只占一行，点箭头再展开（省得挡住下面的信息流）
   const [composerCollapsed, setComposerCollapsed] = useState(true);
+  const [sourcePreview, setSourcePreview] = useState<ImageBrief | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draftLayer, setDraftLayer] = useState({
+    name: "",
+    slot: "behind" as LayerSlot,
+    prompt: "",
+    negative: "",
+  });
   const [composerExpandToken, setComposerExpandToken] = useState(0);
   const [showChat, setShowChat] = useState(false);
+  const [maskOpen, setMaskOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const toast = useCallback((text: string) => {
@@ -195,6 +214,45 @@ export default function LayerWorkbenchPage() {
     onError: (error: Error) => toast(error.message),
   });
 
+  // 换槽位：系数与 z 由后端重算，前端不碰
+  const moveLayer = useMutation({
+    mutationFn: (variables: { layerId: number; slot: LayerSlot }) =>
+      updateLayer(variables.layerId, { slot: variables.slot }),
+    onSuccess: (_layer, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
+      toast(`已挪到「${layerSlotLabel(variables.slot)}」`);
+    },
+    onError: (error: Error) => toast(error.message),
+  });
+
+  const addLayer = useMutation({
+    mutationFn: () =>
+      createLayer(layerSet!.id, {
+        name: draftLayer.name.trim(),
+        slot: draftLayer.slot,
+        prompt: draftLayer.prompt.trim(),
+        negative_prompt: draftLayer.negative.trim() || null,
+      }),
+    onSuccess: (layer) => {
+      void queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
+      setActiveLayerId(layer.id);
+      setAdding(false);
+      setDraftLayer({ name: "", slot: "behind", prompt: "", negative: "" });
+      toast(`已添加「${layer.name}」`);
+    },
+    onError: (error: Error) => toast(error.message),
+  });
+
+  const removeLayer = useMutation({
+    mutationFn: (layerId: number) => deleteLayer(layerId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
+      setActiveLayerId(null);
+      toast("已删掉这一层");
+    },
+    onError: (error: Error) => toast(error.message),
+  });
+
   const render = useMutation({
     mutationFn: ({
       layer,
@@ -254,6 +312,25 @@ export default function LayerWorkbenchPage() {
   });
 
   // 指定这一层导出用哪一张（一层只能有一张：再点另一张就换过去）
+  const saveMask = useMutation({
+    mutationFn: ({ layerId, file }: { layerId: number; file: Blob }) =>
+      uploadLayerMask(layerId, file),
+    onSuccess: () => {
+      toast("遮罩已保存：这一层以后只在这块区域重绘");
+      queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
+    },
+    onError: (error: Error) => toast(error.message),
+  });
+
+  const clearMask = useMutation({
+    mutationFn: (layerId: number) => clearLayerMask(layerId),
+    onSuccess: () => {
+      toast("遮罩已清掉：这一层恢复整张重画");
+      queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
+    },
+    onError: (error: Error) => toast(error.message),
+  });
+
   const pickImage = useMutation({
     mutationFn: (variables: { layerId: number; imageId: number; same: boolean }) =>
       updateLayer(variables.layerId, {
@@ -332,16 +409,27 @@ export default function LayerWorkbenchPage() {
 
       {/* 源图固定：这一栏只展示，不给换 */}
       <div className="flex items-center gap-3 border-b border-edge/40 px-5 py-3">
-        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-edge bg-surface2">
+        <button
+          type="button"
+          disabled={!source}
+          onClick={() => source && setSourcePreview(source)}
+          title={source ? "点开看大图" : undefined}
+          className="group/src relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-edge bg-surface2 transition hover:border-accent/50 disabled:cursor-default"
+        >
           {source ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={imageThumbnailUrl(source)}
-              alt={`源图 ${source.id}`}
-              className="h-full w-full object-cover"
-            />
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageThumbnailUrl(source)}
+                alt={`源图 ${source.id}`}
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-[10px] text-white/85 opacity-0 transition group-hover/src:opacity-100">
+                点开预览
+              </span>
+            </>
           ) : null}
-        </div>
+        </button>
         <div className="min-w-0">
           <p className="text-[11px] text-muted/70">场景原图</p>
           <p className="mt-0.5 truncate text-xs text-ink/85">
@@ -433,16 +521,92 @@ export default function LayerWorkbenchPage() {
                       ? "bg-accent/15 text-accentSoft"
                       : "text-muted hover:bg-surface2 hover:text-ink/85",
                   ].join(" ")}
+                  title={`${layerSlotLabel(layer.slot)} · 视差 ${layer.scroll_scale}`}
                 >
                   <span className="font-mono text-[10px] opacity-70">L{layer.ord}</span>
                   {layer.name}
-                  {layer.generation_id ? (
+                  {layer.has_images ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-ok/80" title="已出图" />
                   ) : null}
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setAdding((value) => !value)}
+              className="ml-1 flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-edge px-2 py-1.5 text-[11.5px] text-muted transition hover:border-accent/50 hover:text-ink"
+              title="模型漏拆的时候手动补一层"
+            >
+              + 添加层
+            </button>
           </div>
+
+          {adding ? (
+            <div className="flex flex-col gap-2 border-b border-edge/50 bg-surface2/40 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={draftLayer.name}
+                  onChange={(event) =>
+                    setDraftLayer((prev) => ({ ...prev, name: event.target.value }))
+                  }
+                  placeholder="层名（例如：左侧石墙）"
+                  className="w-56 rounded-md border border-edge/80 bg-surface px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent/60"
+                />
+                <label className="flex items-center gap-1.5 text-[11px] text-muted">
+                  档位
+                  <select
+                    value={draftLayer.slot}
+                    onChange={(event) =>
+                      setDraftLayer((prev) => ({ ...prev, slot: event.target.value as LayerSlot }))
+                    }
+                    className="rounded-md border border-edge/80 bg-surface px-1.5 py-1 text-[11px] text-ink/85 outline-none focus:border-accent/60"
+                  >
+                    {LAYER_SLOTS.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}（{item.hint}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={
+                    addLayer.isPending ||
+                    !draftLayer.name.trim() ||
+                    !draftLayer.prompt.trim()
+                  }
+                  onClick={() => addLayer.mutate()}
+                  className="btn-primary px-3 py-1.5 text-[11.5px] disabled:opacity-40"
+                >
+                  {addLayer.isPending ? "添加中…" : "添加这一层"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdding(false)}
+                  className="rounded-md border border-edge px-2.5 py-1.5 text-[11.5px] text-muted hover:text-ink"
+                >
+                  取消
+                </button>
+              </div>
+              <textarea
+                value={draftLayer.prompt}
+                onChange={(event) =>
+                  setDraftLayer((prev) => ({ ...prev, prompt: event.target.value }))
+                }
+                rows={4}
+                placeholder="这一层的提示词（和自动分析出来的写法一致就行）"
+                className="scroll-thin w-full resize-y rounded-md border border-edge/80 bg-surface px-2 py-1.5 text-[11.5px] leading-relaxed text-ink outline-none focus:border-accent/60"
+              />
+              <input
+                value={draftLayer.negative}
+                onChange={(event) =>
+                  setDraftLayer((prev) => ({ ...prev, negative: event.target.value }))
+                }
+                placeholder="负面提示词（可选）"
+                className="w-full rounded-md border border-edge/80 bg-surface px-2 py-1 text-[11.5px] text-ink outline-none focus:border-accent/60"
+              />
+            </div>
+          ) : null}
 
           {activeLayer ? (
             <>
@@ -456,10 +620,46 @@ export default function LayerWorkbenchPage() {
                   <span className="rounded bg-surface2 px-1.5 py-0.5 text-ink/80">
                     {activeLayer.name}
                   </span>
+                  <label className="flex items-center gap-1.5">
+                    <span>档位</span>
+                    <select
+                      value={activeLayer.slot}
+                      onChange={(event) =>
+                        moveLayer.mutate({
+                          layerId: activeLayer.id,
+                          slot: event.target.value as LayerSlot,
+                        })
+                      }
+                      disabled={moveLayer.isPending}
+                      className="rounded-md border border-edge/80 bg-surface2 px-1.5 py-0.5 text-[11px] text-ink/85 outline-none transition hover:border-edge focus:border-accent/60"
+                      title="远景 / 中景 / 近景 / 玩法层 / 前景；改档位会重算视差系数与 z"
+                    >
+                      {LAYER_SLOTS.map((item) => (
+                        <option key={item.key} value={item.key}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <span>视差 {activeLayer.scroll_scale}</span>
-                  <span>层级 {activeLayer.z_index}</span>
+                  <span>z {activeLayer.z_index}</span>
+                  {activeLayer.depth > 0 ? (
+                    <span className="text-muted/70">同档第 {activeLayer.depth + 1} 层</span>
+                  ) : null}
                   {activeLayer.occluded_by ? <span>被挡：{activeLayer.occluded_by}</span> : null}
                   {activeLayer.supports ? <span>承接：{activeLayer.supports}</span> : null}
+                  <button
+                    type="button"
+                    disabled={removeLayer.isPending}
+                    onClick={() => {
+                      if (window.confirm(`删掉「${activeLayer.name}」这一层？已经出的图还在，层没了。`)) {
+                        removeLayer.mutate(activeLayer.id);
+                      }
+                    }}
+                    className="ml-auto rounded border border-edge/70 px-1.5 py-0.5 text-[11px] text-muted transition hover:border-bad/50 hover:text-bad disabled:opacity-40"
+                  >
+                    删掉这层
+                  </button>
                 </div>
 
                 {activeLayer.role ? (
@@ -549,6 +749,7 @@ export default function LayerWorkbenchPage() {
                 pending={render.isPending}
                 onRender={(values) => render.mutate({ layer: activeLayer, values })}
                 onCollapsedChange={setComposerCollapsed}
+                onMask={() => setMaskOpen(true)}
                 expandToken={composerExpandToken}
               />
             </>
@@ -571,6 +772,23 @@ export default function LayerWorkbenchPage() {
           onRegenerate={(item) => actions.regenerate({ image: item.image, generation: item.generation })}
           onToast={toast}
           modelLabels={modelLabels}
+        />
+      ) : null}
+
+      <ImagePreview image={sourcePreview} onClose={() => setSourcePreview(null)} />
+
+      {source ? (
+        <MaskEditor
+          open={maskOpen && Boolean(activeLayer)}
+          imageUrl={imageFileUrl(source)}
+          initialMaskUrl={
+            activeLayer?.has_mask ? layerMaskUrl(activeLayer.id, activeLayer.id) : null
+          }
+          onClose={() => setMaskOpen(false)}
+          onApply={(result: MaskEditorResult) => {
+            if (activeLayer) saveMask.mutate({ layerId: activeLayer.id, file: result.file });
+            setMaskOpen(false);
+          }}
         />
       ) : null}
 

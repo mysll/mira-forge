@@ -30,7 +30,12 @@ from app.schemas.generation import TaskRead
 from app.services import workflow_service
 from app.services.comfyui_client import ComfyUIClient, ComfyUIError
 from app.services.generation_service import decode_reference_paths
-from app.services.image_service import ImageStoreError, read_storage_file, store_image
+from app.services.image_service import (
+    ImageStoreError,
+    cut_by_mask,
+    read_storage_file,
+    store_image,
+)
 from app.services.prompt_builder import PromptBuildError, build_prompt, load_graph
 from app.services.workflow_config import WorkflowConfig, WorkflowConfigError, load_workflow_config
 
@@ -60,7 +65,9 @@ class _Plan:
     mask_path: str | None = None
     # 场景 id：非空时产物落到 storage/scenes/<id>/ 下，且不进主图片流
     scene_id: int | None = None
-    # 产物类型：image / video / scene / scene_layer（决定 images.media_type 与资产页角标）
+    # 元素提取产物归到哪个元素（图集里按元素取图）
+    element_id: int | None = None
+    # 产物类型：image / video / scene / scene_layer / element（决定 images.media_type 与资产页角标）
     media_type: str = "image"
 
 
@@ -88,12 +95,17 @@ def _edit_resolution(width: int | None, height: int | None) -> int:
 
 
 def _media_type_for(
-    scene_id: int | None, generation_type: GenerationType, is_video: bool
+    scene_id: int | None,
+    generation_type: GenerationType,
+    is_video: bool,
+    element_id: int | None = None,
 ) -> str:
-    """产物类型：场景底图 scene、场景分层图 scene_layer，其余仍是 image / video。
+    """产物类型：场景底图 scene、分层图 scene_layer、元素小图 element，其余 image / video。
 
     资产页靠这个字段显示角标与筛选，所以它必须和 generation_type 一起走。
     """
+    if element_id is not None:
+        return "element"
     if scene_id is None:
         return "video" if is_video else "image"
     if generation_type == GenerationType.SCENE_LAYER:
@@ -318,6 +330,14 @@ class GenerationWorker:
                 return
             metadata = entry.get("metadata") or {}
             suffix = os.path.splitext(entry.get("filename", ""))[1].lower() or ".png"
+            if plan.mask_path and plan.media_type == "scene_layer":
+                # 只在遮罩里重绘的层：把遮罩外切透明，图和源图仍逐像素对齐
+                try:
+                    mask_bytes = read_storage_file(plan.mask_path, storage_root)
+                    content = cut_by_mask(content, mask_bytes)
+                    suffix = ".png"
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("切遮罩失败，保留整张：%s", exc)
             try:
                 with session_for(project) as db:
                     store_image(
@@ -410,6 +430,9 @@ class GenerationWorker:
                     )
                 else:
                     workflow_type = GenerationType.TEXT_TO_IMAGE
+            elif generation_type == GenerationType.ELEMENT:
+                # 元素提取没有自己的工作流，本质就是「参考底图重画一件」
+                workflow_type = GenerationType.IMAGE_EDIT
             target = workflow_service.get_workflow_target(model, workflow_type)
             if target is None:
                 self._fail(
@@ -462,6 +485,7 @@ class GenerationWorker:
                 GenerationType.IMAGE_TO_IMAGE,
                 GenerationType.SCENE,
                 GenerationType.SCENE_LAYER,
+                GenerationType.ELEMENT,
             ):
                 reference_paths = decode_reference_paths(
                     generation.reference_image_paths, generation.reference_image_path
@@ -498,7 +522,13 @@ class GenerationWorker:
                 is_video=is_video,
                 mask_path=mask_path,
                 scene_id=generation.scene_id,
-                media_type=_media_type_for(generation.scene_id, generation_type, is_video),
+                element_id=generation.element_id,
+                media_type=_media_type_for(
+                    generation.scene_id,
+                    generation_type,
+                    is_video,
+                    generation.element_id,
+                ),
             )
 
     async def _wait_for_history(

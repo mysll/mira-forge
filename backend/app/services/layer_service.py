@@ -17,9 +17,10 @@ import time
 import traceback
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.projects import get_project
@@ -27,20 +28,27 @@ from app.models.database import session_for
 from app.models.generation import Generation
 from app.models.image import Image
 from app.models.layer import Layer, LayerSet, LayerSetStatus
+from app.services import image_service
 from app.schemas.layer import LayerSetCreate, LayerUpdate
 from app.services import layer_prompt_service, llm_client, workflow_service
+from app.services.layer_slots import (
+    SLOT_GAMEPLAY,
+    SLOTS,
+    SLOT_ORDER,
+    normalize_slot,
+    resolve_slot,
+    slot_label,
+    slot_max,
+    slot_scroll,
+    slot_z,
+)
 
 
 class LayerError(Exception):
     """分层校验失败（映射成 400/422）。"""
 
 
-# 背景 / 中景 / 同平面 / 前景的系数区间，既写在提示里也用来校验
-_SCROLL_MIN = 0.05
-_SCROLL_MAX = 1.30
-
 # 各段的名字，用来检查「七段式」是否齐全
-_SEGMENTS = ("【层级】", "【保留】", "【删除】", "【补全】", "【材质与光照】", "【画面规格】", "【背景】")
 
 # 通用负面词：每条层提示词出图时自动追加，LLM 不用重复写
 UNIVERSAL_NEGATIVE = (
@@ -75,6 +83,21 @@ def _system_prompt(layer_count: int) -> str:
     return layer_prompt_service.load().replace("{layer_rule}", _layer_rule(layer_count))
 
 
+def _slot_rule() -> str:
+    """把槽位表写进 user 消息，模型照着填 slot，而不是自己编系数。"""
+    lines = []
+    for key in SLOT_ORDER:
+        spec = SLOTS[key]
+        lines.append(
+            f"- {key}（{spec.label}）：系数 {spec.scroll}，最多 {spec.limit} 层，装{spec.content}"
+        )
+    lines.append(
+        "- behind 和 gameplay 系数一样、不产生视差，只是画在地形后面；"
+        "画面里有和地面同深度的墙、柱、装饰时才用，没有就不要给。"
+    )
+    return "\n".join(lines)
+
+
 def _user_prompt(
     *,
     scene_name: str,
@@ -88,8 +111,10 @@ def _user_prompt(
     parts = [
         f"场景：{scene_name}",
         f"参考图尺寸：{width}×{height}（这是游戏要用的画面尺寸，所有层都按它出）",
-        "视口与视差参考：游戏视口 1600×900、相机水平行程约 ±118px；"
-        "scroll_scale 越大越靠近镜头。",
+        "游戏视口 1600×900、相机水平行程约 ±118px。层要落到固定槽位里（slot 填英文 key）：",
+        _slot_rule(),
+        "同一槽位里如果确实有前后两层（比如柱子和它后面的幕布），用 depth 区分：0 更远、1 更近。",
+        f"玩法层必须正好 1 层（{SLOT_GAMEPLAY}），它是玩家站立与碰撞的那一层。",
     ]
     if scene_description:
         parts.append(f"场景说明（美术设定）：{scene_description}")
@@ -100,7 +125,11 @@ def _user_prompt(
 
 
 def _validate_plan(data: dict, layer_count: int) -> list[dict]:
-    """把 LLM 输出规整成可落库的层列表；不合规直接抛 LayerError。"""
+    """把 LLM 输出规整成可落库的层列表；不合规直接抛 LayerError。
+
+    层不再自己带视差系数：模型只说「这层属于哪个槽位、槽内第几层」，
+    系数与 z 由 `services/layer_slots.py` 算，保证和 Godot 里的常量对得上。
+    """
     layers = data.get("layers")
     if not isinstance(layers, list) or not layers:
         raise LayerError("模型没给出 layers 数组")
@@ -116,13 +145,6 @@ def _validate_plan(data: dict, layer_count: int) -> list[dict]:
             raise LayerError(f"第 {index + 1} 层缺少 name")
         if not prompt:
             raise LayerError(f"第 {index + 1} 层（{name}）缺少 prompt")
-        present = [segment for segment in _SEGMENTS if segment in prompt]
-        if "【保留】" not in present or "【删除】" not in present or "【补全】" not in present:
-            missing = "、".join(s for s in ("【保留】", "【删除】", "【补全】") if s not in present)
-            raise LayerError(f"第 {index + 1} 层（{name}）的 prompt 缺段：{missing}")
-        if len(present) < 5:
-            missing = "、".join(s for s in _SEGMENTS if s not in present)
-            raise LayerError(f"第 {index + 1} 层（{name}）的 prompt 分段不全（缺 {missing}）")
 
         key = str(raw.get("key") or f"layer_{index + 1}").strip().lower().replace(" ", "_")
         if key in seen_keys:
@@ -130,24 +152,22 @@ def _validate_plan(data: dict, layer_count: int) -> list[dict]:
         seen_keys.add(key)
 
         try:
-            scroll = float(raw.get("scroll_scale", 0.5))
-        except (TypeError, ValueError):
-            raise LayerError(f"第 {index + 1} 层（{name}）的 scroll_scale 不是数字")
-        scroll = min(max(scroll, _SCROLL_MIN), _SCROLL_MAX)
+            slot = resolve_slot(raw.get("slot") or raw.get("layer_slot"), raw.get("scroll_scale"))
+        except ValueError as error:
+            raise LayerError(f"第 {index + 1} 层（{name}）：{error}") from error
 
         try:
-            z_index = int(raw.get("z_index", -60 + index * 10))
+            depth = int(raw.get("depth") or 0)
         except (TypeError, ValueError):
-            z_index = -60 + index * 10
+            depth = 0
 
         cleaned.append(
             {
-                "ord": index,
                 "key": key[:40],
                 "name": name[:60],
                 "role": (str(raw.get("role") or "").strip() or None),
-                "scroll_scale": round(scroll, 3),
-                "z_index": z_index,
+                "slot": slot,
+                "depth": max(0, min(depth, 1)),
                 "prompt": prompt,
                 "negative_prompt": (str(raw.get("negative_prompt") or "").strip() or None),
                 "occluded_by": (str(raw.get("occluded_by") or "").strip() or None),
@@ -160,9 +180,26 @@ def _validate_plan(data: dict, layer_count: int) -> list[dict]:
     if len(cleaned) > 8:
         raise LayerError(f"层数 {len(cleaned)} 超过上限 8")
 
-    cleaned.sort(key=lambda item: item["z_index"])
+    # 槽位约束：玩法层必须正好一层，其它槽位按上限
+    counts: dict[str, int] = {}
+    for item in cleaned:
+        counts[item["slot"]] = counts.get(item["slot"], 0) + 1
+    if counts.get(SLOT_GAMEPLAY, 0) == 0:
+        raise LayerError("缺少玩法层（gameplay）：地形与平台必须正好有一层")
+    for slot, count in counts.items():
+        limit = slot_max(slot)
+        if count > limit:
+            raise LayerError(f"{slot_label(slot)}最多 {limit} 层，模型给了 {count} 层")
+
+    # 从远到近排序，槽内按 depth；顺手把 depth 重排成 0..n-1，避免两层抢同一个 z
+    cleaned.sort(key=lambda item: (SLOT_ORDER.index(item["slot"]), item["depth"]))
+    depth_cursor: dict[str, int] = {}
     for index, item in enumerate(cleaned):
+        depth_cursor[item["slot"]] = depth_cursor.get(item["slot"], -1) + 1
+        item["depth"] = depth_cursor[item["slot"]]
         item["ord"] = index
+        item["scroll_scale"] = slot_scroll(item["slot"])
+        item["z_index"] = slot_z(item["slot"], item["depth"])
     return cleaned
 
 
@@ -208,6 +245,21 @@ def create_layer_set(db: Session, scene_id: int, payload: LayerSetCreate) -> Lay
     return layer_set
 
 
+def _slot_taken(db: Session, layer: Layer, slot: str) -> bool:
+    """这一档是不是已经放满了（玩法层 1，其它 2）。"""
+    used = db.scalar(
+        select(func.count())
+        .select_from(Layer)
+        .where(
+            Layer.set_id == layer.set_id,
+            Layer.slot == slot,
+            Layer.id != layer.id,
+            Layer.deleted_at.is_(None),
+        )
+    )
+    return int(used or 0) >= slot_max(slot)
+
+
 def update_layer(db: Session, layer: Layer, payload: LayerUpdate) -> Layer:
     fields = payload.model_dump(exclude_unset=True)
     # 前端输入框清空后 blur 会 PATCH 一个空串上来，别把好好的提示词覆盖掉
@@ -215,6 +267,24 @@ def update_layer(db: Session, layer: Layer, payload: LayerUpdate) -> Layer:
         if text_key in fields and isinstance(fields[text_key], str):
             if not fields[text_key].strip():
                 fields.pop(text_key)
+    # 槽位才是可改的：系数与 z 由槽位算，不让前端各写各的
+    raw_slot = fields.pop("slot", None)
+    raw_depth = fields.pop("depth", None)
+    legacy_scroll = fields.pop("scroll_scale", None)
+    fields.pop("z_index", None)
+    if raw_slot is not None or raw_depth is not None or legacy_scroll is not None:
+        try:
+            slot = resolve_slot(raw_slot, legacy_scroll) if raw_slot is not None else layer.slot
+        except ValueError as error:
+            raise LayerError(str(error)) from error
+        depth = layer.depth if raw_depth is None and raw_slot is None else int(raw_depth or 0)
+        depth = max(0, min(depth, 1))
+        if slot != layer.slot and _slot_taken(db, layer, slot):
+            raise LayerError(f"{slot_label(slot)}这一档已经满了，换一档或者先合并")
+        layer.slot = slot
+        layer.depth = depth
+        layer.scroll_scale = slot_scroll(slot)
+        layer.z_index = slot_z(slot, depth)
     # 指定导出用的那张图：必须是这一层自己出的图，否则会把别的层导出去
     if "selected_image_id" in fields and fields["selected_image_id"] is not None:
         image = db.get(Image, int(fields["selected_image_id"]))
@@ -228,6 +298,126 @@ def update_layer(db: Session, layer: Layer, payload: LayerUpdate) -> Layer:
     db.commit()
     db.refresh(layer)
     return layer
+
+
+def _layer_set_dir(layer: Layer, storage_root: Path | None = None) -> Path:
+    base = Path(storage_root) if storage_root else image_service.storage_root_for(None)
+    scene_id = layer.layer_set.scene_id if layer.layer_set is not None else 0
+    return base / "scenes" / str(scene_id) / "layers" / str(layer.id)
+
+
+def save_layer_mask(
+    db: Session, layer: Layer, content: bytes, *, storage_root: Path | None = None
+) -> Layer:
+    """存下手画的遮罩（灰度 PNG，白色 = 这一层要画的区域）。"""
+    if not content:
+        raise LayerError("遮罩是空的，画一下再保存")
+    directory = _layer_set_dir(layer, storage_root) / "masks"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / "mask.png"
+    target.write_bytes(content)
+    base = Path(storage_root) if storage_root else image_service.storage_root_for(None)
+    layer.mask_path = str(target.relative_to(base)).replace("\\", "/")
+    db.commit()
+    db.refresh(layer)
+    return layer
+
+
+def clear_layer_mask(db: Session, layer: Layer) -> Layer:
+    layer.mask_path = None
+    db.commit()
+    db.refresh(layer)
+    return layer
+
+
+def _next_ord(db: Session, set_id: int) -> int:
+    current = db.scalar(
+        select(func.max(Layer.ord)).where(Layer.set_id == set_id, Layer.deleted_at.is_(None))
+    )
+    return int(current or -1) + 1
+
+
+def _slot_count(db: Session, set_id: int, slot: str) -> int:
+    used = db.scalar(
+        select(func.count())
+        .select_from(Layer)
+        .where(Layer.set_id == set_id, Layer.slot == slot, Layer.deleted_at.is_(None))
+    )
+    return int(used or 0)
+
+
+def create_layer(db: Session, layer_set: LayerSet, payload: "LayerCreate") -> Layer:
+    """手动补一层：LLM 漏拆的时候用，槽位规则和自动分析一致。"""
+    name = (payload.name or "").strip()
+    if not name:
+        raise LayerError("层名不能为空")
+    prompt = (payload.prompt or "").strip()
+    if not prompt:
+        raise LayerError("提示词不能为空")
+    try:
+        slot = resolve_slot(payload.slot, None)
+    except ValueError as error:
+        raise LayerError(str(error)) from error
+    if _slot_count(db, layer_set.id, slot) >= slot_max(slot):
+        raise LayerError(f"{slot_label(slot)}这一档最多 {slot_max(slot)} 层，已经满了")
+    if (
+        db.scalar(
+            select(func.count())
+            .select_from(Layer)
+            .where(Layer.set_id == layer_set.id, Layer.deleted_at.is_(None))
+        )
+        or 0
+    ) >= 12:
+        raise LayerError("一套方案最多 12 层")
+
+    key = (payload.key or name).strip().lower().replace(" ", "_")
+    key = "".join(ch for ch in key if ch.isalnum() or ch in "_-") or f"layer_{slot}"
+    existing = {
+        row
+        for (row,) in db.execute(
+            select(Layer.key).where(Layer.set_id == layer_set.id, Layer.deleted_at.is_(None))
+        )
+    }
+    if key in existing:
+        index = 2
+        while f"{key}_{index}" in existing:
+            index += 1
+        key = f"{key}_{index}"
+
+    depth = _slot_count(db, layer_set.id, slot)
+    layer = Layer(
+        set_id=layer_set.id,
+        ord=_next_ord(db, layer_set.id),
+        key=key,
+        name=name[:60],
+        role=(payload.role or "手动补充的一层")[:200],
+        slot=slot,
+        depth=depth,
+        scroll_scale=slot_scroll(slot),
+        z_index=slot_z(slot, depth),
+        prompt=prompt,
+        negative_prompt=(payload.negative_prompt or "").strip() or None,
+        status="draft",
+    )
+    db.add(layer)
+    db.commit()
+    db.refresh(layer)
+    return layer
+
+
+def delete_layer(db: Session, layer: Layer) -> None:
+    """删掉一层；这一层已经出过的图留在回收站，不跟着删。
+
+    软删而不是 `db.delete`：SQLite 的 rowid 是 max+1，硬删之后新建的层会
+    复用同一个 id，那一层的历史批次就又被查出来了。
+    """
+    layer.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+def visible_layers(layer_set: "LayerSet") -> list[Layer]:
+    """方案里没有被删掉的层（关系是 selectin 加载的，这里只做过滤）。"""
+    return [layer for layer in layer_set.layers if layer.deleted_at is None]
 
 
 def delete_layer_set(db: Session, layer_set: LayerSet) -> None:
@@ -347,6 +537,8 @@ def run_analysis(project_id: str, set_id: int) -> None:
                         key=item["key"],
                         name=item["name"],
                         role=item["role"],
+                        slot=item["slot"],
+                        depth=item["depth"],
                         scroll_scale=item["scroll_scale"],
                         z_index=item["z_index"],
                         prompt=item["prompt"],
