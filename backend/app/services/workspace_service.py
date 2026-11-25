@@ -25,11 +25,17 @@ class WorkspaceBusyError(RuntimeError):
 
 
 def count_active_tasks(db: Session) -> int:
+    """还在排队/生成的任务数；回收站里的任务不算，否则一次删除就能永久挡住清空。"""
     return int(
         db.scalar(
             select(func.count())
             .select_from(GenerationTask)
-            .where(GenerationTask.status.in_(_ACTIVE))
+            .join(Generation, GenerationTask.generation_id == Generation.id)
+            .where(
+                GenerationTask.status.in_(_ACTIVE),
+                GenerationTask.deleted_at.is_(None),
+                Generation.deleted_at.is_(None),
+            )
         )
         or 0
     )

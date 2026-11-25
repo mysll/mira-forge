@@ -11,7 +11,7 @@ import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import TopBar from "@/components/TopBar";
 import { useImageActions, type AssetRef } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { clearWorkspace, deleteImages, fetchGenerations, fetchLayerSets, fetchModels, fetchScenes, imageThumbnailUrl } from "@/lib/api";
+import { clearWorkspace, deleteImages, fetchGenerations, fetchLayerSets, fetchModels, fetchScenes, imageThumbnailUrl, FEED_PAGE_LIMIT } from "@/lib/api";
 import { bucketOf, dateRangeFor, formatTime, parseIso, type DateBucket, type DateFilter } from "@/lib/date";
 import { modelLabel } from "@/lib/models";
 import type { FeedItem, GenerationRead, ImageBrief, SceneRead } from "@/types/api";
@@ -482,17 +482,22 @@ export default function GalleryPage() {
           ))
         )}
 
-        {assets.length > 0 && generations.length < total ? (
+        {assets.length > 0 && generations.length < total && limit < FEED_PAGE_LIMIT ? (
           <div className="flex justify-center py-3">
             <button
               type="button"
-              onClick={() => setLimit((current) => current + PAGE_SIZE)}
+              onClick={() => setLimit((current) => Math.min(current + PAGE_SIZE, FEED_PAGE_LIMIT))}
               disabled={generationsQuery.isFetching}
               className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-xs text-muted transition hover:text-ink disabled:opacity-50"
             >
               {generationsQuery.isFetching ? "加载中…" : "加载更多"}
             </button>
           </div>
+        ) : null}
+        {assets.length > 0 && generations.length < total && limit >= FEED_PAGE_LIMIT ? (
+          <p className="py-3 text-center text-xs text-muted">
+            只列出最近 {FEED_PAGE_LIMIT} 个批次 —— 用搜索、模型或日期筛选继续找更早的内容。
+          </p>
         ) : null}
       </div>
 

@@ -297,6 +297,9 @@ export default function MaskEditor({
     let cancelled = false;
     setReady(false);
     const image = new Image();
+    // 旧遮罩是跨源 URL 时先取成 blob；这个 URL 必须自己回收，
+    // 否则每开一次编辑器就漏一个 blob（声明在 effect 作用域，卸载时能拿到）
+    let maskBlobUrl: string | null = null;
     image.crossOrigin = "anonymous";
     image.onload = () => {
       if (cancelled) {
@@ -379,7 +382,9 @@ export default function MaskEditor({
           const response = await fetch(initialMaskUrl, { cache: "no-store" });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const blob = await response.blob();
-          mask.src = URL.createObjectURL(blob);
+          if (cancelled) return;
+          maskBlobUrl = URL.createObjectURL(blob);
+          mask.src = maskBlobUrl;
         } catch {
           // 抓不到就退回普通加载（同源部署时不会污染画布）
           mask.crossOrigin = "anonymous";
@@ -391,6 +396,7 @@ export default function MaskEditor({
     image.src = imageUrl;
     return () => {
       cancelled = true;
+      if (maskBlobUrl) URL.revokeObjectURL(maskBlobUrl);
     };
   }, [open, imageUrl, initialMaskUrl, fitToView]);
 

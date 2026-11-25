@@ -77,7 +77,7 @@ def retry_task(task_id: int, db: Session = Depends(get_db)) -> TaskRead:
         )
 
     generation = db.get(Generation, task.generation_id)
-    if generation is None:
+    if generation is None or generation.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="生成记录已不存在，无法重试"
         )

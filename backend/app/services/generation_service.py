@@ -104,8 +104,12 @@ def reset_interrupted_tasks(db: Session) -> int:
     """
     stuck = list(
         db.scalars(
-            select(GenerationTask).where(
-                GenerationTask.status.in_([TaskStatus.QUEUED, TaskStatus.RUNNING])
+            select(GenerationTask)
+            .join(Generation, GenerationTask.generation_id == Generation.id)
+            .where(
+                GenerationTask.status.in_([TaskStatus.QUEUED, TaskStatus.RUNNING]),
+                GenerationTask.deleted_at.is_(None),
+                Generation.deleted_at.is_(None),
             )
         ).all()
     )

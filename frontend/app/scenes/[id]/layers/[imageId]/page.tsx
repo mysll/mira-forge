@@ -5,10 +5,13 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import EditComposer, {
+  DEFAULT_EDIT_ADVANCED,
+  type EditAdvanced,
+} from "@/components/EditComposer";
 import Feed from "@/components/Feed";
 import ImageDetail from "@/components/ImageDetail";
 import ImagePreview from "@/components/ImagePreview";
-import LayerComposer from "@/components/LayerComposer";
 import MaskEditor, { type MaskEditorResult } from "@/components/MaskEditor";
 import LLMChat from "@/components/LLMChat";
 import ToastStack, { type ToastItem } from "@/components/ToastStack";
@@ -21,7 +24,6 @@ import {
   createLayerSet,
   deleteLayer,
   deleteLayerSet,
-  fetchGenerations,
   fetchImage,
   fetchLayerGenerations,
   fetchLayerSets,
@@ -138,6 +140,32 @@ export default function LayerWorkbenchPage() {
   const prompt = activeLayer ? drafts[activeLayer.id] ?? activeLayer.prompt : "";
 
   const activeBusy = ACTIVE.has(layerSet?.status ?? "");
+
+  // 这一层的出图参数：放在页面里，切层不会丢，重取模型也不会清空用户输入
+  const [renderCount, setRenderCount] = useState(1);
+  const [renderModelId, setRenderModelId] = useState("");
+  const [renderAdvanced, setRenderAdvanced] = useState<EditAdvanced>(DEFAULT_EDIT_ADVANCED);
+
+  const activeRenderModel = useMemo(() => {
+    const fallback = layerSet?.model_name ?? "";
+    return (
+      editModels.find((model) => model.id === renderModelId) ??
+      editModels.find((model) => model.id === fallback || model.label === fallback) ??
+      editModels.find((model) => model.is_default) ??
+      editModels[0] ??
+      null
+    );
+  }, [editModels, renderModelId, layerSet?.model_name]);
+
+  // 换层时把这一层的负面词铺回来；只认层 id —— 提示词保存后的 refetch 不该清掉高级参数
+  useEffect(() => {
+    if (!activeLayer) {
+      return;
+    }
+    setRenderAdvanced({ ...DEFAULT_EDIT_ADVANCED, negative: activeLayer.negative_prompt ?? "" });
+    setRenderCount(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLayer?.id]);
 
   const layerGenerationsQuery = useQuery({
     queryKey: ["layer-generations", activeLayer?.id ?? 0],
@@ -354,7 +382,7 @@ export default function LayerWorkbenchPage() {
       setActiveLayerId(null);
       setDrafts({});
       void queryClient.invalidateQueries({ queryKey: ["layer-sets", sceneId] });
-      void queryClient.invalidateQueries({ queryKey: ["scene-layer-generations"] });
+      void queryClient.invalidateQueries({ queryKey: ["layer-generations"] });
       toast("方案已删除，可以重新分析");
     },
     onError: (error: Error) => toast(error.message),
@@ -722,13 +750,30 @@ export default function LayerWorkbenchPage() {
                 />
               </div>
 
-              {/* 底部：这一层的输入框（布局同「图片编辑」，源图固定、字段预填好） */}
-              <LayerComposer
-                layer={activeLayer}
-                source={source ?? null}
-                models={editModels}
-                fallbackModel={layerSet?.model_name ?? ""}
+              {/* 底部：这一层的输入框（和元素提取共用 EditComposer，源图固定、字段预填好） */}
+              <EditComposer
+                badge={`L${activeLayer.ord}`}
+                badgeMono
+                title={activeLayer.name}
+                subtitle="场景分层 · 编辑"
+                reference={{
+                  url: source ? imageThumbnailUrl(source) : null,
+                  label: "原图",
+                  caption: "结构",
+                  title: source ? "这一层用这张场景图做参考" : "场景原图",
+                }}
+                onPreviewReference={source ? () => setSourcePreview(source) : undefined}
+                mask={{
+                  has: activeLayer.has_mask,
+                  onEdit: () => setMaskOpen(true),
+                  onClear: () => clearMask.mutate(activeLayer.id),
+                  title: activeLayer.has_mask
+                    ? "这一层已经画了遮罩：生成时只在遮罩里重绘，其余保持原样"
+                    : "画一块遮罩，生成时只在这块区域重绘",
+                }}
+                maskUrl={layerMaskUrl(activeLayer.id)}
                 prompt={prompt}
+                promptPlaceholder="这一层要保留什么、删掉什么、被挡的部分补到哪里（已按层填好，可以直接改）"
                 onPromptChange={(value) =>
                   setDrafts((current) => ({ ...current, [activeLayer.id]: value }))
                 }
@@ -745,11 +790,39 @@ export default function LayerWorkbenchPage() {
                     saveLayer.mutate(patch);
                   }
                 }}
+                model={{
+                  label: activeRenderModel?.label ?? layerSet?.model_name ?? "模型加载中",
+                  options: editModels,
+                  value: activeRenderModel?.id ?? "",
+                  onChange: setRenderModelId,
+                }}
+                sizeLabel={source ? `${source.width}×${source.height}` : "跟随源图"}
+                count={renderCount}
+                onCountChange={setRenderCount}
+                capabilities={activeRenderModel?.capabilities}
+                defaults={activeRenderModel?.defaults}
+                advanced={renderAdvanced}
+                onAdvancedChange={(patch) => setRenderAdvanced((prev) => ({ ...prev, ...patch }))}
+                submit={{
+                  label: `生成本层 ${renderCount} 张`,
+                  pending: render.isPending,
+                  onClick: () =>
+                    render.mutate({
+                      layer: activeLayer,
+                      values: {
+                        count: renderCount,
+                        negative: renderAdvanced.negative,
+                        model: activeRenderModel?.id ?? "",
+                        seed: renderAdvanced.seedMode === "fixed" ? renderAdvanced.seed : "",
+                        steps: renderAdvanced.steps,
+                        cfg: renderAdvanced.cfg,
+                        sampler: renderAdvanced.sampler,
+                      },
+                    }),
+                }}
                 busy={activeBusy}
-                pending={render.isPending}
-                onRender={(values) => render.mutate({ layer: activeLayer, values })}
+                hint="输出比例跟随源图"
                 onCollapsedChange={setComposerCollapsed}
-                onMask={() => setMaskOpen(true)}
                 expandToken={composerExpandToken}
               />
             </>

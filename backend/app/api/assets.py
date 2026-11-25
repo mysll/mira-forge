@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.api.deps import live_image
 from app.models.database import get_db
 from app.models.image import Image
 from app.schemas.asset import AssetSaved
@@ -115,7 +116,7 @@ async def save_asset(
 
     source: Image | None = None
     if source_image_id is not None:
-        source = db.get(Image, source_image_id)
+        source = live_image(db, source_image_id)
 
     label = (name or "").strip() or payload.filename
     text = (prompt or "").strip() or f"素材 · {label}"

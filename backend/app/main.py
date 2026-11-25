@@ -36,10 +36,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_directories()
     project = ensure_catalog()
     logger.info("激活项目：%s（%s）", project.name, project.path)
-    if settings.auto_migrate:
-        upgrade_to_head(project)
-        logger.info("数据库迁移完成：%s", project.db_path)
 
+    # 所有项目（含当前激活的）都在这一轮里各自升级一次 schema，不要再单独迁移激活项目
     for item in list_projects():
         item.ensure_directories()
         if settings.auto_migrate:

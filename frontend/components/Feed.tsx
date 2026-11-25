@@ -16,6 +16,8 @@ type Props = {
   view: "grid" | "list";
   loading: boolean;
   hasMore: boolean;
+  /** 后端单次最多返回 100 条；到上限了就不再显示「加载更多」，改成提示用筛选继续找 */
+  capped?: boolean;
   onLoadMore: () => void;
   onOpen: (item: FeedSlot) => void;
   onFavorite: (item: FeedSlot) => void;
@@ -174,6 +176,7 @@ export default function Feed({
   view,
   loading,
   hasMore,
+  capped = false,
   onLoadMore,
   modelLabels,
   emptyHint,
@@ -282,6 +285,11 @@ export default function Feed({
         <button type="button" onClick={onLoadMore} className="btn-ghost mx-auto">
           加载更多
         </button>
+      ) : null}
+      {!loading && capped && !hasMore ? (
+        <p className="pt-1 text-center text-xs text-muted">
+          只列出最近 100 个批次 —— 用搜索、模型或日期筛选继续找更早的内容。
+        </p>
       ) : null}
     </div>
   );

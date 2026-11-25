@@ -207,19 +207,18 @@ def add_layer(set_id: int, payload: LayerCreate, db: Session = Depends(get_db)) 
 
 @router.delete("/layers/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_layer(layer_id: int, db: Session = Depends(get_db)) -> None:
-    layer = db.get(Layer, layer_id)
-    if layer is None:
-        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
-    delete_layer(db, layer)
+    delete_layer(db, _layer_or_404(db, layer_id))
 
 
 @router.get("/layers/{layer_id}/mask")
 def get_layer_mask(layer_id: int, db: Session = Depends(get_db)) -> FileResponse:
-    layer = db.get(Layer, layer_id)
-    if layer is None or not layer.mask_path:
+    layer = _layer_or_404(db, layer_id)
+    if not layer.mask_path:
         raise HTTPException(status_code=404, detail="这一层还没有遮罩")
     project = active_project()
     path = project.storage_path / layer.mask_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="这一层的遮罩文件不在了，重画一次")
     return FileResponse(
         path, media_type="image/png", headers={"Cache-Control": "public, max-age=0, must-revalidate"}
     )
@@ -233,9 +232,7 @@ def upload_layer_mask(
 ) -> LayerRead:
     from app.services.layer_service import save_layer_mask
 
-    layer = db.get(Layer, layer_id)
-    if layer is None:
-        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
+    layer = _layer_or_404(db, layer_id)
     project = active_project()
     try:
         save_layer_mask(db, layer, file.file.read(), storage_root=project.storage_path)
@@ -248,17 +245,12 @@ def upload_layer_mask(
 def remove_layer_mask(layer_id: int, db: Session = Depends(get_db)) -> None:
     from app.services.layer_service import clear_layer_mask
 
-    layer = db.get(Layer, layer_id)
-    if layer is None:
-        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
-    clear_layer_mask(db, layer)
+    clear_layer_mask(db, _layer_or_404(db, layer_id))
 
 
 @router.patch("/layers/{layer_id}", response_model=LayerRead)
 def patch_layer(layer_id: int, payload: LayerUpdate, db: Session = Depends(get_db)) -> LayerRead:
-    layer = db.get(Layer, layer_id)
-    if layer is None or layer.layer_set.deleted_at is not None:
-        raise HTTPException(status_code=404, detail=f"层 {layer_id} 不存在")
+    layer = _layer_or_404(db, layer_id)
     try:
         layer = update_layer(db, layer, payload)
     except LayerError as error:

@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import live_image
 from app.models.database import get_db
 from app.models.image import Image
 from app.schemas.image import (
@@ -75,12 +76,7 @@ def list_all(
 
 @router.get("/{image_id}", response_model=ImageRead)
 def get_image(image_id: int, db: Session = Depends(get_db)) -> ImageRead:
-    image = db.get(Image, image_id)
-    if image is None or image.deleted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
-        )
-    return _reads(db, [image])[0]
+    return _reads(db, [live_image(db, image_id)])[0]
 
 
 _ASSET_CONTENT_TYPES = {
@@ -176,23 +172,15 @@ def set_image_favorite(
     db: Session = Depends(get_db),
 ) -> ImageRead:
     """收藏或取消收藏。作品流「仅收藏」筛选依赖这个标记。"""
-    image = db.get(Image, image_id)
-    if image is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
-        )
-    return ImageRead.model_validate(set_favorite(db, image, favorite))
+    image = live_image(db, image_id)
+    # 走 _reads 而不是 ImageRead.model_validate：label 是按批次算出来的，不能漏
+    return _reads(db, [set_favorite(db, image, favorite)])[0]
 
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_image(image_id: int, db: Session = Depends(get_db)) -> Response:
     """删除一张图：进回收站（软删除），30 天内可恢复。"""
-    image = db.get(Image, image_id)
-    if image is None or image.deleted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"image {image_id} 不存在"
-        )
-    soft_delete_images(db, [image])
+    soft_delete_images(db, [live_image(db, image_id)])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

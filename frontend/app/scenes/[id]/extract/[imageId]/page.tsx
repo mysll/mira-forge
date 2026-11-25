@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import ElementComposer, {
-  DEFAULT_ADVANCED,
-  type ElementAdvanced,
-} from "@/components/ElementComposer";
+import EditComposer, {
+  DEFAULT_EDIT_ADVANCED,
+  type EditAdvanced,
+} from "@/components/EditComposer";
 import MaskEditor, { type MaskEditorResult } from "@/components/MaskEditor";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -26,6 +26,7 @@ import {
   fetchElementSets,
   fetchImage,
   fetchKits,
+  fetchModels,
   fetchScene,
   elementMaskUrl,
   imageFileUrl,
@@ -81,7 +82,7 @@ export default function ElementExtractPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [preview, setPreview] = useState<ImageBrief | null>(null);
   const [composerCollapsed, setComposerCollapsed] = useState(true);
-  const [advanced, setAdvanced] = useState<ElementAdvanced>(DEFAULT_ADVANCED);
+  const [advanced, setAdvanced] = useState<EditAdvanced>(DEFAULT_EDIT_ADVANCED);
   const [maskTarget, setMaskTarget] = useState<ElementRead | null>(null);
 
   const sceneQuery = useQuery({ queryKey: ["scene", sceneId], queryFn: () => fetchScene(sceneId) });
@@ -104,6 +105,23 @@ export default function ElementExtractPage() {
     },
   });
   const kitsQuery = useQuery({ queryKey: ["kits"], queryFn: () => fetchKits() });
+  const modelsQuery = useQuery({
+    queryKey: ["models"],
+    queryFn: fetchModels,
+    staleTime: 60_000,
+  });
+  // 元素提取固定用「能跑图片编辑」的模型：后端没收到 model 时也按这个顺序挑第一个，
+  // 所以这里显示的、提交的就是真正会跑的那个，不给换。
+  const editModels = useMemo(
+    () =>
+      (modelsQuery.data ?? []).filter(
+        (model) =>
+          model.capabilities.media !== "video" &&
+          model.workflows.some((target) => target.type === "image_edit"),
+      ),
+    [modelsQuery.data],
+  );
+  const elementModel = editModels[0] ?? null;
 
   const showToast = (message: string) => setToast(message);
 
@@ -210,7 +228,10 @@ export default function ElementExtractPage() {
 
   const advancedPayload = () => ({
     negative_prompt: advanced.negative.trim() || null,
-    seed: advanced.seed.trim() ? Number(advanced.seed) : null,
+    seed:
+      advanced.seedMode === "fixed" && advanced.seed.trim()
+        ? Number(advanced.seed)
+        : null,
     steps: advanced.steps.trim() ? Number(advanced.steps) : null,
     cfg: advanced.cfg.trim() ? Number(advanced.cfg) : null,
     sampler: advanced.sampler.trim() || null,
@@ -221,6 +242,7 @@ export default function ElementExtractPage() {
       extractElements(current!.id, {
         element_ids: [element.id],
         count,
+        model: elementModel?.id ?? null,
         ...advancedPayload(),
       }),
     onSuccess: () => {
@@ -235,6 +257,7 @@ export default function ElementExtractPage() {
       extractElements(current!.id, {
         element_ids: elements.map((element) => element.id),
         count,
+        model: elementModel?.id ?? null,
         ...advancedPayload(),
       }),
     onSuccess: (generations) => {
@@ -685,27 +708,55 @@ export default function ElementExtractPage() {
       </div>
 
       {current && status === "ready" && active ? (
-        <ElementComposer
-          element={active}
-          sourceUrl={source ? imageFileUrl(source) : null}
+        <EditComposer
+          badge={KIND_LABEL[active.kind] ?? active.kind}
+          title={active.name}
+          subtitle={active.key}
+          reference={{
+            url: source ? imageFileUrl(source) : null,
+            label: "参考",
+            caption: "底图",
+            title: "元素出图固定用这张场景底图做参考",
+          }}
+          onPreviewReference={source ? () => setPreview(source) : undefined}
+          mask={{
+            has: active.has_mask,
+            onEdit: () => setMaskTarget(active),
+            onClear: () => clearMask.mutate(active.id),
+            title: active.has_mask
+              ? "这一件已经圈了位置：出图会按遮罩范围裁参考图"
+              : "在底图上圈出这一件，出图会按圈出来的范围裁参考图",
+          }}
+          maskUrl={elementMaskUrl(active.id)}
           prompt={drafts[active.id] ?? active.prompt ?? ""}
+          promptPlaceholder="描述这件东西长什么样，提取时按这段描述重画"
+          promptMaxLength={4000}
           onPromptChange={(value) =>
             setDrafts((prev) => ({ ...prev, [active.id]: value }))
           }
-          onCommit={(value) => {
-            if (value === (active.prompt ?? "")) return;
-            saveElement.mutate({ id: active.id, prompt: value });
+          onCommit={({ prompt: nextPrompt }) => {
+            // 空提示词不让落库：清空输入框后失焦不该把这一件的描述抹掉
+            if (!nextPrompt.trim()) return;
+            if (nextPrompt === (active.prompt ?? "")) return;
+            saveElement.mutate({ id: active.id, prompt: nextPrompt });
           }}
+          sizeLabel={source ? `${source.width}×${source.height}` : "跟随底图"}
           count={count}
           onCountChange={setCount}
+          model={{ label: elementModel?.label ?? "模型加载中" }}
+          capabilities={elementModel?.capabilities}
+          defaults={elementModel?.defaults}
           advanced={advanced}
           onAdvancedChange={(patch) =>
             setAdvanced((prev) => ({ ...prev, ...patch }))
           }
-          onExtract={() => extract.mutate(active)}
-          pending={extract.isPending}
-          onOpenMask={() => setMaskTarget(active)}
-          onClearMask={() => clearMask.mutate(active.id)}
+          submit={{
+            label: `${active.status === "ready" ? "重新提取" : "提取"} ${count} 张`,
+            pending: extract.isPending,
+            onClick: () => extract.mutate(active),
+          }}
+          busy={active.status === "queued" || active.status === "running"}
+          hint={active.has_mask ? "按遮罩范围出图" : "输出比例跟随底图"}
           onCollapsedChange={setComposerCollapsed}
         />
       ) : null}

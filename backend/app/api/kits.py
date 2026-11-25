@@ -227,8 +227,11 @@ def update_item(
 @router.delete("/{kit_id}/elements/{element_id}", status_code=204)
 def remove_kit_element(kit_id: int, element_id: int, db: Session = Depends(get_db)) -> Response:
     """把一件从图集里移出去（元素提取页的「移出图集」用）。"""
-    kit = kit_service.get_kit(db, kit_id)
-    kit_service.remove_element(db, kit, element_id)
+    try:
+        kit = kit_service.get_kit(db, kit_id)
+        kit_service.remove_element(db, kit, element_id)
+    except KitError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     return Response(status_code=204)
 
 

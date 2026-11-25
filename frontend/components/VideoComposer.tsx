@@ -230,7 +230,9 @@ export default function VideoComposer({
     },
   });
 
-  const accept = (file: File | null | undefined) => {
+  // 槽位由「点的是哪个框」决定，不能看现在填了几张：
+  // 两帧都齐的时候再选尾帧，靠状态推断会把首帧覆盖掉。
+  const accept = (file: File | null | undefined, slot: "first" | "last") => {
     if (!file) {
       return;
     }
@@ -243,11 +245,11 @@ export default function VideoComposer({
       return;
     }
     const source: FrameSource = { kind: "file", file };
-    if (first && !last) {
+    if (slot === "last") {
       setLast(source);
-      return;
+    } else {
+      setFirst(source);
     }
-    setFirst(source);
   };
 
   // 资产库里选一张当首帧 / 尾帧
@@ -348,13 +350,9 @@ export default function VideoComposer({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          const files = Array.from(event.dataTransfer.files);
-          if (files[0]) {
-            setFirst({ kind: "file", file: files[0] });
-          }
-          if (files[1]) {
-            setLast({ kind: "file", file: files[1] });
-          }
+          // 拖入的文件也要走 accept，类型 / 大小校验和两个文件入口保持一致
+          const files = Array.from(event.dataTransfer.files).slice(0, 2);
+          files.forEach((file, index) => accept(file, index === 0 ? "first" : "last"));
         }}
       >
         {/* 首帧 / 尾帧：两个都空就是普通文生视频 */}
@@ -400,7 +398,7 @@ export default function VideoComposer({
             accept="image/png,image/jpeg,image/webp"
             className="hidden"
             onChange={(event) => {
-              accept(event.target.files?.[0]);
+              accept(event.target.files?.[0], "first");
               event.target.value = "";
             }}
           />
@@ -410,7 +408,7 @@ export default function VideoComposer({
             accept="image/png,image/jpeg,image/webp"
             className="hidden"
             onChange={(event) => {
-              accept(event.target.files?.[0]);
+              accept(event.target.files?.[0], "last");
               event.target.value = "";
             }}
           />

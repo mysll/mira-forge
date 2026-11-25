@@ -59,15 +59,15 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
   putFiles: (files, into) => {
     const items = [...get().items];
     let placed = 0;
-    const targets = into === undefined ? [] : [into];
-    for (let index = 0; index < MAX_EDIT_REFS; index += 1) {
-      if (index !== into) targets.push(index);
+    // 点着某一格多选时，第一张进点中的格子，其余只补空位——不能把别的参考图挤掉
+    if (into !== undefined && files[0]) {
+      revoke(items[into]);
+      items[into] = fileItem(files[0]);
+      placed = 1;
     }
-    for (const slot of targets) {
-      if (placed >= files.length) break;
-      if (into === undefined && items[slot]) continue;
-      revoke(items[slot]);
-      items[slot] = fileItem(files[placed]);
+    for (let index = 0; index < MAX_EDIT_REFS && placed < files.length; index += 1) {
+      if (items[index]) continue;
+      items[index] = fileItem(files[placed]);
       placed += 1;
     }
     set({ items });
@@ -76,10 +76,10 @@ export const useReferenceStore = create<ReferenceState>((set, get) => ({
 
   putImage: ({ id, url }, into) => {
     const items = [...get().items];
-    const slot = into ?? items.findIndex((item) => item === undefined);
-    const index = slot === -1 || slot > MAX_EDIT_REFS - 1 ? MAX_EDIT_REFS - 1 : slot;
-    revoke(items[index]);
-    items[index] = imageItem({ id, url });
+    // 追加到末尾；越界的 into 退到最后一个格子，避免 arrays 里出现空洞
+    const slot = into !== undefined && into < MAX_EDIT_REFS ? into : Math.min(items.length, MAX_EDIT_REFS - 1);
+    revoke(items[slot]);
+    items[slot] = imageItem({ id, url });
     set({ items: items.slice(0, MAX_EDIT_REFS), autoEdit: true });
   },
 

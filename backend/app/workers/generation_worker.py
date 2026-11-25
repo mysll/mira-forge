@@ -190,14 +190,20 @@ class GenerationWorker:
             raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("任务 %s（项目 %s）执行失败", task_id, project.id)
-            self._fail(project, task_id, f"内部错误：{exc}")
+            await self._fail(project, task_id, f"内部错误：{exc}")
         return True
 
     def _claim_pending(self, project: Project) -> int | None:
         with session_for(project) as db:
+            # 用户删掉的批次/任务也在库里躺着（软删），不能当待办捡起来重跑一遍
             task = db.scalar(
                 select(GenerationTask)
-                .where(GenerationTask.status == TaskStatus.PENDING)
+                .join(Generation, GenerationTask.generation_id == Generation.id)
+                .where(
+                    GenerationTask.status == TaskStatus.PENDING,
+                    GenerationTask.deleted_at.is_(None),
+                    Generation.deleted_at.is_(None),
+                )
                 .order_by(GenerationTask.id)
                 .limit(1)
             )
@@ -213,7 +219,7 @@ class GenerationWorker:
     # ---- 单个任务 ----
 
     async def _execute(self, project: Project, task_id: int) -> None:
-        plan = self._build_plan(project, task_id)
+        plan = await self._build_plan(project, task_id)
         if plan is None:
             return  # 已在 _build_plan 里判失败
 
@@ -233,11 +239,11 @@ class GenerationWorker:
                     content, f"miraforge_ref_{task_id}_{index}{_suffix(reference_path)}"
                 )
             except Exception as exc:  # noqa: BLE001 - 上传失败就是这张图失败
-                self._fail(project, task_id, f"上传第 {index} 张参考图失败：{exc}")
+                await self._fail(project, task_id, f"上传第 {index} 张参考图失败：{exc}")
                 return
             name = info.get("name") or info.get("filename")
             if not name:
-                self._fail(project, task_id, f"ComfyUI 未返回参考图文件名：{info}")
+                await self._fail(project, task_id, f"ComfyUI 未返回参考图文件名：{info}")
                 return
             reference_names.append(name)
 
@@ -250,11 +256,11 @@ class GenerationWorker:
                     content, f"miraforge_frame_{task_id}_{which}{_suffix(frame_path)}"
                 )
             except Exception as exc:  # noqa: BLE001
-                self._fail(project, task_id, f"上传{label}失败：{exc}")
+                await self._fail(project, task_id, f"上传{label}失败：{exc}")
                 return
             name = info.get("name") or info.get("filename")
             if not name:
-                self._fail(project, task_id, f"ComfyUI 未返回{label}文件名：{info}")
+                await self._fail(project, task_id, f"ComfyUI 未返回{label}文件名：{info}")
                 return
             frame_names[which] = name
 
@@ -266,11 +272,11 @@ class GenerationWorker:
                     content, f"miraforge_mask_{task_id}{_suffix(plan.mask_path)}"
                 )
             except Exception as exc:  # noqa: BLE001
-                self._fail(project, task_id, f"上传遮罩失败：{exc}")
+                await self._fail(project, task_id, f"上传遮罩失败：{exc}")
                 return
             mask_name = info.get("name") or info.get("filename")
             if not mask_name:
-                self._fail(project, task_id, f"ComfyUI 未返回遮罩文件名：{info}")
+                await self._fail(project, task_id, f"ComfyUI 未返回遮罩文件名：{info}")
                 return
 
         try:
@@ -283,16 +289,16 @@ class GenerationWorker:
                 mask_image=mask_name,
             )
         except PromptBuildError as exc:
-            self._fail(project, task_id, str(exc))
+            await self._fail(project, task_id, str(exc))
             return
 
         try:
             prompt_id = await self.client.submit(prompt, self.client_id)
         except ComfyUIError as exc:
-            self._fail(project, task_id, str(exc))
+            await self._fail(project, task_id, str(exc))
             return
         except Exception as exc:  # noqa: BLE001 - 连不上 ComfyUI 等
-            self._fail(project, task_id, f"提交 ComfyUI 失败：{exc}")
+            await self._fail(project, task_id, f"提交 ComfyUI 失败：{exc}")
             return
 
         self._set_task(project, task_id, comfy_prompt_id=prompt_id)
@@ -312,7 +318,7 @@ class GenerationWorker:
         entries = (outputs.get(output_node) or {}).get("images") or []
 
         if status_str == "error" or not entries:
-            self._fail(project, task_id, self._describe_execution_error(history))
+            await self._fail(project, task_id, self._describe_execution_error(history))
             return
 
         poster = await self._download_poster(plan, outputs, task_id)
@@ -326,7 +332,7 @@ class GenerationWorker:
                     entry.get("type", "output"),
                 )
             except Exception as exc:  # noqa: BLE001
-                self._fail(project, task_id, f"下载产物失败：{exc}")
+                await self._fail(project, task_id, f"下载产物失败：{exc}")
                 return
             metadata = entry.get("metadata") or {}
             suffix = os.path.splitext(entry.get("filename", ""))[1].lower() or ".png"
@@ -360,7 +366,7 @@ class GenerationWorker:
                     )
                     db.commit()
             except (ImageStoreError, OSError) as exc:
-                self._fail(project, task_id, str(exc))
+                await self._fail(project, task_id, str(exc))
                 return
             saved += 1
 
@@ -397,7 +403,7 @@ class GenerationWorker:
             logger.warning("任务 %s 的封面帧下载失败", task_id, exc_info=True)
             return None
 
-    def _build_plan(self, project: Project, task_id: int) -> _Plan | None:
+    async def _build_plan(self, project: Project, task_id: int) -> _Plan | None:
         """组装可直接提交的 API 图；配置有问题就在这一步判失败。"""
         with session_for(project) as db:
             task = db.get(GenerationTask, task_id)
@@ -405,12 +411,12 @@ class GenerationWorker:
                 return None
             generation = db.get(Generation, task.generation_id)
             if generation is None:
-                self._fail(project, task_id, "任务所属的生成记录已不存在")
+                await self._fail(project, task_id, "任务所属的生成记录已不存在")
                 return None
 
             model = workflow_service.get_model(generation.model_name)
             if model is None:
-                self._fail(project, task_id, f"模型 '{generation.model_name}' 已不在注册表中")
+                await self._fail(project, task_id, f"模型 '{generation.model_name}' 已不在注册表中")
                 return None
             generation_type = GenerationType(generation.generation_type)
             # 场景类没有自己的工作流：有参考图就当图片编辑（带遮罩则局部编辑），
@@ -435,12 +441,12 @@ class GenerationWorker:
                 workflow_type = GenerationType.IMAGE_EDIT
             target = workflow_service.get_workflow_target(model, workflow_type)
             if target is None:
-                self._fail(
+                await self._fail(
                     project, task_id, f"模型 '{model.id}' 没有 {generation.generation_type} 工作流"
                 )
                 return None
             if not target.available:
-                self._fail(project, task_id, f"工作流 JSON 不存在：{target.json_path}")
+                await self._fail(project, task_id, f"工作流 JSON 不存在：{target.json_path}")
                 return None
 
             params: dict[str, Any] = {
@@ -495,13 +501,13 @@ class GenerationWorker:
                     GenerationType.SCENE,
                     GenerationType.SCENE_LAYER,
                 ):
-                    self._fail(project, task_id, "缺少参考图，无法执行")
+                    await self._fail(project, task_id, "缺少参考图，无法执行")
                     return None
                 if reference_paths:
                     # resolution 决定参考图被缩到多大再进编码器（见 WORKFLOW_MAPPING）
                     params["resolution"] = _edit_resolution(generation.width, generation.height)
                 if generation_type == GenerationType.IMAGE_INPAINT and not generation.mask_image_path:
-                    self._fail(project, task_id, "局部编辑缺少遮罩，无法执行")
+                    await self._fail(project, task_id, "局部编辑缺少遮罩，无法执行")
                     return None
                 mask_path = generation.mask_image_path
 
@@ -509,7 +515,7 @@ class GenerationWorker:
                 graph = load_graph(target.json_path)
                 config = load_workflow_config(target.config_path)
             except (WorkflowConfigError, OSError) as exc:
-                self._fail(project, task_id, str(exc))
+                await self._fail(project, task_id, str(exc))
                 return None
 
             return _Plan(
@@ -554,7 +560,7 @@ class GenerationWorker:
                 await asyncio.sleep(HISTORY_POLL_SECONDS)
             if self._is_cancelled(project, task_id):
                 return None, True
-            self._fail(project, task_id, f"等待 ComfyUI 超时（{TASK_TIMEOUT_SECONDS} 秒）")
+            await self._fail(project, task_id, f"等待 ComfyUI 超时（{TASK_TIMEOUT_SECONDS} 秒）")
             return None, False
         finally:
             listener.cancel()
@@ -621,7 +627,7 @@ class GenerationWorker:
                 task.completed_at = utcnow()
             db.commit()
 
-    def _fail(self, project: Project, task_id: int, message: str) -> None:
+    async def _fail(self, project: Project, task_id: int, message: str) -> None:
         logger.warning("任务 %s（项目 %s）失败：%s", task_id, project.id, message)
         with session_for(project) as db:
             task = db.get(GenerationTask, task_id)
@@ -637,6 +643,8 @@ class GenerationWorker:
             db.commit()
             generation_id = task.generation_id
         self._sync_generation_status(project, generation_id)
+        # 失败也要广播：前端靠这条消息把 running 的那个格子换成错误态并刷新列表
+        await self._broadcast_task(project, task_id)
 
     def _sync_generation_status(self, project: Project, generation_id: int) -> None:
         from app.services.generation_service import aggregate_generation_status

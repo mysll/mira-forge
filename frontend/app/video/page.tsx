@@ -10,7 +10,7 @@ import TopBar from "@/components/TopBar";
 import VideoComposer from "@/components/VideoComposer";
 import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { fetchGenerations, fetchModels, referenceImageUrl } from "@/lib/api";
+import { fetchGenerations, fetchModels, referenceImageUrl, FEED_PAGE_LIMIT } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
 import { buildFeedSlots } from "@/lib/feed";
 import { useVideoComposerStore } from "@/stores/videoComposer";
@@ -164,13 +164,14 @@ export default function VideoPage() {
           items={slots}
           view={view}
           loading={generationsQuery.isLoading}
-          hasMore={generations.length < total}
+          hasMore={generations.length < total && limit < FEED_PAGE_LIMIT}
+          capped={limit >= FEED_PAGE_LIMIT}
           emptyHint={
             generations.length > 0
               ? `这些批次的文件已经被删除（共 ${generations.length} 个），可以到资产页清空工作区，或者直接重新生成。`
               : undefined
           }
-          onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
+          onLoadMore={() => setLimit((current) => Math.min(current + PAGE_SIZE, FEED_PAGE_LIMIT))}
           cardWidth={340}
           unit="条"
           onOpen={(slot) => {

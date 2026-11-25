@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { fetchElementPrompt, resetElementPrompt, saveElementPrompt } from "@/lib/api";
 
@@ -22,8 +22,13 @@ export default function ElementPromptSettings() {
 
   const data = query.data;
 
+  // 只有「用户没改过」时才把服务端的值灌进输入框：保存后的重新拉取
+  // （以及别处的失效）不能把正在输入的内容盖掉。
+  const savedRef = useRef("");
   useEffect(() => {
-    if (data) setDraft(data.prompt);
+    if (!data) return;
+    setDraft((current) => (current === savedRef.current ? data.prompt : current));
+    savedRef.current = data.prompt;
   }, [data]);
 
   const dirty = Boolean(data) && draft !== data!.prompt;
@@ -46,6 +51,7 @@ export default function ElementPromptSettings() {
   const reset = useMutation({
     mutationFn: resetElementPrompt,
     onSuccess: (saved) => {
+      savedRef.current = saved.prompt;
       setDraft(saved.prompt);
       void queryClient.invalidateQueries({ queryKey: ["element-prompt"] });
       setNoteTone("muted");

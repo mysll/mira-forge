@@ -10,10 +10,10 @@ from __future__ import annotations
 import binascii
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
+from app.api.deps import live_image
 from app.models.database import get_db
 from app.models.image import Image
 from app.schemas.editor import LocalEditSaved
@@ -170,7 +170,7 @@ async def save_edited_image(
 
     source: Image | None = None
     if source_image_id is not None:
-        source = db.scalar(select(Image).where(Image.id == source_image_id))
+        source = live_image(db, source_image_id)
 
     label = (prompt or "").strip()
     if not label:

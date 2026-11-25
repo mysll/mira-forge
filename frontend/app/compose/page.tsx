@@ -10,7 +10,7 @@ import ToastStack, { type ToastItem } from "@/components/ToastStack";
 import TopBar from "@/components/TopBar";
 import { useImageActions } from "@/hooks/useImageActions";
 import { useTaskEvents } from "@/hooks/useTaskEvents";
-import { fetchGenerations, fetchModels } from "@/lib/api";
+import { fetchGenerations, fetchModels, FEED_PAGE_LIMIT } from "@/lib/api";
 import { dateRangeFor, type DateFilter } from "@/lib/date";
 import { buildFeedSlots } from "@/lib/feed";
 import type { FeedItem, FeedSlot, GenerationRead } from "@/types/api";
@@ -138,13 +138,14 @@ export default function WorkspacePage() {
           items={slots}
           view={view}
           loading={generationsQuery.isLoading}
-          hasMore={generations.length < total}
+          hasMore={generations.length < total && limit < FEED_PAGE_LIMIT}
+          capped={limit >= FEED_PAGE_LIMIT}
           emptyHint={
             generations.length > 0
               ? `这些批次的文件已经被删除（共 ${generations.length} 个），可以到资产页清空工作区，或者直接重新生成。`
               : undefined
           }
-          onLoadMore={() => setLimit((current) => current + PAGE_SIZE)}
+          onLoadMore={() => setLimit((current) => Math.min(current + PAGE_SIZE, FEED_PAGE_LIMIT))}
           onOpen={(slot) => { if (slot.image) setDetail({ key: slot.key, image: slot.image, generation: slot.generation, seed: slot.seed }); }}
           onFavorite={(slot) => {
             if (slot.image) actions.favorite({ image: slot.image, generation: slot.generation });

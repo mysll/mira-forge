@@ -136,7 +136,8 @@ export function useImageActions({ onToast, onDeleted, onEdited }: Options) {
         // 写死 .png 会让下载下来的帧集变成一个打不开的 png。
         anchor.download = `miraforge-${item.image.id}.${downloadSuffix(item.image)}`;
         anchor.click();
-        URL.revokeObjectURL(url);
+        // 立刻 revoke 会让部分浏览器把下载掐断，等一拍再回收
+        setTimeout(() => URL.revokeObjectURL(url), 1_000);
       } catch (error) {
         onToast((error as Error).message || "下载失败");
       }

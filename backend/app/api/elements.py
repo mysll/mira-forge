@@ -38,6 +38,35 @@ router = APIRouter(tags=["elements"])
 _STALE_AFTER = timedelta(minutes=10)
 
 
+def _element_read(
+    db: Session, element: Element, *, kit_ids: list[int] | None = None
+) -> ElementRead:
+    """单个元素的返回值：先同步状态，再补上最新出图、图集归属与透明信息。"""
+    element_service.sync_element_status(db, element)
+    image = element_service.element_image(db, element)
+    if kit_ids is None:
+        kit_ids = element_service.element_kit_ids(db, [element.id]).get(element.id, [])
+    return ElementRead(
+        id=element.id,
+        set_id=element.set_id,
+        kind=element.kind,
+        name=element.name,
+        key=element.key,
+        anchor=element.anchor,
+        note=element.note,
+        prompt=element.prompt,
+        status=element.status,
+        sort_order=element.sort_order,
+        image_id=image.id if image else None,
+        selected_image_id=element.selected_image_id,
+        kit_count=len(kit_ids),
+        kit_ids=kit_ids,
+        has_alpha=element_service.image_has_alpha(image) if image else False,
+        has_mask=bool(element.mask_path),
+        created_at=element.created_at,
+    )
+
+
 def _enrich(db: Session, element_set: ElementSet) -> ElementSetRead:
     """把每个元素的状态、最新出图、源图缩略图补上（都要查库，所以单独一层）。"""
     rows: list[ElementRead] = []
@@ -45,31 +74,7 @@ def _enrich(db: Session, element_set: ElementSet) -> ElementSetRead:
         db, [element.id for element in element_set.elements]
     )
     for element in element_set.elements:
-        element_service.sync_element_status(db, element)
-        image = element_service.element_image(db, element)
-        rows.append(
-            ElementRead(
-                id=element.id,
-                set_id=element.set_id,
-                kind=element.kind,
-                name=element.name,
-                key=element.key,
-                anchor=element.anchor,
-                note=element.note,
-                prompt=element.prompt,
-                status=element.status,
-                sort_order=element.sort_order,
-                image_id=image.id if image else None,
-                selected_image_id=element.selected_image_id,
-                kit_count=len(kit_map.get(element.id, [])),
-                kit_ids=kit_map.get(element.id, []),
-                has_mask=bool(element.mask_path),
-                has_alpha=(
-                    element_service.image_has_alpha(image) if image else False
-                ),
-                created_at=element.created_at,
-            )
-        )
+        rows.append(_element_read(db, element, kit_ids=kit_map.get(element.id, [])))
     payload = ElementSetRead.model_validate(element_set)
     payload.elements = rows
     if element_set.source_image_id:
@@ -249,25 +254,7 @@ def update_element(
         prompt=payload.prompt,
         selected_image_id=payload.selected_image_id,
     )
-    image = element_service.element_image(db, element)
-    return ElementRead(
-        id=element.id,
-        set_id=element.set_id,
-        kind=element.kind,
-        name=element.name,
-        key=element.key,
-        anchor=element.anchor,
-        note=element.note,
-        prompt=element.prompt,
-        status=element.status,
-        sort_order=element.sort_order,
-        image_id=image.id if image else None,
-        selected_image_id=element.selected_image_id,
-        kit_count=element_service.kit_count(db, element),
-        has_alpha=element_service.image_has_alpha(image) if image else False,
-        has_mask=bool(element.mask_path),
-        created_at=element.created_at,
-    )
+    return _element_read(db, element)
 
 
 @router.get("/elements/{element_id}/file")
@@ -302,7 +289,7 @@ async def upload_element_mask(
         )
     except ElementError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return update_element(element_id, ElementUpdate(), db)
+    return _element_read(db, element)
 
 
 @router.delete("/elements/{element_id}/mask", status_code=status.HTTP_204_NO_CONTENT)

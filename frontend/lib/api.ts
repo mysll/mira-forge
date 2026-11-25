@@ -117,6 +117,9 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return body.items;
 }
 
+/** 信息流一页多少条 / 后端单次上限（`GET /generations` 的 limit 是 le=100）。 */
+export const FEED_PAGE_LIMIT = 100;
+
 export function fetchGenerations(params?: {
   limit?: number;
   offset?: number;

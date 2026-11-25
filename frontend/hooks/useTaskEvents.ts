@@ -25,8 +25,22 @@ export function useTaskEvents(enabled = true): void {
 
     const flush = () => {
       flushTimer = null;
-      void queryClient.invalidateQueries({ queryKey: ["generations"] });
-      void queryClient.invalidateQueries({ queryKey: ["images"] });
+      // 任务事件会改到的不只是作品流：分层/元素/图集/回收站的列表与详情也由它驱动。
+      // 各页自己的轮询保留着，这里只是让「正在看的页面」立刻跟上，不必等下一轮。
+      for (const queryKey of [
+        ["generations"],
+        ["images"],
+        ["scenes"],
+        ["layer-sets"],
+        ["layer-generations"],
+        ["element-sets"],
+        ["element-generations"],
+        ["kits"],
+        ["kit"],
+        ["recycle-bin"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
     };
 
     const scheduleFlush = () => {
